@@ -1,38 +1,10 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-env/
-venv/
-*.egg-info/
-
-# C/C++ build
+```
+# Compiled/binary files
 *.o
-*.a
-*.so
-*.dylib
-build/
-dist/
-*.exe
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Large binary files (keep repo small)
-*.png
-*.jpg
-*.jpeg
-*.svgz
-*.bin
-*.dat
-vault_sessions/
-*.log
-
-# Test artifacts
+*.obj
 *.out
-coverage/
+
+# Executables
+geopixel_final
+geopixel_ultra
+```
