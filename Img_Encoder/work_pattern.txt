@@ -1,0 +1,55 @@
+The GeoPixel v8 encoder follows a sophisticated pipeline designed to remove redundancy at every level (color, space,
+  and bit-representation) before finally handing the data to ZSTD.
+
+  Here is the step-by-step flow of how a raw image becomes a .gp8 file:
+
+  1. Reversible Color Transform (YCgCo-R)
+  Instead of storing Red, Green, and Blue, which are highly correlated (if a pixel is bright red, it's often bright
+  green too), we convert them to a "Luminance/Chrominance" space:
+   * Y (Luminance): The brightness.
+   * Cg/Co (Chrominance): The difference between colors.
+   * Why? This "decorrelates" the channels. The Y channel contains the detail, while Cg/Co channels become very "flat"
+     and easy to compress. We use the -R (Reversible) version to ensure zero data loss during the math.
+
+  2. Tiled 2D Spatial Prediction (8x8 Tiles)
+  We divide the image into small 8x8 tiles. For each tile, the encoder "auditions" 4 different mathematical predictors:
+   1. MED (Median Edge Detection): Good for sharp edges.
+   2. AVG: Smooths out gradients.
+   3. GRAD: Follows complex slopes.
+   4. LEFT: Simple horizontal copy.
+   * The Decision: The encoder runs all 4 on the Y channel and picks the one that results in the smallest residuals
+     (errors). It saves this "winner ID" into the Predictor Map.
+
+  3. Residual Calculation
+  Once a predictor is chosen for a tile, the encoder calculates the "Residual" for every pixel:
+   * Residual = Actual_Value - Predicted_Value
+   * If the predictor is good, the residual will be 0 or a very small number (like -1 or +1).
+
+  4. Interleaving & ZigZag Mapping
+  This is where v8 differs most from v7:
+   * Interleaving: We pack the residuals as [Y, Cg, Co, Y, Cg, Co...]. Because Y, Cg, and Co are physically related,
+     ZSTD can find patterns across the three channels simultaneously.
+   * ZigZag Mapping: Computers store signed numbers (like -1) in a way that looks "messy" to compressors. ZigZag maps
+     them:
+       * 0 → 0, -1 → 1, 1 → 2, -2 → 3, 2 → 4...
+       * This turns all small errors into small positive integers, which creates long strings of zeros and small numbers
+         that ZSTD loves.
+
+  5. Multi-Threaded ZSTD Entropy Coding
+  Finally, the stream of ZigZag-mapped residuals and the Predictor Map are sent to the ZSTD engine:
+   * Multi-threading: The encoder uses ZSTD_compressStream2 to split the massive data stream into chunks.
+   * Parallel Search: On your dual-core CPU, ZSTD searches for repeating patterns in these chunks using both cores at
+     once.
+   * Level 19 vs 3: At high levels, it builds a massive "dictionary" of patterns to squeeze every last bit.
+
+  6. File Packing
+  The encoder writes the .gp8 header (Width, Height, Tile counts, and Stream sizes) followed by the compressed ZSTD
+  blobs.
+
+  ---
+
+  Summary of the "Magic"
+   1. YCgCo removes color redundancy.
+   2. Predictors remove spatial redundancy (detail).
+   3. ZigZag prepares the data for the compressor.
+   4. ZSTD MT removes the final bit-level redundancy using all your CPU power.
