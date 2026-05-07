@@ -1,0 +1,414 @@
+POGLS ENGINE
+Master Architecture & Pipeline Document
+Session Reference — อ่านก่อนเริ่ม session ใหม่ทุกครั้ง
+
+1. POGLS คืออะไร
+POGLS (Platonic Object Geometry Location System) คือ infrastructure สำหรับ data storage และ routing ที่ใช้ geometry และ math structure แทน conventional index/hash table เพื่อลดการประมวลผลและเพิ่มความเสถียร
+
+Core philosophy:
+ใช้ binary / bitwise operation แทน float ทุกที่ — integer only
+โครงสร้าง geometry เป็น address space — ไม่ใช่แค่ชื่อ
+modular ก่อน แล้วค่อย optimize ทีหลัง
+ไม่มี malloc ใน hot path — no heap ใน core
+O(1) access ทุก layer ผ่าน LUT
+
+
+2. Sacred Numbers — ห้ามเปลี่ยน
+ตัวเลขเหล่านี้เป็น mathematical closure ของระบบ — เปลี่ยนแล้วทุกอย่างพัง:
+
+ค่า	ความหมาย	ใช้ที่ไหน
+3456	GEO_FULL_N = 144 × 24 = 6 × 576	total address space
+144	Fibonacci closure F(12)	fibo clock period / GCFS
+27 = 3³	trit cycle — shared invariant ทุก layer	address decomposition
+6	GEO_SPOKES = frustum faces	routing / storage faces
+9 = 3²	active cosets	GiantArray coset count
+26	LC_PAIRS A..Z	LetterCube pairs
+4896	CubeFileStore bytes (12×6×64 + header)	serialized file size
+27648	convergence boundary = 3456×8 = 4608×6	TPOGLS × FGLS sync point
+20736	144² = 3456×6 = full cylinder × spokes	TPOGLS full address expansion
+6912	3456×2 — residual zone หลัง live+mirror	space ที่เหลือหลัง address ใช้งาน
+720	TEMPORAL_WALK_LEN = 5tetra compound walk	TRing slot count
+1728	144×12 = live side (12 compounds × 144)	half of 3456 address space
+√13	c = √(2²+3²) — Pythagorean tension ของ seed	irrational driver, ไม่ resolve = system ขยายต่อเนื่อง
+
+
+3. Geometry Foundation — โครงสร้างหลัก
+3.1 Dodecahedron — Data / Temporal Layer
+Dodecahedron มี 12 pentagons, 6 pairs of opposite pentagons (bipolar). แต่ละ pentagon face เป็น origin ของ compound-of-5-tetrahedra 1 ชุด
+
+Pentagon pair	ความหมาย
+Pentagon A	ขั้วบวก (+) — 'live' side
+Pentagon B (opposite)	ขั้วลบ (-) — 'mirror' side
+6 pairs	6 independent circuits
+12 × 1728 = total	3456 address space ทั้งหมด
+
+3.2 Compound-of-5-Tetrahedra × 12 — Temporal Ring
+นี่คือ core ของ file slicing structure:
+
+Dodecahedron มี 12 pentagon faces
+แต่ละ face มี compound-of-5-tetrahedra inscribed — origin unique ตรงกึ่งกลาง pentagon
+12 compounds ไม่ overlap กันเมื่อ map ลง dodecahedron
+โครงสร้างทุก 1 ใน 12 identical — แค่ origin shift ต่างกัน
+
+Self-replication property:
+แต่ละ compound รู้วิธีจำลอง 11 ที่เหลือ → 12 × 12 = 144 compounds total
+144 compounds × 12 points = 1728 'live' + 1728 'mirror' (invert) = 3456 total
+
+Walk property (720 slots):
+ทุก compound walk ได้ 720 triangles ต่อ 1 ชุด = fibo clock full cycle
+position = order = time → ไม่ต้องทำ arithmetic at runtime
+
+// geo_temporal_ring.h — implementation
+TRingCtx: slots[720], head, missing, chunk_count
+tring_snap(enc)  → place chunk at geometric position
+tring_first_gap() → detect missing chunk → self-healing
+
+3.3 การ select main vertex = สลับตาราง 12 แบบ
+เพราะ 12 compounds map ลงบน 12 pentagon centers แบบ non-overlapping:
+เลือก main vertex 1 ใน 12 → ได้ตาราง address ที่ shift ต่างกัน
+ไม่ต้องหมุน — แค่ select route = เปลี่ยน table ได้เลย
+= 12 stable grid variations จาก 1 structure
+
+
+4. Full Stack Architecture
+ทุก component เชื่อมกันผ่าน Twin Bridge:
+
+twin_bridge_write(addr, value)
+         ↓
+pipeline_wire_process                    [geo_config.h]
+         ↓
+lc_twin_gate → WARP / ROUTE / COLLISION / GROUND  [lc_twin_gate.h]
+    ↓ (geo path)              ↓ (GROUND path)
+geo_fast_intersect         trit=(addr^value)%27
+at_end branch              dodeca_insert(trit,spoke,off)
+         ↓                 fts_write(store,addr,value,de)
+    dodeca_insert          lc_gate_update(fibo_seed)
+    fts_write
+    lc_gate_update
+         ↓
+    (on flush)
+    fts_serialize → CubeFileStore 4896B  [fgls_twin_store.h]
+
+4.1 LC Gate Distribution (10K sample)
+Gate type	Count	%	หมายความว่า
+GROUND	5000	50%	opposite polarity → store ตรงๆ ไม่ผ่าน geo
+COLLISION	4197	42%	drift bump — same polarity, angle mismatch
+ROUTE	717	7.2%	normal geo path
+WARP	86	0.9%	fast intersect — coupled letter pair
+
+GROUND 50% เป็น by-design: opposite polarity = จัดเก็บตรงๆ ประหยัด compute
+
+5. Address Decomposition
+ทุก write ผ่าน decomposition เดียวกัน:
+
+addr + value
+  → trit   = (addr ^ value) % 27   [3³ geometric address]
+  → coset  = trit / 3              [GiantCube index 0..8]
+  → face   = trit % 6              [FrustumSlot64 direction 0..5]
+  → level  = trit % 4              [core[level] inside slot 0..3]
+  → letter = addr % 26             [LetterPair A..Z]
+  → slope  = fibo_seed ^ addr       [apex fingerprint]
+
+
+6. GeoPixel — File → Image Encoding
+6.1 หลักการ
+แปลง geometric index → RGB pixel เพื่อใช้ image compressor (PNG/JPEG) กับ geometric data ได้โดยตรง
+เหตุผล: geometric structure มี pattern สม่ำเสมอ → image compressor บีบได้ดีมาก
+
+6.2 Encode Formula
+R = ((idx % 27) << 3) | (idx % 6)          — trit(5b) | spoke(3b)
+G = ((idx % 9) << 4)  | (idx % 26 & 0xF)   — coset(4b) | letter_lo(4b)
+B = idx % 144                               — fibo clock position
+
+Grid W=27 → no two pixels share all 5 fields (trit, spoke, coset, letter, fibo)
+
+6.3 Status
+งาน	สถานะ
+geo_pixel_encode()	✅ Done
+geo_pixel_decode()	✅ Done (partial — letter เก็บแค่ low 4 bits)
+roundtrip lossless verify	⚠️ O3 — ต้องพิสูจน์ W=27 uniqueness ครบ
+file slicer → geo_pixel pipeline	🔲 ยังไม่ได้ทำ
+image compressor integration	🔲 ยังไม่ได้ทำ
+
+7. File Pipeline — สิ่งที่กำลังจะทำ
+7.1 เป้าหมาย
+สร้าง tools / commands สำหรับ read / write / stream ที่ใช้ POGLS geometry เป็น storage backend จริงๆ
+ไม่ใช่แค่ ZSTD wrapper (geo_vault เก่า) แต่ใช้ TRing + FtsTwinStore + GeoPixel
+
+7.2 Pipeline Target
+file input
+  → slice เป็น chunks
+  → distribute ลง TRingCtx (720 slots per compound)
+  → encode แต่ละ chunk เป็น GeoPixel (RGB)
+  → ได้ pixel buffer ที่มี geometric pattern
+  → image compressor (PNG lossless หรือ JPEG-like) บีบ
+  → store ใน FtsTwinStore → serialize → 4896B CubeFileStore
+
+read path:
+  → load CubeFileStore → decompress → reconstruct pixel buffer
+  → geo_pixel_decode → chunk positions
+  → TRing reconstruct → file output
+
+7.3 ทำไม Structure นี้ถึงเสถียร
+12 compounds identical structure → เก็บ 1 template + 12 origin = describe ทั้งหมด
+6 pairs + / - → built-in redundancy ทุก chunk มี mirror
+tring_first_gap() → detect ว่า chunk ไหนหาย → self-healing
+position = geometry = ไม่ต้องเก็บ index แยก
+
+7.4 Open Items (ลำดับ)
+#	งาน	สถานะ	Priority
+O3	geo_pixel roundtrip lossless + W=27 uniqueness proof	⚠️ ค้างอยู่	HIGH — ต้องทำก่อน
+O4	file slicer: file → chunks → TRing slots	🔲 ยังไม่เริ่ม	HIGH
+O5	GeoPixel image buffer + PNG encode/decode	🔲 ยังไม่เริ่ม	HIGH
+O6	tools CLI: geopipe write / read / verify	🔲 ยังไม่เริ่ม	MEDIUM
+O7	Benchmark: throughput vs geo_vault baseline	🔲 ยังไม่เริ่ม	MEDIUM
+O8	Docker demo: write 1M → read → delete → verify	🔲 ยังไม่เริ่ม	LOW
+S83	Weight stream → llama.cpp (พักไว้ก่อน)	⏸️ พัก	LOW — context cost สูง
+
+
+8. File Inventory — Headers ที่สำคัญ
+File	บทบาท	สถานะ
+geo_temporal_ring.h	12 compound-of-5-tetra × 720 slots TRing walk	✅ มีอยู่ ยังไม่ได้เรียกใช้
+geo_temporal_lut.h	LUT สำหรับ TRing walk positions	✅ มีอยู่
+fgls_twin_store.h	DodecaEntry → GiantArray → CubeFileStore 4896B	✅ wired แล้ว
+lc_twin_gate.h	LC gate: WARP/ROUTE/COLLISION/GROUND	✅ wired แล้ว
+pogls_twin_bridge.h	Central bus — wires ทุกอย่าง	✅ patched v11
+geo_pixel.h	file index → RGB pixel encode/decode	✅ encode done, decode partial
+geo_goldberg_tile.h	GP(1,1) tile scan + blueprint dedup	✅ มีอยู่
+pogls_5world_core.h	5-geometry address space (icosa/dodeca/fibo)	✅ มีอยู่
+pogls_engine_slice.h	3 × 18 lanes modular pipeline	✅ มีอยู่
+pogls_weight_stream.h	RAM-windowed LLM layer streaming	⏸️ พัก S83
+geo_vault_io.h	ZSTD container (standalone, ไม่ใช้ engine)	✅ ใช้งานแยก
+
+9. กฎที่ห้ามทำ (FROZEN)
+ห้าม	เหตุผล
+แก้ core/ directory	frozen — production rules
+ใช้ float ใน core compute	integer only — ใช้ PHI_MASK / shift แทน
+malloc ใน hot path	no heap — stack / static เท่านั้น
+เปลี่ยน sacred numbers	mathematical closure พัง
+เปลี่ยน ghost formula (lane+27)%54	EngineSlice cross-slice invariant
+เปลี่ยน DIAMOND_BLOCK_SIZE = 64B	DiamondBlock alignment
+
+
+10. Convergence Math — ทุกตัวเลขมาจาก 2 และ 3
+10.1 Origin Seed
+ระบบทั้งหมดเติบโตจาก seed เพียงสองตัว a=2, b=3:
+
+a + b    = 5   → Fibonacci start
+a × b    = 6   → spokes, faces, pairs
+a² × b   = 12  → pentagons, compounds, hues
+a × b²   = 18  → lanes per EngineSlice
+a³ × b   = 24  → TE full cycles
+a × b³   = 54  → total lanes
+a⁴ × b²  = 144 → Fibonacci closure
+a⁷ × b³  = 3456 → GEO_FULL_N
+(a⁴×b²)² = 20736 = 144² = 3456×6 → full expansion
+3456 × 2  = 6912 → residual zone
+
+Pythagorean tension ของ seed:
+a² + b² = c²  →  4 + 9 = 13  →  c = √13 (irrational)
+ไม่ resolve เป็น integer = แรงขับให้ระบบ expand ต่อเนื่อง
+ลงตัวเมื่อ scale ขึ้นไปอยู่ใน 2ⁿ×3ᵐ family เดียวกัน
+
+10.2 Pythagorean Tool — derive slope frustum
+ใช้เป็น tool สำหรับ frustum slope โดยไม่ใช้ float:
+
+a	b	c	หมายเหตุ
+18	24	30	×6 ของ 3-4-5 — ใช้ใน frustum
+36	48	60	×12 ของ 3-4-5
+54	72	90	lanes × height → slope
+
+10.3 Origin — ทุกอย่างเริ่มจาก 2 และ 3
+ระบบทั้งหมดเติบโตมาจาก seed แค่ 2 ค่า:
+
+seed: a=2, b=3
+
+a + b   = 5    -> Fibonacci start (3,5,8,13...)
+a x b   = 6    -> spokes, faces, pairs (FTS_FACE_MOD)
+a2x b   = 12   -> pentagons, compounds, color hues
+a x b2  = 18   -> lanes per EngineSlice
+a3x b   = 24   -> TE full cycles (GEO_TE_FULL_CYCLES)
+a x b3  = 54   -> total lanes (SLICE_TOTAL_LANES)
+a4x b2  = 144  -> Fibonacci closure
+a7x b3  = 3456 -> GEO_FULL_N
+a8x b2  = 6912 -> residual zone (3456 x 2)
+a8x b4  = 20736 -> 144^2 full expansion
+
+Pythagorean tension ของ seed:
+a2 + b2 = c2  ->  4 + 9 = 13  ->  c = sqrt(13)
+c ไม่ใช่ integer — irrational intentionally = แรงขับที่ทำให้ระบบขยายต่อเนื่อง ไม่หยุด
+
+10.4 Pythagorean Tool — Frustum Slope
+ใช้สำหรับคำนวณ slope ของ frustum โดยไม่มี float เลย:
+
+กฎ: มี 2 ค่าใดก็ได้ใน shape เดียวกัน -> derive ค่าที่ 3 ได้ทันที
+มี a, b -> c = sqrt(a2 + b2)
+มี a, c -> b = sqrt(c2 - a2)
+มี b, c -> a = sqrt(c2 - b2)
+เงื่อนไข: ทุกค่าต้องอยู่ใน 2^n x 3^m family เดียวกัน -> c ออกมา integer
+
+Frustum Virtual Apex Method:
+ปัญหา: frustum slope วัดตรงๆ = float เสมอ
+STEP 1: extend edges จนเจอกัน = virtual apex (ไม่เก็บ)
+STEP 2: similar triangles: H_full/base_r = H_top/top_r
+        base_r=32, top_r=4 -> H_full = 8 x H_top
+STEP 3: H_top = Fibonacci integer (รู้อยู่แล้ว)
+        frustum_height = 7 x H_top
+STEP 4: slant = sqrt((7xH_top)^2 + 28^2)  -> integer
+STEP 5: ลบ virtual apex ทิ้ง — used and discarded
+
+Self-concealing: ไม่รู้วิธี -> วัด slope ตรงๆ -> float -> ระบบพัง
+geometry บังคับให้ float-free ได้ — ไม่ใช่แค่ rule
+
+10.5 Convergence
+3456  = 144×24 = 2⁷×3³  digit_sum=9
+1728  = live side  |  1728 = mirror  →  3456 total
+6912  = 3456×2   → residual zone
+20736 = 144²     → full expansion
+27648 = 3456×8   → TPOGLS×FGLS sync boundary
+720   = 12 compounds × 60 gaps = fibo full cycle
+
+
+11. Virtual Geometry — ไม่มีอะไรจริงในระบบ
+11.1 ทุกอย่างเป็น Virtual
+ดูเหมือนมี	ความจริง
+Polygon / Shape	ไม่มี — address relationship เท่านั้น
+สี R/G/B	ไม่มี — integer field encoding
+LetterPair A:a B:b	ไม่มี — index 0..25
+Frustum cylinder	ไม่มี — projection rule
+Pentagon / Dodecahedron	ไม่มี — address space partition
+Virtual Apex	ไม่มี — compute แล้วทิ้ง ไม่เก็บ
+
+ทุก shape/สี/ชื่อ = สมมุติเพื่อให้มนุษย์เห็นภาพ — ระบบเห็นแค่ integer + bitwise
+
+11.2 Virtual Apex — หัวใจ Frustum
+Frustum ไม่มียอดจริง slope จึงต้องผ่าน virtual apex:
+
+STEP 1: frustum base_r=32, top_r=4
+STEP 2: extend edges → virtual apex
+        similar triangles: H_full/32 = H_top/4
+        → H_full = 8 × H_top
+STEP 3: H_top มาจาก Fibonacci (integer)
+        frustum_height = 7 × H_top
+STEP 4: slant = sqrt((7×H_top)² + 28²)  → integer
+STEP 5: ลบ apex ทิ้ง — ไม่เก็บ
+
+Self-concealing: ถ้าไม่รู้ว่าต้อง reconstruct apex ก่อน → measure slope ตรงๆ → float → พัง
+
+11.3 Color Wheel = Frustum = Hexagon = DiamondBlock
+Color wheel outer ring  = frustum cylinders โคจรรอบ sphere
+Color wheel inner hex   = virtual apex convergence point
+3 primary colors        = 3 axes (EngineSlice × 3)
+6 secondary             = 6 faces (FTS_FACE_MOD 6)
+12 hues                 = 12 pentagons (12 GiantCubes)
+
+Frustum 6 ตัวชี้ apex เข้าหากลาง
+  → convergence = hexagon = DiamondBlock 64B core
+  core[0..3]=32B  mirror=2B  freed=30B  total=64B
+
+11.4 Multi-Orbit Frustum — 3 Rings
+Orbit	บทบาท	Map กับ POGLS
+Orbit 0 Buffer	รับ input, เตรียม	TRingCtx — slice chunks
+Orbit 1 Transform	แปลง/กรอง/phase	lc_twin_gate ROUTE/COLLISION
+Orbit 2 Accelerate	เร่งเข้า Core	WARP gate → FtsTwinStore
+Core	Virtual apex / hex center	DiamondBlock 64B
+
+
+12. Address Space — Complete Picture
+27,648 = ไม่ใช่แค่ convergence boundary แต่คือ total address space ทั้งหมด:
+
+27,648 = MAIN 20,736 + RESIDUE 6,912
+
+20,736 = 144^2 = 128 x 162 = 2^8 x 3^4  (active expand zone)
+6,912  = 3,456 x 2                        (residual / sealed zone)
+3,456  = GEO_FULL_N (live + mirror)        (core address space)
+
+Signed state per slot:
+State	Value	ความหมาย
++1	active	ใช้งานปกติ — read/write
+0	ghost	deleted แต่ slot ยังอยู่ — path amnesia, route_follow ข้ามได้
+-1	reversed	polarity flip — mirror side
+
+Residual zone 6,912 — append-only sealed:
+มาจาก Hilbert curve property: ทุก Hilbert curve มี 1 boundary edge ที่ไม่ถูกนับ
+→ ปลายทางต้องจบที่ 12 (pentagon count) → แปลงกลับได้ 6,912
+delete = ย้าย pointer ออกจาก 3,456 → sealed ใน 6,912
+data ยังอยู่จริง แต่ address ไม่ถูก expose
+Hilbert boundary รับประกัน sealed zone ไม่ leak กลับ active
+
+3-tier provable deletion:
+Tier	Zone	ความหมาย
+void	ออกจาก 3,456	pointer ถูกเอาออก — ไม่เห็นแล้ว
+locked	อยู่ใน 6,912	มีอยู่แต่เข้าไม่ได้ — sealed
+destroyed	20,736 boundary	Hilbert fold ปิดสนิท
+
+Complement pair — warp gate condition:
+color(A) + color(a) = 255 per channel
+R(A)+R(a)=255 AND G(A)+G(a)=255 AND B(A)+B(a)=255 -> WARP
+ไม่ใช่ A:a alphabetically แต่เป็น integer complement
+
+color_flag v2: uint8 lane tag
+A(lane1) != A(lane2) -> symbol reuse: 24 x 256 = 6,144 identities
+
+
+13. File Pipeline — Target Architecture
+13.1 Pipeline
+file
+  -> slice / chunk
+  -> classify -> trit / spoke / coset / letter / fibo fields
+  -> temporal ring (passive collect) + shadow (delta/offset)
+  -> structure locked (geometric position = address)
+  -> map -> grid 27xN (QR-like pattern)
+  -> PNG lossless encode (geometric pattern = low entropy = bzip ดี)
+  -> store
+  -> [direct access — load PNG -> unpack -> fields ทันที, no reprocess]
+
+ทำไม QR-like pattern บีบได้ดี:
+data type	entropy	compression
+random data	สูง	บีบได้น้อย
+geometric POGLS grid	ต่ำ — neighboring pixels มี relationship	บีบได้เยอะ
+
+27 columns เพราะ trit space = 27 = 3^3 — pattern tile สม่ำเสมอพอดี
+ใช้ PNG lossless (ไม่ใช่ JPEG) — JPEG lossy ทำให้ geometric data พัง
+
+13.2 สิ่งที่มีอยู่แล้ว map ตรงกับ pipeline
+Pipeline step	Header ที่ใช้	สถานะ
+classify fields	geo_pixel.h encode	OK encode done
+temporal ring collect	geo_temporal_ring.h tring_snap	OK ยังไม่ได้เรียกใช้
+shadow delta/offset	CubeFileStore.reserved_mask	OK มีอยู่แล้ว
+color encode / grid	geo_pixel_demo FULL mode	OK demo เท่านั้น
+store	fgls_twin_store.h	OK wired แล้ว
+slice -> fields connector	(ยังไม่มี)	MISSING — gap หลัก
+
+13.3 Encoding Options — ยังต้องทดลอง
+Option	วิธี	ข้อดี	ข้อเสีย
+A: Image path	chunk->pixel->PNG	human readable, ใช้ libpng ได้เลย, QR-like debug ง่าย	overhead render layer
+B: Delta path	chunk->[trit,spoke,fibo] deltas->ZSTD	เร็วกว่า ไม่ต้องผ่าน pixel	ไม่ human readable
+C: Hybrid	delta encode -> pack เป็น 27xN grid -> PNG	ได้ทั้งสอง	complex กว่า
+Recommendation: เริ่มจาก Option A ก่อน — debug ง่าย พิสูจน์ concept แล้วค่อย optimize เป็น B/C
+
+13.4 Open Items — ยังต้องทำ
+#	งาน	สถานะ	Priority
+O3	geo_pixel roundtrip lossless + W=27 uniqueness proof	ค้างอยู่	HIGH — ต้องทำก่อน
+O4	file slicer: file -> chunks -> classify fields	ยังไม่เริ่ม	HIGH — gap หลัก
+O5	chunk -> tring_snap connector	ยังไม่เริ่ม	HIGH
+O6	27xN grid render + PNG encode/decode	ยังไม่เริ่ม	HIGH
+O7	shadow delta/offset layer	ยังไม่เริ่ม	MEDIUM
+O8	direct access path: PNG -> fields -> reconstruct	ยังไม่เริ่ม	MEDIUM
+O9	CLI tools: geopipe write / read / verify	ยังไม่เริ่ม	MEDIUM
+O10	benchmark: compression ratio vs random data vs ZSTD baseline	ยังไม่เริ่ม	MEDIUM
+O11	3 orbit rings as software pipeline stages	concept เท่านั้น	LOW
+O12	MADV hint switching per access pattern in geo_vault	done แยก	DONE
+S83	weight stream -> llama.cpp	พักไว้	LOW — context cost สูง
+
+13.5 ยังต้องทดลอง / ยังไม่รู้คำตอบ
+คำถาม	ทำไมสำคัญ
+compression ratio จริงๆ ของ 27xN geometric grid vs random	พิสูจน์ว่า pattern hypothesis ถูก
+W=27 grid uniqueness ครบไหม (O3)	ถ้าไม่ unique decode พัง
+delta path เร็วกว่า image path แค่ไหน	เลือก encoding strategy
+temporal ring + shadow ทำ self-healing ได้จริงไหม	core reliability claim
+6,912 residual seal กัน leak ได้จริงในทาง C code	3-tier deletion proof
+complement pair warp condition ทำงานได้ทุก case ไหม	WARP gate correctness
+
+
+Document สร้างจาก source code + handoff docs S33–S83 | อัปเดต session ใหม่เมื่อมีการเปลี่ยนแปลงสถาปัตยกรรม

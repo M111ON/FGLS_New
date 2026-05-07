@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Entropy Comparison — 5 Images</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background:#06080e; color:#a0b0c8;
+  font-family:'Courier New',monospace;
+  padding:24px; display:flex; flex-direction:column; align-items:center;
+}
+h1 { font-size:11px; letter-spacing:5px; color:#3a6080; margin-bottom:4px; }
+.sub { font-size:9px; color:#1e2e3e; letter-spacing:3px; margin-bottom:20px; }
+.grid { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; max-width:820px; }
+.card { background:#080c14; border:1px solid #101820; padding:12px; }
+.card h2 { font-size:9px; letter-spacing:3px; color:#3a6080; margin-bottom:8px; }
+canvas { width:100%; image-rendering:pixelated; display:block; }
+.stats { margin-top:8px; font-size:9px; line-height:1.9; }
+.row { display:flex; justify-content:space-between; }
+.lbl { color:#2a3c50; }
+.v { color:#c8a030; }
+.lo { color:#30cc80; }
+.hi { color:#ff5040; }
+.note { font-size:9px; color:#2a4060; margin-top:6px; line-height:1.6; }
+.note span { color:#5a90b8; }
+.verdict { font-size:10px; margin-top:6px; padding:5px 8px; border-left:2px solid; }
+.verdict.pass { border-color:#30cc80; color:#30cc80; background:rgba(48,204,128,.05); }
+.verdict.fail { border-color:#555; color:#444; }
+.verdict.info { border-color:#c8a030; color:#c8a030; background:rgba(200,160,48,.05); }
+</style>
+</head>
+<body>
+<h1>GP15 ENTROPY MAP — 5 IMAGE TYPES</h1>
+<div class="sub">blob_sz per tile | seam pattern detection</div>
+<div class="grid" id="g"></div>
+
+<script>
+const DATA = {
+  gradient: {
+    tiles:[235,411,411,411,411,411,412,472,227,224,224,224,224,224,361,224,227,224,224,224,224,361,224,216,227,224,224,224,361,224,216,216,227,224,224,361,224,216,216,216,227,224,361,224,216,216,216,216,227,361,224,216,216,216,216,216,378,224,216,216,216,216,216,216],
+    label:'GRADIENT (x+y)', ratio:'11.5x',
+    note:'seam=361 บน anti-diagonal tx+ty=7\n→ encoder จับ iso-value line ของ image\n→ geometry ของ image ≠ geometry ของ grid'
+  },
+  noise: {
+    tiles:[3700,3900,3910,3921,3891,3903,3912,3915,3886,3901,3906,3899,3897,3917,3909,3912,3910,3913,3910,3908,3917,3933,3907,3899,3900,3908,3927,3904,3914,3936,3915,3896,3917,3891,3908,3915,3908,3900,3914,3907,3918,3932,3920,3910,3905,3911,3919,3904,3908,3910,3909,3910,3908,3898,3929,3926,3916,3922,3910,3909,3897,3898,3926,3932],
+    label:'NOISE (random)', ratio:'0.78x',
+    note:'ไม่มี pattern ทุก tile ≈ 3900B\n→ encoder ไม่เจอ seam\n→ confirm: seam มาจาก signal ไม่ใช่ grid artifact'
+  },
+  checker: {
+    tiles:Array(64).fill(140),
+    label:'CHECKERBOARD', ratio:'287x',
+    note:'ทุก tile = 140B เหมือนกันหมด\n→ pattern symmetric ทั้ง grid\n→ ไม่มี seam เพราะ tile ทุกอันเหมือนกัน'
+  },
+  radial: {
+    tiles:[560,653,664,699,729,717,693,618,739,658,706,717,777,706,679,757,669,687,741,1067,1037,967,812,727,629,627,1027,805,901,1110,658,601,605,661,1031,884,828,870,649,599,727,757,951,1045,1013,989,708,685,768,667,666,700,714,679,712,690,656,680,711,687,681,664,669,634],
+    label:'RADIAL GRADIENT', ratio:'4.0x',
+    note:'high-entropy ring ที่ center tiles\n→ seam โผล่รอบๆ center (2,2)-(5,5)\n→ reflect curvature ของ radial signal\n→ symmetric 4-way ตาม symmetry ของ image'
+  },
+  stripes: {
+    tiles:Array(64).fill(140),
+    label:'DIAGONAL STRIPES (x-y)', ratio:'287x',
+    note:'ทุก tile = 140B แม้ stripe จะ diagonal\n→ tile boundary align กับ stripe period\n→ ไม่มี seam เพราะ pattern repeat ใน 32px tile'
+  }
+};
+
+function heatColor(t) {
+  if(t<0.5){const s=t*2; return [0,Math.round(s*180),Math.round((1-s)*220+35)]}
+  const s=(t-0.5)*2; return [Math.round(s*255),Math.round((1-s)*160),0];
+}
+
+function renderCard(key, {tiles,label,ratio,note}) {
+  const TW=8, CELL=30;
+  const min=Math.min(...tiles), max=Math.max(...tiles), mean=Math.round(tiles.reduce((a,b)=>a+b)/64);
+  const range=max-min;
+
+  const card=document.createElement('div'); card.className='card';
+  card.innerHTML=`<h2>${label}</h2>`;
+
+  const cv=document.createElement('canvas');
+  cv.width=TW*CELL; cv.height=TW*CELL;
+  card.appendChild(cv);
+  const ctx=cv.getContext('2d');
+
+  // detect seam pattern
+  const seamTiles=[];
+  for(let i=0;i<64;i++){
+    const tx=i%8,ty=Math.floor(i/8),sz=tiles[i];
+    const t=range>0?(sz-min)/range:0;
+    const [r,g,b]=heatColor(t);
+    ctx.fillStyle=`rgb(${r},${g},${b})`;
+    ctx.fillRect(tx*CELL,ty*CELL,CELL,CELL);
+    ctx.fillStyle='rgba(0,0,0,0.45)';
+    ctx.font='7px Courier New';
+    ctx.fillText(sz,tx*CELL+2,ty*CELL+CELL-3);
+    // mark outliers (>mean+stddev)
+    if(sz>mean+(range*0.3)){seamTiles.push({tx,ty,sz});}
+  }
+  // grid
+  ctx.strokeStyle='rgba(6,8,14,0.7)'; ctx.lineWidth=0.5;
+  for(let i=0;i<=TW;i++){
+    ctx.beginPath();ctx.moveTo(i*CELL,0);ctx.lineTo(i*CELL,TW*CELL);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(0,i*CELL);ctx.lineTo(TW*CELL,i*CELL);ctx.stroke();
+  }
+  // highlight seam
+  seamTiles.forEach(({tx,ty})=>{
+    ctx.strokeStyle='rgba(255,200,0,0.7)'; ctx.lineWidth=1.5;
+    ctx.strokeRect(tx*CELL+1,ty*CELL+1,CELL-2,CELL-2);
+  });
+
+  // symmetry check
+  const quadCounts=[0,0,0,0];
+  seamTiles.forEach(({tx,ty})=>{quadCounts[(tx>=4?1:0)+(ty>=4?2:0)]++;});
+  const symScore = range===0 ? 1 :
+    Math.max(0,1-quadCounts.reduce((v,c)=>v+(c-seamTiles.length/4)**2,0)/seamTiles.length);
+
+  const stats=document.createElement('div'); stats.className='stats';
+  stats.innerHTML=`
+    <div class="row"><span class="lbl">ratio</span><span class="v">${ratio}</span></div>
+    <div class="row"><span class="lbl">min/mean/max</span><span class="v">${min}/${mean}/${max}</span></div>
+    <div class="row"><span class="lbl">range</span><span class="${range>200?'hi':'lo'}">${range}B</span></div>
+    <div class="row"><span class="lbl">seam tiles</span><span class="${seamTiles.length>0?'hi':'lo'}">${seamTiles.length}</span></div>
+    <div class="row"><span class="lbl">symmetry</span><span class="v">${symScore.toFixed(2)}</span></div>
+  `;
+
+  const noteEl=document.createElement('div'); noteEl.className='note';
+  noteEl.innerHTML=note.replace(/→/g,'<br><span>→</span>').replace('\n','');
+
+  // verdict
+  const vEl=document.createElement('div');
+  if(key==='noise'){
+    vEl.className='verdict pass'; vEl.textContent='✓ NO SEAM — baseline confirmed';
+  } else if(key==='checker'||key==='stripes'){
+    vEl.className='verdict fail'; vEl.textContent='— UNIFORM — no seam (pattern aligns to tile)';
+  } else if(key==='radial'){
+    vEl.className='verdict info'; vEl.textContent='◈ RADIAL SEAM — symmetric, follows image symmetry';
+  } else {
+    vEl.className='verdict info'; vEl.textContent='◈ DIAGONAL SEAM — follows signal iso-line';
+  }
+
+  card.append(stats,noteEl,vEl);
+  return card;
+}
+
+const g=document.getElementById('g');
+Object.entries(DATA).forEach(([k,v])=>g.appendChild(renderCard(k,v)));
+</script>
+</body>
+</html>
