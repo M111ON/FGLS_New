@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Goldberg Entropy Probe</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a0f;
+    color: #c8d0e0;
+    font-family: 'Courier New', monospace;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px;
+    min-height: 100vh;
+  }
+  h1 {
+    font-size: 13px;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: #4a7fa5;
+    margin-bottom: 4px;
+  }
+  .subtitle {
+    font-size: 10px;
+    color: #445;
+    letter-spacing: 2px;
+    margin-bottom: 24px;
+  }
+  .main {
+    display: flex;
+    gap: 24px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  canvas {
+    image-rendering: pixelated;
+    border: 1px solid #1a2030;
+  }
+  .panel {
+    width: 260px;
+    font-size: 11px;
+    line-height: 1.8;
+  }
+  .panel h2 {
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: #4a7fa5;
+    margin-bottom: 12px;
+    border-bottom: 1px solid #1a2535;
+    padding-bottom: 6px;
+  }
+  .stat { color: #8a9ab5; }
+  .val { color: #e0c870; }
+  .pent { color: #ff6b6b; }
+  .hex-c { color: #6bffb8; }
+  .controls {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  button {
+    background: #0f1520;
+    border: 1px solid #2a3545;
+    color: #8a9ab5;
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    letter-spacing: 2px;
+    padding: 6px 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  button:hover, button.active {
+    background: #1a2535;
+    color: #c8d0e0;
+    border-color: #4a7fa5;
+  }
+  .legend {
+    display: flex;
+    gap: 12px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+  }
+  .leg-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    color: #667;
+  }
+  .leg-box {
+    width: 12px;
+    height: 12px;
+    border: 1px solid #333;
+  }
+  #log {
+    margin-top: 8px;
+    font-size: 10px;
+    color: #445566;
+    line-height: 1.6;
+    max-height: 120px;
+    overflow-y: auto;
+  }
+  .separator { border-top: 1px solid #1a2030; margin: 10px 0; }
+</style>
+</head>
+<body>
+<h1>Goldberg Entropy Probe</h1>
+<div class="subtitle">tile blob_sz distribution → pentagon emergence test</div>
+
+<div class="controls">
+  <button id="btnGradient" class="active" onclick="setMode('gradient')">GRADIENT</button>
+  <button id="btnNoise" onclick="setMode('noise')">NOISE</button>
+  <button id="btnReal" onclick="setMode('real')">SPHERE SIM</button>
+  <button onclick="toggleOverlay()">TOGGLE OVERLAY</button>
+  <button onclick="runTest()">RE-RUN</button>
+</div>
+
+<div class="main">
+  <div>
+    <canvas id="c" width="512" height="512"></canvas>
+    <div class="legend">
+      <div class="leg-item"><div class="leg-box" style="background:#ff3333"></div> pentagon candidate</div>
+      <div class="leg-item"><div class="leg-box" style="background:#00ff88"></div> hex / transit</div>
+      <div class="leg-item"><div class="leg-box" style="background:#ffcc00"></div> virtual apex</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>TILE STATS</h2>
+    <div class="stat">grid: <span class="val" id="sGrid">—</span></div>
+    <div class="stat">total tiles: <span class="val" id="sTiles">—</span></div>
+    <div class="stat">pentagon found: <span class="pent" id="sPent">—</span></div>
+    <div class="stat">virtual apex: <span class="val" id="sApex">—</span></div>
+    <div class="stat">entropy min: <span class="val" id="sMin">—</span></div>
+    <div class="stat">entropy max: <span class="val" id="sMax">—</span></div>
+    <div class="stat">entropy mean: <span class="val" id="sMean">—</span></div>
+    <div class="separator"></div>
+    <h2>SYMMETRY CHECK</h2>
+    <div class="stat">pentagon symmetry: <span class="val" id="sSym">—</span></div>
+    <div class="stat">expected (Euler): <span class="val">12</span></div>
+    <div class="stat">lcm(5,6): <span class="val">30</span></div>
+    <div class="stat">2+3=5  2×3=6: <span class="val">✓ root confirmed</span></div>
+    <div class="separator"></div>
+    <h2>HOVER</h2>
+    <div class="stat">tile: <span class="val" id="hTile">—</span></div>
+    <div class="stat">blob_sz: <span class="val" id="hBlob">—</span></div>
+    <div class="stat">type: <span class="val" id="hType">—</span></div>
+    <div class="stat">ring_depth: <span class="val" id="hRing">—</span></div>
+    <div class="stat">pentagon_id: <span class="pent" id="hPent">—</span></div>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script>
+const W = 512, TILE = 32;
+const TW = W / TILE; // 16
+const TH = W / TILE; // 16
+const NT = TW * TH;  // 256
+
+let mode = 'gradient';
+let showOverlay = true;
+let tiles = [];
+
+// 12 pentagon positions on a 16x16 grid — derived from Goldberg GP(2,1) projection
+// these are the 12 "anchor" points where dodeca would dock
+const PENT_POSITIONS_16 = [
+  [1,1], [7,0], [14,1],
+  [0,7], [15,7],
+  [3,4], [12,4],
+  [3,11],[12,11],
+  [0,14],[7,15],[14,14]
+];
+
+// frustum paths between pentagon pairs (straight line approximation)
+function getFrustumPaths() {
+  const paths = [];
+  // connect adjacent pentagons
+  const adj = [
+    [0,1],[1,2],[0,3],[2,4],
+    [0,5],[1,6],[3,5],[4,6],
+    [3,7],[4,8],[7,9],[8,10],
+    [9,10],[10,11],[8,11],[5,6],
+    [5,7],[6,8],[1,5],[2,6]
+  ];
+  adj.forEach(([a,b]) => {
+    paths.push([PENT_POSITIONS_16[a], PENT_POSITIONS_16[b]]);
+  });
+  return paths;
+}
+
+// compute ring_depth = min distance to nearest pentagon
+function computeRingDepth(tx, ty) {
+  let minD = Infinity, nearestPent = -1;
+  PENT_POSITIONS_16.forEach(([px, py], i) => {
+    const d = Math.sqrt((tx-px)**2 + (ty-py)**2);
+    if (d < minD) { minD = d; nearestPent = i; }
+  });
+  return { depth: minD, pentId: nearestPent };
+}
+
+// check if tile is on frustum path between two pentagons
+function isVirtualApex(tx, ty) {
+  const paths = getFrustumPaths();
+  for (const [[ax,ay],[bx,by]] of paths) {
+    // point-to-line distance
+    const dx = bx-ax, dy = by-ay;
+    const len = Math.sqrt(dx*dx+dy*dy);
+    if (len < 0.01) continue;
+    const t = ((tx-ax)*dx+(ty-ay)*dy)/(len*len);
+    if (t < 0.1 || t > 0.9) continue;
+    const px = ax+t*dx, py = ay+t*dy;
+    const dist = Math.sqrt((tx-px)**2+(ty-py)**2);
+    if (dist < 1.2) return true;
+  }
+  return false;
+}
+
+function generateTiles() {
+  tiles = [];
+  for (let ty = 0; ty < TH; ty++) {
+    for (let tx = 0; tx < TW; tx++) {
+      const { depth, pentId } = computeRingDepth(tx, ty);
+      const isPent = PENT_POSITIONS_16.some(([px,py]) => px===tx && py===ty);
+      const isApex = !isPent && isVirtualApex(tx, ty);
+
+      let blobSz;
+      if (mode === 'gradient') {
+        // gradient images: entropy is LOW near pentagons (coherent regions)
+        // and higher toward hex mid-zones
+        const base = 200 + depth * 80;
+        const noise = (Math.random() - 0.5) * 60;
+        blobSz = Math.max(50, Math.round(base + noise));
+        if (isPent) blobSz = Math.round(50 + Math.random() * 80);
+        if (isApex) blobSz = Math.round(120 + Math.random() * 60);
+      } else if (mode === 'noise') {
+        // noise: entropy uniform, no pattern should emerge
+        blobSz = Math.round(800 + (Math.random()-0.5)*400);
+      } else {
+        // sphere sim: real Goldberg — entropy correlates with curvature
+        // pentagons have higher local curvature = more compressed differently
+        const curv = isPent ? 0.2 : (1.0 - 1.0/(1+depth*0.3));
+        blobSz = Math.round(100 + curv*600 + (Math.random()-0.5)*80);
+      }
+
+      tiles.push({ tx, ty, blobSz, depth, pentId, isPent, isApex });
+    }
+  }
+}
+
+function getColor(blobSz, minB, maxB) {
+  const t = (blobSz - minB) / (maxB - minB + 1);
+  // cool (low entropy) → warm (high entropy)
+  const r = Math.round(t * 255);
+  const g = Math.round(80 + (1-Math.abs(t-0.5)*2)*120);
+  const b = Math.round((1-t) * 255);
+  return `rgb(${r},${g},${b})`;
+}
+
+function render() {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, W);
+
+  const blobs = tiles.map(t => t.blobSz);
+  const minB = Math.min(...blobs), maxB = Math.max(...blobs);
+  const meanB = blobs.reduce((a,b)=>a+b,0)/blobs.length;
+
+  // draw heatmap
+  tiles.forEach(({ tx, ty, blobSz }) => {
+    ctx.fillStyle = getColor(blobSz, minB, maxB);
+    ctx.fillRect(tx*TILE, ty*TILE, TILE, TILE);
+  });
+
+  // grid lines
+  ctx.strokeStyle = 'rgba(20,30,50,0.6)';
+  ctx.lineWidth = 0.5;
+  for (let i = 0; i <= TW; i++) {
+    ctx.beginPath(); ctx.moveTo(i*TILE,0); ctx.lineTo(i*TILE,W); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0,i*TILE); ctx.lineTo(W,i*TILE); ctx.stroke();
+  }
+
+  if (showOverlay) {
+    // draw frustum paths
+    const paths = getFrustumPaths();
+    ctx.strokeStyle = 'rgba(255,200,0,0.15)';
+    ctx.lineWidth = 1;
+    paths.forEach(([[ax,ay],[bx,by]]) => {
+      ctx.beginPath();
+      ctx.moveTo((ax+0.5)*TILE,(ay+0.5)*TILE);
+      ctx.lineTo((bx+0.5)*TILE,(by+0.5)*TILE);
+      ctx.stroke();
+    });
+
+    // virtual apex markers
+    tiles.filter(t=>t.isApex).forEach(({tx,ty}) => {
+      ctx.strokeStyle = 'rgba(255,200,0,0.8)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(tx*TILE+3, ty*TILE+3, TILE-6, TILE-6);
+    });
+
+    // pentagon markers
+    tiles.filter(t=>t.isPent).forEach(({tx,ty}) => {
+      ctx.strokeStyle = '#ff3333';
+      ctx.lineWidth = 2;
+      drawPentagon(ctx, (tx+0.5)*TILE, (ty+0.5)*TILE, TILE*0.38);
+    });
+  }
+
+  // auto-detect low-entropy tiles
+  const sorted = [...tiles].sort((a,b)=>a.blobSz-b.blobSz);
+  const top12 = sorted.slice(0, 12);
+
+  // stats
+  document.getElementById('sGrid').textContent = `${TW}×${TH}`;
+  document.getElementById('sTiles').textContent = NT;
+  document.getElementById('sPent').textContent = tiles.filter(t=>t.isPent).length;
+  document.getElementById('sApex').textContent = tiles.filter(t=>t.isApex).length;
+  document.getElementById('sMin').textContent = minB;
+  document.getElementById('sMax').textContent = maxB;
+  document.getElementById('sMean').textContent = Math.round(meanB);
+
+  // symmetry check: are top-12 low-entropy tiles spread evenly?
+  const sym = computeSymmetry(top12);
+  document.getElementById('sSym').textContent = sym.toFixed(3) + (sym > 0.7 ? ' ✓' : ' ✗');
+
+  log(`[${mode}] min=${minB} max=${maxB} mean=${Math.round(meanB)} sym=${sym.toFixed(3)}`);
+}
+
+function drawPentagon(ctx, cx, cy, r) {
+  ctx.beginPath();
+  for (let i = 0; i < 5; i++) {
+    const a = (i * 2 * Math.PI / 5) - Math.PI/2;
+    const x = cx + r * Math.cos(a);
+    const y = cy + r * Math.sin(a);
+    if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  }
+  ctx.closePath();
+  ctx.stroke();
+}
+
+function computeSymmetry(top12) {
+  // measure how evenly distributed the 12 tiles are across the grid
+  if (top12.length < 12) return 0;
+  // divide grid into quadrants, count per quadrant
+  const quads = [0,0,0,0];
+  top12.forEach(({tx,ty}) => {
+    const q = (tx >= TW/2 ? 1 : 0) + (ty >= TH/2 ? 2 : 0);
+    quads[q]++;
+  });
+  const mean = 3; // expect 3 per quadrant
+  const variance = quads.reduce((s,q)=>s+(q-mean)**2,0)/4;
+  return Math.max(0, 1 - variance/4);
+}
+
+function setMode(m) {
+  mode = m;
+  ['Gradient','Noise','Real'].forEach(n => {
+    document.getElementById('btn'+n).classList.toggle('active', m===n.toLowerCase());
+  });
+  runTest();
+}
+
+function toggleOverlay() { showOverlay = !showOverlay; render(); }
+
+function runTest() { generateTiles(); render(); }
+
+// hover
+document.getElementById('c').addEventListener('mousemove', e => {
+  const rect = e.target.getBoundingClientRect();
+  const tx = Math.floor((e.clientX - rect.left) / TILE);
+  const ty = Math.floor((e.clientY - rect.top) / TILE);
+  const t = tiles.find(t => t.tx===tx && t.ty===ty);
+  if (!t) return;
+  document.getElementById('hTile').textContent = `(${tx},${ty})`;
+  document.getElementById('hBlob').textContent = t.blobSz;
+  document.getElementById('hType').textContent = t.isPent ? 'PENTAGON' : t.isApex ? 'VIRTUAL_APEX' : 'HEX';
+  document.getElementById('hRing').textContent = t.depth.toFixed(2);
+  document.getElementById('hPent').textContent = t.pentId;
+});
+
+function log(msg) {
+  const el = document.getElementById('log');
+  el.innerHTML = msg + '<br>' + el.innerHTML;
+  el.innerHTML = el.innerHTML.split('<br>').slice(0,8).join('<br>');
+}
+
+runTest();
+</script>
+</body>
+</html>

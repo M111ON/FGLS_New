@@ -1,0 +1,110 @@
+{
+  "runs": [
+    {
+      "input_count": 1,
+      "outputs": {
+        "chunks_jsonl": "I:\\FGLS_new\\core\\goldberg_field_core\\memory_store\\chunks.jsonl",
+        "conversations_jsonl": "I:\\FGLS_new\\core\\goldberg_field_core\\memory_store\\conversations.jsonl",
+        "memory_jsonl": "I:\\FGLS_new\\core\\goldberg_field_core\\memory_store\\memory.jsonl"
+      },
+      "project": "default",
+      "run_id": "2026-04-30T15:16:36.126859+00:00",
+      "skipped_sources": 0,
+      "sources": [
+        {
+          "chunk_count": 169,
+          "conversation_id": "b1f4df19235a27933da2c769",
+          "ingested_at": "2026-04-30T15:16:37.064855+00:00",
+          "message_count": 971,
+          "project": "default",
+          "raw_copy": "I:\\FGLS_new\\core\\goldberg_field_core\\memory_store\\raw\\20260430T151636Z_conversations.json",
+          "source_fingerprint": "438fc29b2e089e0b633a224528705cee274fa5e262e9b28782aa24b22785e678",
+          "source_name": "conversations",
+          "source_path": "C:\\5GLS\\conversations.json",
+          "source_type": "json",
+          "title": "conversations"
+        }
+      ],
+      "total_chunks": 169,
+      "total_messages": 971
+    },
+    {
+      "input_count": 1,
+      "outputs": {
+        "chunks_jsonl": "I:\\FGLS_new\\core\\goldberg_field_core\\memory_store\\chunks.jsonl",
+        "conversations_jsonl": "I:\\FGLS_new\\core\\goldberg_field_core\\memory_store\\conversations.jsonl",
+        "memory_jsonl": "I:\\FGLS_new\\core\\goldberg_field_core\\memory_store\\memory.jsonl"
+      },
+      "project": "default",
+      "run_id": "2026-04-30T15:16:42.855697+00:00",
+      "skipped_sources": 1,
+      "sources": [
+        {
+          "chunk_count": 0,
+          "conversation_id": null,
+          "ingested_at": "2026-04-30T15:16:42.934698+00:00",
+          "message_count": 0,
+          "project": "default",
+          "raw_copy": null,
+          "skip_reason": "duplicate_source_fingerprint",
+          "skipped": true,
+          "source_fingerprint": "438fc29b2e089e0b633a224528705cee274fa5e262e9b28782aa24b22785e678",
+          "source_name": "conversations",
+          "source_path": "C:\\5GLS\\conversations.json",
+          "source_type": "json",
+          "title": "conversations"
+        }
+      ],
+      "total_chunks": 0,
+      "total_messages": 0
+    },
+    {
+      "input_count": 1,
+      "outputs": {
+        "chunks_jsonl": "I:\\FGLS_new\\core\\goldberg_field_core\\memory_store\\chunks.jsonl",
+        "conversations_jsonl": "I:\\FGLS_new\\core\\goldberg_field_core\\memory_store\\conversations.jsonl",
+        "memory_jsonl": "I:\\FGLS_new\\core\\goldberg_field_core\\memory_store\\memory.jsonl"
+      },
+      "project": "default",
+      "run_id": "2026-04-30T15:16:46.446632+00:00",
+      "skipped_sources": 1,
+      "sources": [
+        {
+          "chunk_count": 0,
+          "conversation_id": null,
+          "ingested_at": "2026-04-30T15:16:46.521633+00:00",
+          "message_count": 0,
+          "project": "default",
+          "raw_copy": null,
+          "skip_reason": "duplicate_source_fingerprint",
+          "skipped": true,
+          "source_fingerprint": "438fc29b2e089e0b633a224528705cee274fa5e262e9b28782aa24b22785e678",
+          "source_name": "conversations",
+          "source_path": "C:\\5GLS\\conversations.json",
+          "source_type": "json",
+          "title": "conversations"
+        }
+      ],
+      "total_chunks": 0,
+      "total_messages": 0
+    }
+  ],
+  "seen_source_fingerprints": [
+    "438fc29b2e089e0b633a224528705cee274fa5e262e9b28782aa24b22785e678"
+  ],
+  "sources": [
+    {
+      "chunk_count": 169,
+      "conversation_id": "b1f4df19235a27933da2c769",
+      "ingested_at": "2026-04-30T15:16:37.064855+00:00",
+      "message_count": 971,
+      "project": "default",
+      "raw_copy": "I:\\FGLS_new\\core\\goldberg_field_core\\memory_store\\raw\\20260430T151636Z_conversations.json",
+      "source_fingerprint": "438fc29b2e089e0b633a224528705cee274fa5e262e9b28782aa24b22785e678",
+      "source_name": "conversations",
+      "source_path": "C:\\5GLS\\conversations.json",
+      "source_type": "json",
+      "title": "conversations"
+    }
+  ]
+}

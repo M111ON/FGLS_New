@@ -1,0 +1,217 @@
+
+
+EHCP × Topology POC
+System Design Document  v1.0
+Delete · Circuit Switch · GeoFace Router
+
+
+
+1.  Overview — แนวคิดหลัก
+
+ระบบนี้รวมสองชั้นเข้าด้วยกัน: EHCP (Electric Hilbert Color Palette) เป็น channel routing layer และ Topology Store เป็น geometry state machine ผลลัพธ์คือ append-only storage ที่ delete โดยไม่ทำลาย data และใช้ graph topology ควบคุม access แทน permission layer
+
+Layer	หน้าที่	Analogy
+EHCP	Channel routing, color gate, signed state	ระบบไฟฟ้า 3 เฟส
+Topo Store	Geometry state, graph reroute, residue	Circuit breaker
+Circuit Switch	Relay arm/trip/resolve บน folded cell	สวิตช์ไฟ
+GeoFace Router	Inter-geometry face routing	Frequency converter
+
+
+2.  Core Invariant — DATA vs GRAPH
+
+หลักการที่ทุกอย่างยึดถือ: DATA = immutable,  GRAPH = mutable
+
+Property	หมายความว่า
+DATA immutable	ข้อมูลไม่ถูกลบจริงๆ ยังอยู่ใน address space หลัง fold
+GRAPH mutable	เฉพาะ edge และ routing path เปลี่ยนได้
+Delete = Reroute	ลบ = ตัด path ออก ไม่ใช่ลบ content
+Access = Traversal	อ่านข้อมูลผ่าน graph walk ไม่ใช่ direct address scan
+No path = No access	cell ที่ไม่มี path เข้าถึงไม่ได้ แม้ data ยังอยู่
+
+
+3.  Cell Structure
+
+Cell คือหน่วยพื้นฐานของระบบ รวม signed state จาก EHCP และ geometry state จาก Topo เข้าด้วยกัน
+
+Field	หน้าที่
+hid	Hilbert index — global address
+x, y	Grid position ใน 2D space
+geom	SQUARE (active) | HEX6 (folded)
+state	int8: +1 active / 0 ghost / -1 reversed  (EHCP signed)
+data[]	Payload — immutable, ไม่ถูกลบแม้ fold
+color RGB	EHCP gate key — 3D coordinate ใน color space
+pair_addr	EHCP complement pair link
+edges[]	Adjacency list สำหรับ graph traversal
+tri[6]	HEX6 residue slots — ใช้งานหลัง fold
+
+HEX6 Residue Slots — tri[6]
+Slot	หน้าที่
+tri[0] TOMBSTONE	หลักฐานว่า cell นี้เคย active
+tri[1] META	เก็บ color RGB ของ cell เดิมใน encoded form
+tri[2] WARP	Relay contact — destination ถ้า circuit trip ผ่าน
+tri[3] VERSION	Version counter ของ cell นี้
+tri[4] BOUNDARY	Neighbor count ตอน fold — topology snapshot
+tri[5] FLOW	Circuit switch condition สำหรับ trip check
+
+
+4.  Delete Operation — Ghost + Fold
+
+delete ใน EHCP×Topo ไม่ใช่การลบข้อมูล — เป็นการ transform cell และ reroute graph พร้อมกันใน 6 ขั้นตอน
+
+Step	Action
+1  Signed Ghost (EHCP)	state: +1 → 0  (open circuit ทาง EHCP)
+2  Geometry Fold (Topo)	geom: SQUARE → HEX6  (เปลี่ยน shape เป็น relay housing)
+3  Populate Residue	เขียน tri[0..4] อัตโนมัติ — tombstone, meta, version, boundary
+4  Cut Edges	ตัด edge ทุกเส้นที่ชี้เข้า cell นี้  (กฎ: ห้าม edge เข้า ghost)
+5  Transitive Bypass	resolve_active() walk ผ่าน ghost chain → reconnect active ends
+6  Pair Amnesia (EHCP)	pair_addr cell → state 0 ด้วย  (path กลับขาด)
+
+Transitive Bypass — resolve_active()
+เมื่อ delete hub node ที่อยู่กลาง chain: neighbor ทั้งสองข้างอาจเป็น ghost อยู่แล้ว resolve_active() walk ผ่าน ghost chain จนเจอ active node แล้ว bypass ตรงไปยัง active ends ทั้งสองฝั่ง ทำให้ graph ยังคง connected
+
+Scenario	ผลลัพธ์
+Delete node กลาง chain	neighbor ทั้งสองถูก reconnect ตรง — path ยังอยู่
+Delete node ปลาย chain	neighbor ข้างเดียว — ไม่มีอะไร reconnect
+Delete consecutive nodes	resolve_active walk ผ่านหลาย ghost จนเจอ active
+Ghost chain ยาวกว่า TOTAL_CELLS	visited[] guard ป้องกัน infinite loop
+
+
+5.  Circuit Switch Module
+
+Circuit Switch คือ layer บางๆ ที่นั่งอยู่บน tri[] ของ folded cell — ไม่แตะ delete เลย ทำงานเฉพาะตอน caller ตัดสินใจจะ resolve
+
+Mental Model
+SQUARE (active) = circuit CLOSED — กระแสไหลปกติ
+HEX6 (folded) = circuit OPEN — ตัดวงจร แต่สายยังอยู่
+tri[2] WARP = relay contact — ถ้า key ถูก → ปิดวงจรใหม่
+tri[5] FLOW = relay condition — เงื่อนไขก่อน trip
+
+API
+Function	หน้าที่
+circuit_arm(folded, dest, cond)	ตั้ง relay — เขียน tri[2]=dest, tri[5]=cond
+circuit_trip(folded, key)	ทดสอบว่า key ผ่าน condition ใน tri[5] ไหม
+circuit_resolve(folded, key)	ถ้าผ่าน → คืน dest (tri[2]),  ไม่ผ่าน → UINT32_MAX
+
+Caller Flow
+dest = route_follow(hid)         // → UINT32_MAX (ghost)
+if dest == UINT32_MAX:
+    dest = circuit_resolve(hid, my_key)  // check tri[5] + tri[2]
+    if dest != UINT32_MAX:
+        // relay tripped → follow to new version
+
+Performance
+circuit_resolve() เพิ่มแค่ 3 O(1) operations: read tri[5], compare key, read tri[2] — zero overhead ต่อ normal access path เพราะทำงานเฉพาะเมื่อ route_follow คืน UINT32_MAX เท่านั้น
+
+
+6.  EHCP Color Gate — Routing Condition
+
+Color ทำหน้าที่เป็นทั้ง address offset และ gate selector ในคราวเดียว ไม่ใช่แค่ label
+
+Gate Result	เงื่อนไข / พฤติกรรม
+WARP	R₁+R₂=255, G₁+G₂=255, B₁+B₂=255  → complement pair = warp gate เปิด
+COLLISION	สี identical ทุก channel → error, ห้ามผ่าน
+FILTER_BLOCK	ไม่ใช่ complement, ไม่ใช่ identical → block ตามปกติ
+GROUND_ABSORB	node ใดฝั่งหนึ่งเป็น ghost → absorb ลง residue zone
+
+WARP gate = key สำหรับ circuit switch: ถ้าไม่รู้ complement pair ที่ถูกต้อง → gate ไม่เปิด → ข้อมูลใน folded cell อยู่ตรงหน้าแต่อ่านไม่ออก หลักการ Open Circuit จาก EHCP Theory
+
+
+7.  GeoFace Router — Inter-Geometry Routing
+
+GeoFace Router คือ module ที่ reroute face หนึ่งของ geometry ไปยัง face ของอีก geometry โดยใช้ invariant ของระบบเป็น mapping key — ไม่ใช่ shape conversion จริง แต่เป็น address layer
+
+Geometry ที่รองรับ
+Geometry	Face / Vertex count
+Cube	6 faces  ·  12 edges  ·  8 vertices
+Frustum	Single cone / Circular ring cylinder
+Dodecahedron	12 faces ·  30 edges  ·  20 vertices
+Icosahedron	20 faces ·  30 edges  ·  12 vertices
+Tetrahedron ×5	20 faces compound
+Goldberg	Variable — 5/6 face symmetry only
+HEX6	6 tri   ·  1 shared center vertex  (fold target)
+
+Shared Invariant
+ตัวเลขในระบบสอดคล้องกันอยู่แล้ว (digit_sum=9 family, 5/6 symmetry) ทำให้ face_id เป็น universal address ข้าม geometry ได้โดยตรง
+
+Invariant	ใช้เป็น
+Rotational symmetry	Anchor สำหรับ face mapping
+5/6 face pattern	Goldberg ↔ HEX6 routing key
+Hilbert addressable	Global address ครอบทุก geometry
+digit_sum = 9	Sacred number family — collision-free zone
+
+Core API Concept
+face_route(src_geom, src_face_id, dst_geom)  →  dst_face_id
+
+reroute เกิดได้ทั้ง 2 จังหวะ:
+ตอน delete/fold — folded cell เปลี่ยน geometry context → tri[2] เก็บ face mapping
+ตอน access/traverse — caller resolve warp → GeoFace Router map face_id ไปยัง geometry ใหม่
+
+Relationship กับ Circuit Switch
+GeoFace Router ทำงานร่วมกับ Circuit Switch: เมื่อ relay trip ผ่าน tri[2] → GeoFace Router แปลง face_id ของ destination geometry ให้ถูกต้อง ก่อน caller เข้าถึง cell ใหม่
+
+
+8.  System Flow — ภาพรวมการทำงาน
+
+Append
+cell_append(hid, color, pair_addr, data)
+  → state = ACTIVE, geom = SQUARE
+  → link 4-connected hilbert neighbors
+
+Delete
+cell_delete(hid)
+  → ghost + fold (6 steps)
+  → transitive bypass reconnects active ends
+
+Access
+route_follow(hid)                  // normal path
+  → UINT32_MAX if ghost
+circuit_resolve(hid, key)           // relay check
+  → dest hid if trip passes
+  → UINT32_MAX if blocked (open circuit)
+
+Inter-Geometry Route
+face_route(SQUARE, face_id, HEX6)   // cube → hex6
+face_route(DODECA, face_id, ICOSA)  // cross-geometry
+
+
+9.  Security — Open Circuit Model
+
+ความปลอดภัยมาจาก topology ไม่ใช่ encryption — ตรงกับ EHCP Theory v1.0 Open Circuit concept
+
+Threat	การป้องกัน
+Enumerate complement pairs	color space มี 16.7M จุด + tri[5] condition เพิ่ม second factor
+Blind BFS ผ่าน graph	ghost cell ไม่มี edge — BFS หยุดที่ ghost ไม่ข้ามได้
+Read tri[2] ตรงๆ	tri[2] เก็บ hid แต่ circuit_resolve ต้องผ่าน tri[5] ก่อน
+Replay attack	VERSION tri[3] + BOUNDARY tri[4] เป็น challenge material
+
+Open Circuit = มีของอยู่ พิสูจน์ได้ว่ามี address occupied แต่ไม่มี return path → ดึงออกไม่ได้ — Zero-Knowledge ตามธรรมชาติของ topology
+
+
+10.  Test Coverage — ehcp_topo_poc.c
+
+Test	พิสูจน์
+T1  Append + Graph Links	cell active, SQUARE, มี edges หลัง insert
+T2  color_gate Routing	WARP / COLLISION / FILTER_BLOCK / GROUND_ABSORB ถูกต้อง
+T3  Path Before Delete	path ปกติก่อน operation ใดๆ
+T4  Delete = Ghost + Fold	state→GHOST, geom→HEX6, edges=0, data intact พร้อมกัน
+T5  Residue Zone HEX6	tri[0..4] ถูก populate อัตโนมัติ, tri[2] ว่างก่อน arm
+T6  Path Amnesia	route_follow→UINT32_MAX, gate→GROUND_ABSORB
+T7  Transitive Bypass	path 9→11 ยังอยู่หลัง delete hub(10)
+T8  Warp Redirect tri[2]	circuit_arm → resolve → new version cell
+T9  Ghost Cannot Reverse	EHCP rule: ghost block reverse
+T10 Data Immutability	data ยังอยู่ใน folded cell ทุกกรณี
+34 / 34 PASS
+
+
+11.  Summary
+
+Module	Input	Output
+cell_delete()	active cell hid	ghost+fold, bypass reroute
+circuit_arm()	folded hid, dest, cond	tri[2]+tri[5] set
+circuit_resolve()	folded hid, key	dest hid | UINT32_MAX
+color_gate()	two cell hids	WARP | COLLISION | FILTER | ABSORB
+face_route()	src_geom, face_id, dst_geom	mapped dst_face_id
+resolve_active()	any hid	first active hid in ghost chain
+
+ทั้ง 3 module ทำงานเป็น layer แยกกัน ไม่มี dependency ข้ามกัน — เรียกใช้ส่วนไหนก่อนก็ได้ delete เป็น infrastructure, circuit switch เป็น behavior ด้านบน, GeoFace Router เป็น address translation layer
+

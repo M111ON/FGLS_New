@@ -1,0 +1,151 @@
+{
+  "n_verts": 60,
+  "n_pen": 40,
+  "n_hex": 0,
+  "n_faces": 40,
+  "n_trigap": 22,
+  "pentagon_pairs": [
+    [
+      7,
+      10
+    ],
+    [
+      9,
+      11
+    ]
+  ],
+  "trigaps": [
+    {
+      "gap_id": 0,
+      "face_a": 4,
+      "face_b": 6,
+      "face_c": 32
+    },
+    {
+      "gap_id": 1,
+      "face_a": 8,
+      "face_b": 9,
+      "face_c": 12
+    },
+    {
+      "gap_id": 2,
+      "face_a": 5,
+      "face_b": 12,
+      "face_c": 29
+    },
+    {
+      "gap_id": 3,
+      "face_a": 3,
+      "face_b": 13,
+      "face_c": 24
+    },
+    {
+      "gap_id": 4,
+      "face_a": 14,
+      "face_b": 15,
+      "face_c": 38
+    },
+    {
+      "gap_id": 5,
+      "face_a": 11,
+      "face_b": 14,
+      "face_c": 16
+    },
+    {
+      "gap_id": 6,
+      "face_a": 10,
+      "face_b": 13,
+      "face_c": 24
+    },
+    {
+      "gap_id": 7,
+      "face_a": 0,
+      "face_b": 17,
+      "face_c": 33
+    },
+    {
+      "gap_id": 8,
+      "face_a": 11,
+      "face_b": 15,
+      "face_c": 38
+    },
+    {
+      "gap_id": 9,
+      "face_a": 17,
+      "face_b": 22,
+      "face_c": 34
+    },
+    {
+      "gap_id": 10,
+      "face_a": 3,
+      "face_b": 19,
+      "face_c": 28
+    },
+    {
+      "gap_id": 11,
+      "face_a": 13,
+      "face_b": 23,
+      "face_c": 25
+    },
+    {
+      "gap_id": 12,
+      "face_a": 18,
+      "face_b": 27,
+      "face_c": 37
+    },
+    {
+      "gap_id": 13,
+      "face_a": 2,
+      "face_b": 28,
+      "face_c": 30
+    },
+    {
+      "gap_id": 14,
+      "face_a": 4,
+      "face_b": 29,
+      "face_c": 31
+    },
+    {
+      "gap_id": 15,
+      "face_a": 6,
+      "face_b": 22,
+      "face_c": 34
+    },
+    {
+      "gap_id": 16,
+      "face_a": 7,
+      "face_b": 9,
+      "face_c": 12
+    },
+    {
+      "gap_id": 17,
+      "face_a": 3,
+      "face_b": 28,
+      "face_c": 35
+    },
+    {
+      "gap_id": 18,
+      "face_a": 1,
+      "face_b": 27,
+      "face_c": 36
+    },
+    {
+      "gap_id": 19,
+      "face_a": 19,
+      "face_b": 35,
+      "face_c": 37
+    },
+    {
+      "gap_id": 20,
+      "face_a": 22,
+      "face_b": 34,
+      "face_c": 38
+    },
+    {
+      "gap_id": 21,
+      "face_a": 23,
+      "face_b": 25,
+      "face_c": 39
+    }
+  ]
+}
