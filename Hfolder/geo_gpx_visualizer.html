@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GPX Grid Visualizer · O9</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600&family=Space+Mono:wght@400;700&display=swap');
+
+  :root {
+    --bg:      #080c10;
+    --panel:   #0d1318;
+    --border:  #1a2530;
+    --accent:  #00e5a0;
+    --accent2: #0096ff;
+    --accent3: #ff5f40;
+    --dim:     #3a5060;
+    --text:    #8ab0c0;
+    --bright:  #c8e0ec;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+  }
+  header h1 {
+    font-family: 'Space Mono', monospace;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+  .tag {
+    font-size: 10px;
+    padding: 2px 8px;
+    border: 1px solid var(--dim);
+    color: var(--dim);
+    border-radius: 2px;
+    letter-spacing: 0.1em;
+  }
+  .spacer { flex: 1; }
+
+  /* ── Drop zone ── */
+  #dropzone {
+    margin: 32px auto;
+    width: 480px;
+    border: 1px dashed var(--dim);
+    border-radius: 4px;
+    padding: 48px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    position: relative;
+  }
+  #dropzone:hover, #dropzone.drag { border-color: var(--accent); background: #0a1a10; }
+  #dropzone .icon {
+    font-size: 36px;
+    margin-bottom: 12px;
+    opacity: 0.5;
+  }
+  #dropzone p { color: var(--dim); line-height: 1.8; }
+  #dropzone strong { color: var(--accent); }
+  #fileinput { display:none; }
+
+  /* ── Status bar ── */
+  #status {
+    font-size: 11px;
+    padding: 8px 24px;
+    background: #060a0d;
+    border-bottom: 1px solid var(--border);
+    color: var(--dim);
+    display: none;
+    letter-spacing: 0.05em;
+  }
+  #status.ok  { color: var(--accent); }
+  #status.err { color: var(--accent3); }
+
+  /* ── View controls ── */
+  #controls {
+    display: none;
+    padding: 12px 24px;
+    gap: 8px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .ctrl-label {
+    color: var(--dim);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-right: 4px;
+  }
+  .btn {
+    padding: 4px 14px;
+    border: 1px solid var(--dim);
+    background: transparent;
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: all 0.15s;
+    letter-spacing: 0.05em;
+  }
+  .btn:hover   { border-color: var(--accent); color: var(--accent); }
+  .btn.active  { border-color: var(--accent); background: #001a10; color: var(--accent); }
+  .sep { width: 1px; height: 20px; background: var(--border); margin: 0 8px; }
+
+  /* tile size slider */
+  input[type=range] {
+    -webkit-appearance: none;
+    width: 100px; height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    outline: none;
+    vertical-align: middle;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+  }
+
+  /* ── Main canvas area ── */
+  #views {
+    display: none;
+    padding: 20px 24px;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+
+  .view-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .view-card.hidden { display: none; }
+
+  .view-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    background: #0a1018;
+  }
+  .view-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--bright);
+    font-weight: 600;
+  }
+  .view-sub {
+    font-size: 10px;
+    color: var(--dim);
+  }
+  .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .canvas-wrap {
+    overflow: auto;
+    max-width: 90vw;
+    max-height: 600px;
+    background: #050810;
+    image-rendering: pixelated;
+  }
+  .canvas-wrap canvas {
+    display: block;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+  }
+
+  /* ── Info panel ── */
+  #info {
+    display: none;
+    padding: 16px 24px;
+    gap: 32px;
+    flex-wrap: wrap;
+    border-top: 1px solid var(--border);
+    background: var(--panel);
+  }
+  .info-group { min-width: 160px; }
+  .info-label {
+    font-size: 10px;
+    color: var(--dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 4px;
+  }
+  .info-val {
+    font-size: 14px;
+    color: var(--bright);
+    font-weight: 400;
+  }
+  .info-val span { color: var(--accent); }
+
+  /* ── Legend ── */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px 24px;
+    border-top: 1px solid var(--border);
+    background: #060a0d;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    color: var(--dim);
+  }
+  .legend-swatch {
+    width: 14px; height: 8px;
+    border-radius: 1px;
+    flex-shrink: 0;
+  }
+
+  /* ── Scanline overlay ── */
+  .scanlines {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(
+      to bottom,
+      transparent 0px, transparent 2px,
+      rgba(0,0,0,0.08) 2px, rgba(0,0,0,0.08) 4px
+    );
+    pointer-events: none;
+    z-index: 100;
+  }
+
+  #hover-info {
+    position: fixed;
+    background: #0d1820ee;
+    border: 1px solid var(--accent);
+    padding: 8px 12px;
+    font-size: 10px;
+    color: var(--bright);
+    line-height: 1.7;
+    pointer-events: none;
+    display: none;
+    z-index: 200;
+    border-radius: 2px;
+    min-width: 160px;
+  }
+</style>
+</head>
+<body>
+<div class="scanlines"></div>
+
+<header>
+  <h1>GPX Grid Visualizer</h1>
+  <span class="tag">O9</span>
+  <span class="tag">GPX2</span>
+  <span class="tag">GeoPixel v18</span>
+  <div class="spacer"></div>
+  <span id="filename" style="color:var(--dim);font-size:11px"></span>
+</header>
+
+<div id="status"></div>
+
+<div id="dropzone" onclick="document.getElementById('fileinput').click()">
+  <div class="icon">⬡</div>
+  <p><strong>Drop .gpx file here</strong><br>or click to browse</p>
+  <p style="margin-top:12px;font-size:10px">GPX2 format · GeoPixel v18 · O4 grid</p>
+  <input type="file" id="fileinput" accept=".gpx">
+</div>
+
+<div id="controls" style="display:none;flex-direction:row">
+  <span class="ctrl-label">View</span>
+  <button class="btn active" id="btn-decoded" onclick="toggleView('decoded')">Decoded</button>
+  <button class="btn active" id="btn-geopixel" onclick="toggleView('geopixel')">GeoPixel Grid</button>
+  <button class="btn active" id="btn-fields" onclick="toggleView('fields')">Field Map</button>
+  <button class="btn active" id="btn-overlay" onclick="toggleView('overlay')">Tile Overlay</button>
+  <div class="sep"></div>
+  <span class="ctrl-label">Zoom</span>
+  <input type="range" id="zoom" min="1" max="8" value="2" oninput="applyZoom(this.value)">
+  <span id="zoom-val" style="color:var(--accent);width:28px">×2</span>
+  <div class="sep"></div>
+  <span class="ctrl-label">Grid</span>
+  <button class="btn active" id="btn-grid" onclick="toggleGrid()">On</button>
+</div>
+
+<div id="views" style="display:none;flex-direction:row">
+  <!-- decoded image -->
+  <div class="view-card" id="card-decoded">
+    <div class="view-header">
+      <div class="dot" style="background:#00e5a0"></div>
+      <span class="view-title">Decoded</span>
+      <span class="view-sub" id="sub-decoded"></span>
+    </div>
+    <div class="canvas-wrap"><canvas id="cv-decoded"></canvas></div>
+  </div>
+
+  <!-- O4 GeoPixel grid raw -->
+  <div class="view-card" id="card-geopixel">
+    <div class="view-header">
+      <div class="dot" style="background:#0096ff"></div>
+      <span class="view-title">GeoPixel Grid</span>
+      <span class="view-sub">27×H raw O4 matrix</span>
+    </div>
+    <div class="canvas-wrap"><canvas id="cv-geopixel"></canvas></div>
+  </div>
+
+  <!-- geometric field map -->
+  <div class="view-card" id="card-fields">
+    <div class="view-header">
+      <div class="dot" style="background:#ff5f40"></div>
+      <span class="view-title">Field Map</span>
+      <span class="view-sub" id="sub-fields">trit / spoke / fibo</span>
+    </div>
+    <div class="canvas-wrap"><canvas id="cv-fields"></canvas></div>
+    <div class="legend" id="legend-fields"></div>
+  </div>
+
+  <!-- decoded + tile grid overlay -->
+  <div class="view-card" id="card-overlay">
+    <div class="view-header">
+      <div class="dot" style="background:#f0c040"></div>
+      <span class="view-title">Tile Overlay</span>
+      <span class="view-sub" id="sub-overlay"></span>
+    </div>
+    <div class="canvas-wrap"><canvas id="cv-overlay"></canvas></div>
+  </div>
+</div>
+
+<!-- hover tooltip -->
+<div id="hover-info"></div>
+
+<!-- info strip -->
+<div id="info" style="display:none;flex-direction:row">
+  <div class="info-group">
+    <div class="info-label">Image</div>
+    <div class="info-val" id="inf-size">—</div>
+  </div>
+  <div class="info-group">
+    <div class="info-label">Tiles</div>
+    <div class="info-val" id="inf-tiles">—</div>
+  </div>
+  <div class="info-group">
+    <div class="info-label">O4 Grid</div>
+    <div class="info-val" id="inf-grid">—</div>
+  </div>
+  <div class="info-group">
+    <div class="info-label">GPX Size</div>
+    <div class="info-val" id="inf-gpxsz">—</div>
+  </div>
+  <div class="info-group">
+    <div class="info-label">Total rows</div>
+    <div class="info-val" id="inf-rows">—</div>
+  </div>
+</div>
+
+<script>
+// ─── State ───────────────────────────────────────────────
+let G = null;   // parsed gpx data
+let ZOOM = 2;
+let SHOW_GRID = true;
+let activeViews = {decoded:true, geopixel:true, fields:true, overlay:true};
+let fieldMode = 0; // 0=trit,1=spoke,2=fibo,3=coset
+
+// ─── Drop / file input ───────────────────────────────────
+const dz = document.getElementById('dropzone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('drag');
+  const f = e.dataTransfer.files[0];
+  if(f) loadFile(f);
+});
+document.getElementById('fileinput').onchange = e => {
+  if(e.target.files[0]) loadFile(e.target.files[0]);
+};
+
+function setStatus(msg, cls='') {
+  const s = document.getElementById('status');
+  s.textContent = msg; s.className = cls; s.style.display = 'block';
+}
+
+// ─── GPX parser ──────────────────────────────────────────
+async function loadFile(file) {
+  setStatus('Reading ' + file.name + '…');
+  document.getElementById('filename').textContent = file.name;
+  const buf = await file.arrayBuffer();
+  const raw = new Uint8Array(buf);
+  try {
+    G = parseGPX(raw, buf);
+    document.getElementById('dropzone').style.display = 'none';
+    renderAll();
+    showUI();
+    setStatus(`✓  ${file.name}  —  ${file.size} B  —  ${G.TW}×${G.TH} tiles  —  ${G.W}×${G.H} px`, 'ok');
+  } catch(e) {
+    setStatus('Error: ' + e.message, 'err');
+  }
+}
+
+function r16be(u8, off) { return (u8[off]<<8)|u8[off+1]; }
+function r32be(u8, off) { return ((u8[off]<<24)|(u8[off+1]<<16)|(u8[off+2]<<8)|u8[off+3])>>>0; }
+
+function parseGPX(u8, buf) {
+  if(u8[0]!==0x47||u8[1]!==0x50||u8[2]!==0x58||u8[3]!==0x32)
+    throw new Error('Bad magic — not GPX2');
+  const TW = r16be(u8,4), TH = r16be(u8,6);
+  const NT = r32be(u8,8);
+  const totalRows = r32be(u8,12);
+  const W = TW*32, H = TH*32;
+
+  const tileRows = new Uint16Array(NT);
+  const tileBsz  = new Uint32Array(NT);
+  for(let i=0;i<NT;i++){
+    const base = 16+i*6;
+    tileRows[i] = r16be(u8,base);
+    tileBsz[i]  = r32be(u8,base+2);
+  }
+  const pngOffset = 16+NT*6;
+
+  // Decode PNG via Image element
+  const pngBlob = new Blob([buf.slice(pngOffset)], {type:'image/png'});
+  const pngUrl  = URL.createObjectURL(pngBlob);
+
+  return { TW, TH, NT, totalRows, W, H, tileRows, tileBsz, pngUrl, raw:u8, pngOffset };
+}
+
+// ─── Geo field decode (mirrors geo_pixel.h) ──────────────
+// GeoPixel encode: R=((i%27)<<3)|(i%6), G=((i%9)<<4)|(i%26&0xF), B=i%144
+// But stored XOR'd with blob bytes — so raw grid shows mixed signal.
+// For field map we show the BASE pattern (slot_idx geometry) by computing
+// from grid position directly: slot = row*27+col
+function geoFieldsAt(row, col) {
+  const idx = row*27+col;
+  const trit  = idx%27;
+  const spoke = idx%6;
+  const coset = idx%9;
+  const fibo  = idx%144;
+  return {trit,spoke,coset,fibo};
+}
+
+// ─── Color mappings ──────────────────────────────────────
+function tritColor(t) {
+  const h = (t/27)*360;
+  return `hsl(${h},70%,55%)`;
+}
+function spokeColor(s) {
+  const h = [180,220,280,320,30,90][s]||0;
+  return `hsl(${h},80%,55%)`;
+}
+function fiboColor(f) {
+  const h = (f/144)*360;
+  return `hsl(${h},60%,50%)`;
+}
+function cosetColor(c) {
+  const h = (c/9)*300+30;
+  return `hsl(${h},65%,52%)`;
+}
+
+// ─── Render pipeline ─────────────────────────────────────
+function renderAll() {
+  const img = new Image();
+  img.onload = () => {
+    G.geoImg = img;
+    // extract raw pixel data from PNG
+    const tmp = document.createElement('canvas');
+    tmp.width=27; tmp.height=G.totalRows;
+    const ctx2 = tmp.getContext('2d');
+    ctx2.drawImage(img,0,0);
+    G.geoPixels = ctx2.getImageData(0,0,27,G.totalRows);
+    renderDecoded();
+    renderGeoPixel();
+    renderFields();
+    renderOverlay();
+    updateInfo();
+  };
+  img.src = G.pngUrl;
+}
+
+function px(canvas, W, H) {
+  canvas.width  = W*ZOOM;
+  canvas.height = H*ZOOM;
+  canvas.style.width  = W*ZOOM+'px';
+  canvas.style.height = H*ZOOM+'px';
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  return ctx;
+}
+
+// View A: decoded BMP pixels via GPX → reconstruct via O4
+// (We don't run C in browser — we show the decoded BMP if user has it,
+//  otherwise render the raw PNG with a label)
+function renderDecoded() {
+  const cv = document.getElementById('cv-decoded');
+  const ctx = px(cv, G.W, G.H);
+  // Show reconstructed from geo grid (visual approximation — XOR reveal)
+  // We render tile blocks with average color from geo grid rows
+  ctx.fillStyle = '#050810';
+  ctx.fillRect(0,0,cv.width,cv.height);
+
+  const d = G.geoPixels.data;
+  let rowCursor = 0;
+  for(let i=0;i<G.NT;i++){
+    const tx=i%G.TW, ty=Math.floor(i/G.TW);
+    const x0=tx*32, y0=ty*32;
+    const gh=G.tileRows[i];
+    const bsz=G.tileBsz[i];
+
+    // average geo pixel color for this tile's rows
+    let rSum=0,gSum=0,bSum=0,n=0;
+    for(let r=0;r<gh;r++){
+      for(let c=0;c<27;c++){
+        const pi=((rowCursor+r)*27+c)*4;
+        rSum+=d[pi];gSum+=d[pi+1];bSum+=d[pi+2];n++;
+      }
+    }
+    if(n>0){
+      const ar=rSum/n, ag=gSum/n, ab=bSum/n;
+      ctx.fillStyle=`rgb(${ar|0},${ag|0},${ab|0})`;
+      ctx.fillRect(x0*ZOOM,y0*ZOOM,32*ZOOM,32*ZOOM);
+    }
+
+    // draw tile info: blob_sz
+    if(ZOOM>=2){
+      ctx.fillStyle='rgba(0,229,160,0.12)';
+      ctx.fillRect(x0*ZOOM,y0*ZOOM,32*ZOOM,32*ZOOM);
+      if(ZOOM>=3){
+        ctx.fillStyle='rgba(0,229,160,0.6)';
+        ctx.font=`${ZOOM*3}px JetBrains Mono`;
+        ctx.fillText(`${bsz}B`, x0*ZOOM+2, y0*ZOOM+ZOOM*4);
+        ctx.fillText(`${gh}r`,  x0*ZOOM+2, y0*ZOOM+ZOOM*8);
+      }
+    }
+    rowCursor+=gh;
+  }
+  document.getElementById('sub-decoded').textContent=`${G.W}×${G.H}  ${G.NT} tiles`;
+  if(SHOW_GRID) drawTileGrid(ctx, G.W, G.H, G.TW, G.TH, 'rgba(0,229,160,0.35)');
+  addHoverDecoded(cv);
+}
+
+function renderGeoPixel() {
+  const cv = document.getElementById('cv-geopixel');
+  // show raw O4 PNG stretched to image dimensions for comparison
+  const ctx = px(cv, 27, G.totalRows);
+  ctx.drawImage(G.geoImg, 0, 0, 27*ZOOM, G.totalRows*ZOOM);
+  // tile boundaries on geo grid
+  if(SHOW_GRID){
+    let rowCursor=0;
+    ctx.strokeStyle='rgba(0,229,160,0.5)';
+    ctx.lineWidth=1/ZOOM;
+    ctx.setLineDash([2,2]);
+    for(let i=0;i<G.NT;i++){
+      const gh=G.tileRows[i];
+      if(rowCursor>0){
+        const y=rowCursor*ZOOM;
+        ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(27*ZOOM,y); ctx.stroke();
+      }
+      rowCursor+=gh;
+    }
+    ctx.setLineDash([]);
+  }
+}
+
+function renderFields() {
+  const cv = document.getElementById('cv-fields');
+  const ctx = px(cv, 27, G.totalRows);
+  ctx.fillStyle='#050810'; ctx.fillRect(0,0,cv.width,cv.height);
+
+  for(let r=0;r<G.totalRows;r++){
+    for(let c=0;c<27;c++){
+      const {trit,spoke,fibo,coset}=geoFieldsAt(r,c);
+      let col;
+      if(fieldMode===0) col=tritColor(trit);
+      else if(fieldMode===1) col=spokeColor(spoke);
+      else if(fieldMode===2) col=fiboColor(fibo);
+      else col=cosetColor(coset);
+      ctx.fillStyle=col;
+      ctx.fillRect(c*ZOOM, r*ZOOM, ZOOM, ZOOM);
+    }
+  }
+  // tile row dividers
+  if(SHOW_GRID){
+    let rowCursor=0;
+    ctx.strokeStyle='rgba(255,255,255,0.25)';
+    ctx.lineWidth=1;
+    for(let i=0;i<G.NT;i++){
+      const gh=G.tileRows[i];
+      if(rowCursor>0){
+        ctx.beginPath(); ctx.moveTo(0,rowCursor*ZOOM); ctx.lineTo(27*ZOOM,rowCursor*ZOOM); ctx.stroke();
+      }
+      rowCursor+=gh;
+    }
+  }
+  buildLegend();
+}
+
+function renderOverlay() {
+  const cv = document.getElementById('cv-overlay');
+  const ctx = px(cv, G.W, G.H);
+  ctx.fillStyle='#050810'; ctx.fillRect(0,0,cv.width,cv.height);
+
+  // per-tile: color by blob_sz (compression density)
+  const sizes = Array.from(G.tileBsz);
+  const maxSz = Math.max(...sizes), minSz = Math.min(...sizes);
+
+  for(let i=0;i<G.NT;i++){
+    const tx=i%G.TW, ty=Math.floor(i/G.TW);
+    const x0=tx*32*ZOOM, y0=ty*32*ZOOM;
+    const sz=G.tileBsz[i];
+    const t=(maxSz>minSz)?(sz-minSz)/(maxSz-minSz):0.5;
+    // cool→warm: blue (low entropy) → red (high entropy)
+    const h=((1-t)*220)|0;
+    const s=70, l=35+t*20;
+    ctx.fillStyle=`hsl(${h},${s}%,${l}%)`;
+    ctx.fillRect(x0,y0,32*ZOOM,32*ZOOM);
+
+    // label
+    if(ZOOM>=2){
+      ctx.fillStyle=`hsla(${h},${s}%,${l+40}%,0.9)`;
+      ctx.font=`${Math.max(9,ZOOM*3)}px JetBrains Mono`;
+      ctx.fillText(`${sz}B`, x0+2, y0+ZOOM*4);
+    }
+  }
+  if(SHOW_GRID) drawTileGrid(ctx,G.W,G.H,G.TW,G.TH,'rgba(255,255,255,0.4)');
+  document.getElementById('sub-overlay').textContent=
+    `entropy heatmap  min=${minSz}B  max=${maxSz}B`;
+  addHoverOverlay(cv);
+}
+
+function drawTileGrid(ctx, W, H, TW, TH, color) {
+  ctx.strokeStyle=color;
+  ctx.lineWidth=1;
+  for(let tx=0;tx<=TW;tx++){
+    ctx.beginPath();
+    ctx.moveTo(tx*32*ZOOM,0);
+    ctx.lineTo(tx*32*ZOOM,H*ZOOM);
+    ctx.stroke();
+  }
+  for(let ty=0;ty<=TH;ty++){
+    ctx.beginPath();
+    ctx.moveTo(0,ty*32*ZOOM);
+    ctx.lineTo(W*ZOOM,ty*32*ZOOM);
+    ctx.stroke();
+  }
+}
+
+// ─── Legend for field map ─────────────────────────────────
+function buildLegend(){
+  const el=document.getElementById('legend-fields');
+  el.innerHTML='';
+  const modes=[
+    {label:'Trit (mod 27)',fn:tritColor,n:6,max:27},
+    {label:'Spoke (mod 6)',fn:spokeColor,n:6,max:6},
+    {label:'Fibo (mod 144)',fn:fiboColor,n:8,max:144},
+    {label:'Coset (mod 9)',fn:cosetColor,n:6,max:9},
+  ];
+  const m=modes[fieldMode];
+  for(let k=0;k<m.n;k++){
+    const v=Math.round(k*m.max/(m.n-1));
+    const item=document.createElement('div');
+    item.className='legend-item';
+    item.innerHTML=`<div class="legend-swatch" style="background:${m.fn(v)}"></div>${v}`;
+    el.appendChild(item);
+  }
+  document.getElementById('sub-fields').textContent=
+    ['trit (0..26)','spoke (0..5)','fibo (0..143)','coset (0..8)'][fieldMode];
+}
+
+// ─── Field mode toggle ────────────────────────────────────
+let fieldBtns;
+function addFieldBtns() {
+  const c=document.getElementById('controls');
+  const sep=document.createElement('div'); sep.className='sep'; c.appendChild(sep);
+  const lbl=document.createElement('span'); lbl.className='ctrl-label'; lbl.textContent='Field'; c.appendChild(lbl);
+  const modes=['Trit','Spoke','Fibo','Coset'];
+  fieldBtns=[];
+  modes.forEach((name,i)=>{
+    const b=document.createElement('button');
+    b.className='btn'+(i===0?' active':'');
+    b.textContent=name;
+    b.onclick=()=>{ fieldMode=i; fieldBtns.forEach((x,j)=>x.classList.toggle('active',j===i)); renderFields(); };
+    c.appendChild(b);
+    fieldBtns.push(b);
+  });
+}
+
+// ─── Hover tooltips ───────────────────────────────────────
+const hi=document.getElementById('hover-info');
+function addHoverDecoded(cv) {
+  cv.onmousemove=e=>{
+    const r=cv.getBoundingClientRect();
+    const px2=Math.floor((e.clientX-r.left)/ZOOM);
+    const py2=Math.floor((e.clientY-r.top)/ZOOM);
+    const tx=Math.floor(px2/32), ty=Math.floor(py2/32);
+    if(tx>=G.TW||ty>=G.TH){hi.style.display='none';return;}
+    const i=ty*G.TW+tx;
+    hi.style.display='block';
+    hi.style.left=(e.clientX+12)+'px'; hi.style.top=(e.clientY+8)+'px';
+    hi.innerHTML=`<b>Tile [${tx},${ty}]</b><br>idx=${i}<br>grid_rows=${G.tileRows[i]}<br>blob_sz=${G.tileBsz[i]} B<br>px=[${px2},${py2}]`;
+  };
+  cv.onmouseleave=()=>hi.style.display='none';
+}
+function addHoverOverlay(cv) {
+  const sizes=Array.from(G.tileBsz);
+  const maxSz=Math.max(...sizes),minSz=Math.min(...sizes);
+  cv.onmousemove=e=>{
+    const r=cv.getBoundingClientRect();
+    const px2=Math.floor((e.clientX-r.left)/ZOOM);
+    const py2=Math.floor((e.clientY-r.top)/ZOOM);
+    const tx=Math.floor(px2/32),ty=Math.floor(py2/32);
+    if(tx>=G.TW||ty>=G.TH){hi.style.display='none';return;}
+    const i=ty*G.TW+tx;
+    const t=(maxSz>minSz)?((G.tileBsz[i]-minSz)/(maxSz-minSz)):0.5;
+    hi.style.display='block';
+    hi.style.left=(e.clientX+12)+'px'; hi.style.top=(e.clientY+8)+'px';
+    hi.innerHTML=`<b>Tile [${tx},${ty}]</b><br>blob_sz=<b>${G.tileBsz[i]} B</b><br>entropy rank=${(t*100).toFixed(0)}%<br>grid_h=${G.tileRows[i]}`;
+  };
+  cv.onmouseleave=()=>hi.style.display='none';
+}
+
+// ─── Info strip ───────────────────────────────────────────
+function updateInfo(){
+  document.getElementById('inf-size').innerHTML=`<span>${G.W}×${G.H}</span>`;
+  document.getElementById('inf-tiles').innerHTML=`<span>${G.TW}×${G.TH}</span> (${G.NT})`;
+  document.getElementById('inf-grid').innerHTML=`<span>27</span>×${G.totalRows}`;
+  document.getElementById('inf-rows').innerHTML=`<span>${G.totalRows}</span>`;
+  const gpxSz=G.raw.length;
+  const kb=(gpxSz/1024).toFixed(1);
+  document.getElementById('inf-gpxsz').innerHTML=`<span>${gpxSz}</span> B <small style="color:var(--dim)">(${kb}KB)</small>`;
+}
+
+// ─── UI toggle helpers ────────────────────────────────────
+function toggleView(v){
+  activeViews[v]=!activeViews[v];
+  document.getElementById('btn-'+v).classList.toggle('active',activeViews[v]);
+  document.getElementById('card-'+v).classList.toggle('hidden',!activeViews[v]);
+}
+function toggleGrid(){
+  SHOW_GRID=!SHOW_GRID;
+  document.getElementById('btn-grid').classList.toggle('active',SHOW_GRID);
+  document.getElementById('btn-grid').textContent=SHOW_GRID?'On':'Off';
+  if(G){ renderDecoded(); renderGeoPixel(); renderFields(); renderOverlay(); }
+}
+function applyZoom(v){
+  ZOOM=parseInt(v);
+  document.getElementById('zoom-val').textContent='×'+ZOOM;
+  if(G){ renderDecoded(); renderGeoPixel(); renderFields(); renderOverlay(); }
+}
+
+function showUI(){
+  const c=document.getElementById('controls'); c.style.display='flex';
+  const v=document.getElementById('views');    v.style.display='flex';
+  const f=document.getElementById('info');     f.style.display='flex';
+  if(!fieldBtns) addFieldBtns();
+}
+</script>
+</body>
+</html>
