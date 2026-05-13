@@ -1,0 +1,42 @@
+/*
+ * fabric_wire.h — POGLS Fabric Wiring Layer
+ * ═══════════════════════════════════════════════════════════════
+ * Implements the "Switch Gate" logic for the POGLS state machine.
+ *
+ * Principle:
+ *   The Switch Gate (bit6) determines if a packet is in STORE mode
+ *   (World A - expansion) or DRAIN mode (World B - compression).
+ *
+ * Logic:
+ *   bit6 = (trit ^ slope) & 1
+ *   - 0: STORE (Upright Triangle, Gap 0)
+ *   - 1: DRAIN (Inverted Triangle, Gap 4)
+ *
+ * This is a 1-instruction entropy + decision process.
+ * ═══════════════════════════════════════════════════════════════
+ */
+
+#ifndef FABRIC_WIRE_H
+#define FABRIC_WIRE_H
+
+#include <stdint.h>
+
+/**
+ * fabric_add_wire:
+ * Calculates the Switch Gate bit (bit6) based on the trit 
+ * and the current slope entropy.
+ *
+ * @param trit   The 3³ ternary index (0..26)
+ * @param slope  The current slope entropy value
+ * @return       0 for STORE, 1 for DRAIN
+ */
+static inline uint8_t fabric_add_wire(uint8_t trit, uint8_t slope)
+{
+    /* 
+     * bit6 = (trit ^ slope) & 1
+     * Implementation of the Trapezoid Gap state machine boundary.
+     */
+    return (trit ^ slope) & 1u;
+}
+
+#endif /* FABRIC_WIRE_H */

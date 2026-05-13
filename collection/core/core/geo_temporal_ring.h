@@ -40,7 +40,7 @@ typedef struct {
 /* ── init ── */
 static inline void tring_init(TRingCtx *r){
     memset(r,0,sizeof(TRingCtx));
-    for(int i=0;i<TEMPORAL_WALK_LEN;i++)
+    for(uint32_t i=0u; i<TEMPORAL_WALK_LEN; i++)
         r->slots[i].enc=GEO_WALK[i];
 }
 

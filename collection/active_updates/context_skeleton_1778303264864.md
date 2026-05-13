@@ -1,0 +1,12 @@
+# PROJECT CONTEXT — SKELETON
+# 9/5/2569 12:07:44
+
+[ROOTS] twinsys
+[FILES] total:403 folders:43
+[ARCH]  FGLS/Phase_lineup/Asset_core/twin_core FGLS/Phase_lineup/Asset_core FGLS/Phase_lineup/phase1 FGLS/Phase_lineup/phase10 FGLS/Phase_lineup/phase11/core FGLS/Phase_lineup/phase11 FGLS/Phase_lineup/phase12 FGLS/Phase_lineup/phase2 FGLS/Phase_lineup/phase3 FGLS/Phase_lineup/phase4 FGLS/Phase_lineup/phase5 FGLS/Phase_lineup/phase6
+[HUBS]  geo_config.h(↓30) pogls_fold.h(↓24) pogls_platform.h(↓23) geo_thirdeye.h(↓18) pogls_qrpn_phaseE.h(↓16) rest_server_s52.py(↓0) rest_server_s54.py(↓0) geo_temporal_ring.h(↓15)
+[MISS]  geo_diamond_field5.h geo_expansion_topology.h numpy PIL zlib ctypes zipfile geo_ghost_integration.h lc_gcfs lc_gcfs.server geo_net_fix.h sys xml.etree.ElementTree pathlib re struct subprocess __future__ typing ._build base64 fastapi pydantic uvicorn .lc_client argparse os shutil setuptools setuptools.command.build_py pogls_win32_compat.h pogls_wal_mmap.h pogls_delta_bridge hashlib threading time json dataclasses enum pogls_fabric psutil importlib.util multiprocessing jax torch random jax.numpy pogls_38_engine.h pogls_38_engine_bridge.h pogls_38_observers.h pogls_model_index.h pogls_weight_stream.h pogls_sdk_s4.h requests pogls_engine logging contextlib fastapi.responses llm_advisor pogls_wallet_py unittest.mock geo_net_py pogls_compress_c1 io pogls_compress_c2 pogls_mount pogls_fuse errno stat pyfuse3 trio torch.serialization pogls_weight_stream geo_net_ctypes gzip geo_net_ctypes_s29 geo_net_ctypes_s30 pogls_wallet_device GeoNetCtxFast pytest test_rest_s27 pogls_ntangle_graph_thin.h geo_net_ctypes_s32 geo_net_ctypes_s31 uuid fastapi.testclient rest_server_s32 llm_adapter_s33 msgpack score_router feedback_engine pogls_dir_scanner pogls_file_coord geo_simd_p4.h pogls_bridge starlette.middleware.base starlette.requests starlette.responses tempfile pogls_addr_codec mmap billing_units_s38 bisect collections atexit pogls_geo_layer rest_server_s53 pogls_coord_pack pogls_watchdog pogls_fingerprint pogls_snapshot_store pogls_system_health math pogls_alert_webhook pycuda.autoinit pycuda.driver pycuda.compiler asyncio
+[VER]   angular_mapper_v36.c angular_mapper_v36.h pogls_v3.h geo_kernel_seed_v2.cu hybrid_v26.c geo_kernel_seed_v3.cu geo_kernel_seed_v2.cu pyramid_v2.py hilbert_vault_v2.py hilbert_vault_v3.py hilbert_vault_v2.py hilbert_vault_v3.py
+[VAULT] fgls_twin_store lc_twin_gate pogls_twin_bridge SESSION_HANDOFF
+
+# Paste this block at start of LLM session.

@@ -114,7 +114,7 @@ static inline uint16_t tgw_stream_dispatch(TGWCtx            *ctx,
                                             const uint8_t     *data,
                                             uint32_t           size)
 {
-    TStreamPkt pkts[TSTREAM_MAX_PKTS];
+    static TStreamPkt pkts[TSTREAM_MAX_PKTS];
     uint16_t n = tstream_slice_file(pkts, data, size);
 
     for (uint16_t i = 0; i < n; i++) {

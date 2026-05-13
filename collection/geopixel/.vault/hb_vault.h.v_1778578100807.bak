@@ -1,0 +1,466 @@
+/*
+ * hb_vault.h — Folder/file packer using hamburger as compression backend
+ * ════════════════════════════════════════════════════════════════════════
+ * Replaces hilbert_vault SVG approach with native .gpx5 pipeline.
+ *
+ * Byte stream layout (before tiling):
+ *   [0..3]  magic  HBV\x01
+ *   [4..7]  n_files (uint32 LE)
+ *   [8..11] payload_bytes (uint32 LE) — total raw file bytes
+ *   --- index (n_files entries) ---
+ *   per file:
+ *     [2B] name_len
+ *     [name_len bytes] filename (relative path, UTF-8)
+ *     [4B] file_sz (uint32 LE)
+ *     [32B] sha256
+ *   --- data ---
+ *   raw bytes of each file concatenated in index order
+ *   --- pad ---
+ *   zero-pad to next tile boundary (16×16×3 bytes)
+ *
+ * Tiling: bytes packed 3-per-pixel → Y=b[0], Cg=b[1]-128, Co=b[2]-128
+ * Grid  : W = 16×tiles_x (multiples of 16), auto-sized to fit stream
+ * Tile  : 16×16 pixels = 768 bytes per tile
+ *
+ * No malloc beyond tile planes + index buffer.
+ * No external deps beyond hamburger_encode.h + sha256 (optional, inline below).
+ * ════════════════════════════════════════════════════════════════════════
+ */
+
+#ifndef HB_VAULT_H
+#define HB_VAULT_H
+
+#include <stdint.h>
+#include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+#include <sys/stat.h>
+#include <zlib.h>
+#include "hamburger_encode.h"
+
+/* ── config ──────────────────────────────────────────────────────────── */
+#define HBV_MAGIC        "HBV\x01"
+#define HBV_MAGIC_LEN    4
+#define HBV_TILE_W       16
+#define HBV_TILE_H       16
+#define HBV_TILE_BYTES   (HBV_TILE_W * HBV_TILE_H * 3)   /* 768 */
+#define HBV_TILES_X      16                                /* tiles per row → image W=256 */
+#define HBV_IMAGE_W      (HBV_TILE_W * HBV_TILES_X)       /* 256 */
+#define HBV_SEED         0xB1A4B1A4u
+
+/* ── minimal SHA-256 (self-contained, no deps) ───────────────────────── */
+typedef struct { uint32_t s[8]; uint8_t buf[64]; uint64_t len; uint32_t blen; } HbvSha256;
+
+static inline void _hbv_sha_init(HbvSha256 *c){
+    static const uint32_t iv[8]={0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,
+                                  0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19};
+    memcpy(c->s,iv,32); c->len=0; c->blen=0;
+}
+static inline void _hbv_sha_compress(uint32_t *s, const uint8_t *b){
+    static const uint32_t K[64]={
+        0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,
+        0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,
+        0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,
+        0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+        0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,
+        0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,
+        0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,
+        0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+        0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,
+        0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,
+        0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2};
+    #define RR(x,n) (((x)>>(n))|((x)<<(32-(n))))
+    uint32_t w[64],A,B,C,D,E,F,G,H,t1,t2;
+    for(int i=0;i<16;i++) w[i]=((uint32_t)b[i*4]<<24)|((uint32_t)b[i*4+1]<<16)|
+                                ((uint32_t)b[i*4+2]<<8)|(uint32_t)b[i*4+3];
+    for(int i=16;i<64;i++){
+        uint32_t s0=RR(w[i-15],7)^RR(w[i-15],18)^(w[i-15]>>3);
+        uint32_t s1=RR(w[i-2],17)^RR(w[i-2],19)^(w[i-2]>>10);
+        w[i]=w[i-16]+s0+w[i-7]+s1;
+    }
+    A=s[0];B=s[1];C=s[2];D=s[3];E=s[4];F=s[5];G=s[6];H=s[7];
+    for(int i=0;i<64;i++){
+        t1=H+(RR(E,6)^RR(E,11)^RR(E,25))+((E&F)^(~E&G))+K[i]+w[i];
+        t2=(RR(A,2)^RR(A,13)^RR(A,22))+((A&B)^(A&C)^(B&C));
+        H=G;G=F;F=E;E=D+t1;D=C;C=B;B=A;A=t1+t2;
+    }
+    s[0]+=A;s[1]+=B;s[2]+=C;s[3]+=D;s[4]+=E;s[5]+=F;s[6]+=G;s[7]+=H;
+    #undef RR
+}
+static inline void _hbv_sha_update(HbvSha256 *c, const uint8_t *d, size_t n){
+    for(size_t i=0;i<n;i++){
+        c->buf[c->blen++]=d[i]; c->len++;
+        if(c->blen==64){ _hbv_sha_compress(c->s,c->buf); c->blen=0; }
+    }
+}
+static inline void _hbv_sha_final(HbvSha256 *c, uint8_t out[32]){
+    uint64_t bits=c->len*8;
+    uint8_t pad=0x80; _hbv_sha_update(c,&pad,1);
+    while(c->blen!=56){ uint8_t z=0; _hbv_sha_update(c,&z,1); }
+    for(int i=7;i>=0;i--){ uint8_t b=(uint8_t)(bits>>(i*8)); _hbv_sha_update(c,&b,1); }
+    for(int i=0;i<8;i++) for(int j=3;j>=0;j--) out[i*4+j]=(uint8_t)(c->s[i]>>(j*8? 8*(3-j) : 0));
+    /* fix byte order */
+    for(int i=0;i<8;i++){
+        out[i*4+0]=(uint8_t)(c->s[i]>>24); out[i*4+1]=(uint8_t)(c->s[i]>>16);
+        out[i*4+2]=(uint8_t)(c->s[i]>>8);  out[i*4+3]=(uint8_t)(c->s[i]);
+    }
+}
+
+/* ── write helpers ───────────────────────────────────────────────────── */
+static inline void _hbv_w2(uint8_t *b, uint16_t v){ b[0]=v&0xFF; b[1]=(v>>8)&0xFF; }
+static inline void _hbv_w4(uint8_t *b, uint32_t v){
+    b[0]=v&0xFF;b[1]=(v>>8)&0xFF;b[2]=(v>>16)&0xFF;b[3]=(v>>24)&0xFF; }
+static inline uint16_t _hbv_r2(const uint8_t *b){ return (uint16_t)(b[0]|(b[1]<<8)); }
+static inline uint32_t _hbv_r4(const uint8_t *b){
+    return (uint32_t)(b[0]|(b[1]<<8)|(b[2]<<16)|((uint32_t)b[3]<<24)); }
+
+/* ── stream → YCgCo tile planes ─────────────────────────────────────── */
+static inline int _hbv_stream_to_planes(
+        const uint8_t *stream, size_t stream_sz,
+        int **out_Y, int **out_Cg, int **out_Co,
+        int *out_w,  int *out_h)
+{
+    /* pad to tile boundary */
+    size_t tile_bytes = HBV_TILE_BYTES;
+    size_t n_tiles    = (stream_sz + tile_bytes - 1) / tile_bytes;
+    /* snap tiles_y to fit all tiles in HBV_TILES_X columns */
+    size_t tiles_y    = (n_tiles + HBV_TILES_X - 1) / HBV_TILES_X;
+    size_t total_tiles= (size_t)HBV_TILES_X * tiles_y;
+    size_t padded_sz  = total_tiles * tile_bytes;
+
+    uint8_t *padded = (uint8_t *)calloc(padded_sz, 1);
+    if (!padded) return HB_ERR_ALLOC;
+    memcpy(padded, stream, stream_sz);
+
+    int W = HBV_IMAGE_W;                          /* 256 pixels */
+    int H = (int)(tiles_y * HBV_TILE_H);
+    int npx = W * H;
+
+    int *Y  = (int *)malloc(npx * sizeof(int));
+    int *Cg = (int *)malloc(npx * sizeof(int));
+    int *Co = (int *)malloc(npx * sizeof(int));
+    if (!Y || !Cg || !Co){ free(padded); free(Y); free(Cg); free(Co); return HB_ERR_ALLOC; }
+
+    /* fill planes: tile-major raster, 3 bytes → 1 pixel */
+    for (size_t ti = 0; ti < total_tiles; ti++) {
+        int tx = (int)(ti % HBV_TILES_X);
+        int ty = (int)(ti / HBV_TILES_X);
+        const uint8_t *src = padded + ti * tile_bytes;
+        for (int py = 0; py < HBV_TILE_H; py++) {
+            for (int px = 0; px < HBV_TILE_W; px++) {
+                int pidx = (ty * HBV_TILE_H + py) * W + (tx * HBV_TILE_W + px);
+                int si   = (py * HBV_TILE_W + px) * 3;
+                Y [pidx] = (int)src[si];
+                Cg[pidx] = (int)src[si+1] - 128;
+                Co[pidx] = (int)src[si+2] - 128;
+            }
+        }
+    }
+
+    free(padded);
+    *out_Y = Y; *out_Cg = Cg; *out_Co = Co;
+    *out_w = W; *out_h = H;
+    return HB_OK;
+}
+
+/* ── planes → stream ─────────────────────────────────────────────────── */
+static inline uint8_t *_hbv_planes_to_stream(
+        const HbImageOut *dec, size_t *out_sz)
+{
+    int W = dec->w, H = dec->h;
+    int tiles_x = W / HBV_TILE_W;
+    int tiles_y = H / HBV_TILE_H;
+    size_t total_bytes = (size_t)tiles_x * tiles_y * HBV_TILE_BYTES;
+    uint8_t *stream = (uint8_t *)malloc(total_bytes);
+    if (!stream) return NULL;
+
+    for (int ty = 0; ty < tiles_y; ty++) {
+        for (int tx = 0; tx < tiles_x; tx++) {
+            size_t ti  = (size_t)ty * tiles_x + tx;
+            uint8_t *dst = stream + ti * HBV_TILE_BYTES;
+            for (int py = 0; py < HBV_TILE_H; py++) {
+                for (int px = 0; px < HBV_TILE_W; px++) {
+                    int pidx = (ty * HBV_TILE_H + py) * W + (tx * HBV_TILE_W + px);
+                    int si   = (py * HBV_TILE_W + px) * 3;
+                    dst[si]   = (uint8_t)dec->Y [pidx];
+                    dst[si+1] = (uint8_t)(dec->Cg[pidx] + 128);
+                    dst[si+2] = (uint8_t)(dec->Co[pidx] + 128);
+                }
+            }
+        }
+    }
+    *out_sz = total_bytes;
+    return stream;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+ * hbv_pack_folder — folder path → .gpx5 vault
+ *   out_path : destination .gpx5 file
+ *   returns  : HB_OK or HB_ERR_*
+ * ════════════════════════════════════════════════════════════════════════ */
+static inline int hbv_pack_folder(const char *folder_path, const char *out_path)
+{
+    /* ── Step 1: collect files ── */
+#ifdef _WIN32
+#define HBV_SEP '\\'
+#else
+#define HBV_SEP '/'
+#endif
+    /* caller provides file list via hbv_pack_files() — see below */
+    (void)folder_path; (void)out_path;
+    return HB_ERR_TILES; /* use hbv_pack_files() directly */
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+ * hbv_pack_files — explicit file list → .gpx5 vault
+ *
+ *   files[]     : array of absolute file paths
+ *   rel_names[] : relative names stored in index (display/restore names)
+ *   n_files     : count
+ *   out_path    : destination .gpx5
+ * ════════════════════════════════════════════════════════════════════════ */
+static inline int hbv_pack_files(
+        const char **files,
+        const char **rel_names,
+        uint32_t     n_files,
+        const char  *out_path)
+{
+    if (!files || !rel_names || n_files == 0) return HB_ERR_TILES;
+
+    /* ── pass 1: measure index + data size ── */
+    size_t index_sz = HBV_MAGIC_LEN + 4 + 4;  /* magic + n_files + payload_bytes */
+    size_t data_sz  = 0;
+
+    for (uint32_t i = 0; i < n_files; i++) {
+        size_t nlen = strlen(rel_names[i]);
+        if (nlen > 0xFFFF) return HB_ERR_TILES;
+        index_sz += 2 + nlen + 4 + 32;   /* name_len + name + file_sz + sha256 */
+        FILE *f = fopen(files[i], "rb");
+        if (!f){ fprintf(stderr,"hbv: cannot open %s\n", files[i]); return HB_ERR_TILES; }
+        fseek(f, 0, SEEK_END); data_sz += (size_t)ftell(f); fclose(f);
+    }
+
+    size_t stream_sz = index_sz + data_sz;
+    uint8_t *stream  = (uint8_t *)calloc(stream_sz, 1);
+    if (!stream) return HB_ERR_ALLOC;
+
+    /* ── pass 2: write header ── */
+    uint8_t *p = stream;
+    memcpy(p, HBV_MAGIC, HBV_MAGIC_LEN); p += HBV_MAGIC_LEN;
+    _hbv_w4(p, n_files);   p += 4;
+    _hbv_w4(p, (uint32_t)data_sz); p += 4;
+
+    /* ── pass 3: write index ── */
+    /* we need file sizes first — collect them */
+    size_t *fsizes = (size_t *)malloc(n_files * sizeof(size_t));
+    if (!fsizes){ free(stream); return HB_ERR_ALLOC; }
+
+    /* temporary: read all files to compute SHA + write index + data */
+    uint8_t **fbufs = (uint8_t **)calloc(n_files, sizeof(uint8_t *));
+    if (!fbufs){ free(fsizes); free(stream); return HB_ERR_ALLOC; }
+
+    for (uint32_t i = 0; i < n_files; i++) {
+        FILE *f = fopen(files[i], "rb");
+        if (!f){ /* cleanup */ goto err; }
+        fseek(f, 0, SEEK_END); fsizes[i] = (size_t)ftell(f); rewind(f);
+        fbufs[i] = (uint8_t *)malloc(fsizes[i] ? fsizes[i] : 1);
+        if (!fbufs[i]){ fclose(f); goto err; }
+        if (fsizes[i]) fread(fbufs[i], 1, fsizes[i], f);
+        fclose(f);
+
+        /* index entry */
+        uint16_t nlen = (uint16_t)strlen(rel_names[i]);
+        _hbv_w2(p, nlen);           p += 2;
+        memcpy(p, rel_names[i], nlen); p += nlen;
+        _hbv_w4(p, (uint32_t)fsizes[i]); p += 4;
+
+        HbvSha256 sh; _hbv_sha_init(&sh);
+        _hbv_sha_update(&sh, fbufs[i], fsizes[i]);
+        _hbv_sha_final(&sh, p);    p += 32;
+    }
+
+    /* ── pass 4: write data ── */
+    for (uint32_t i = 0; i < n_files; i++) {
+        memcpy(p, fbufs[i], fsizes[i]); p += fsizes[i];
+        free(fbufs[i]); fbufs[i] = NULL;
+    }
+    free(fbufs); free(fsizes);
+
+    /* ── Step 2: zlib-compress stream → guaranteed high-entropy → NOISE tiles → RAW lossless ── */
+    uLongf comp_bound = compressBound((uLong)stream_sz);
+    uint8_t *zstream  = (uint8_t *)malloc(comp_bound + 8);
+    if (!zstream){ free(stream); return HB_ERR_ALLOC; }
+    /* store original size in first 8 bytes (little-endian uint64) */
+    uint64_t orig_sz64 = (uint64_t)stream_sz;
+    for (int _i=0;_i<8;_i++) zstream[_i]=(uint8_t)(orig_sz64>>(_i*8));
+    uLongf zlen = comp_bound;
+    if (compress2(zstream+8, &zlen, stream, (uLong)stream_sz, 9) != Z_OK){
+        free(stream); free(zstream); return HB_ERR_ALLOC;
+    }
+    free(stream);
+    size_t zstream_sz = (size_t)zlen + 8;
+    fprintf(stderr,"[hbv_pack] zlib: %zu → %zu bytes\n", stream_sz, zstream_sz);
+
+    /* ── Step 2b: zstream → YCgCo planes ── */
+    int *Y = NULL, *Cg = NULL, *Co = NULL, W = 0, H = 0;
+    int r = _hbv_stream_to_planes(zstream, zstream_sz, &Y, &Cg, &Co, &W, &H);
+    free(zstream);
+    if (r != HB_OK) return r;
+
+    /* ── Step 3: hamburger encode ── */
+    fprintf(stderr,"[hbv_pack] stream_sz=%zu W=%d H=%d tw=%d th=%d\n",
+            stream_sz, W, H, HBV_TILE_W, HBV_TILE_H);
+    HbImageIn img = { Y, Cg, Co, W, H, HBV_TILE_W, HBV_TILE_H };
+    r = hamburger_encode_image(out_path, &img, HBV_SEED, 0);
+    fprintf(stderr,"[hbv_pack] encode result=%d\n", r);
+    free(Y); free(Cg); free(Co);
+    return r;
+
+err:
+    for (uint32_t i = 0; i < n_files; i++) if (fbufs[i]) free(fbufs[i]);
+    free(fbufs); free(fsizes); free(stream);
+    return HB_ERR_ALLOC;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+ * hbv_unpack — .gpx5 vault → restore files to out_dir
+ *   verify_sha : 1 = print SHA match per file, 0 = skip
+ * ════════════════════════════════════════════════════════════════════════ */
+static inline int hbv_unpack(const char *vault_path, const char *out_dir, int verify_sha)
+{
+    /* ── Step 1: read gpx5 header to get n_tiles → compute img_h ── */
+    int img_h = 0;
+    {
+        FILE *fh = fopen(vault_path, "rb");
+        if (!fh){ fprintf(stderr,"hbv_unpack: cannot open %s\n", vault_path); return HB_ERR_IO; }
+        uint8_t hdr[24];
+        if (fread(hdr, 1, 24, fh) == 24) {
+            /* gpx5 header layout (gpx5_hdr_write):
+             *  [0..3]  magic   [4] version  [5] flags
+             *  [6..7]  n_sets  [8..9] tw   [10..11] th
+             *  [12..15] n_tiles  [16..19] global_seed ... */
+            /* gpx5 big-endian (g5r4/g5r2)
+             * NOTE: hamburger_encode_image stores tiles_x/tiles_y in tw/th fields
+             * so th_file = tiles_y, not pixel tile height.
+             * We recover: tiles_y = th_file, img_h = tiles_y * HBV_TILE_H */
+            uint16_t tiles_y_f = (uint16_t)((hdr[10]<<8)|hdr[11]);  /* th field = tiles_y */
+            uint32_t n_tiles   = ((uint32_t)hdr[12]<<24)|((uint32_t)hdr[13]<<16)|
+                                 ((uint32_t)hdr[14]<<8)|(uint32_t)hdr[15];
+            (void)n_tiles;
+            img_h = (int)tiles_y_f * HBV_TILE_H;
+        }
+        fclose(fh);
+    }
+    fprintf(stderr,"[hbv_unpack] img_h=%d\n", img_h);
+    if (img_h <= 0){ fprintf(stderr,"hbv_unpack: bad gpx5 header\n"); return HB_ERR_IO; }
+
+    /* ── Step 2: hamburger decode ── */
+    HbImageOut dec;
+    memset(&dec, 0, sizeof(dec));
+    int r = hamburger_decode_image(vault_path, &dec,
+                                   HBV_IMAGE_W, img_h,
+                                   HBV_TILE_W, HBV_TILE_H);
+    if (r != HB_OK){
+        fprintf(stderr, "hbv_unpack: decode failed (%d)\n", r); return r;
+    }
+
+    /* ── Step 3: planes → zstream ── */
+    size_t zstream_sz = 0;
+    uint8_t *zstream  = _hbv_planes_to_stream(&dec, &zstream_sz);
+    hb_image_out_free(&dec);
+    if (!zstream) return HB_ERR_ALLOC;
+
+    /* ── Step 4: zlib-decompress ── */
+    if (zstream_sz < 8){ free(zstream); return HB_ERR_TILES; }
+    uint64_t orig_sz64 = 0;
+    for (int _i=0;_i<8;_i++) orig_sz64 |= ((uint64_t)zstream[_i])<<(_i*8);
+    uint8_t *stream = (uint8_t *)malloc((size_t)orig_sz64);
+    if (!stream){ free(zstream); return HB_ERR_ALLOC; }
+    uLongf stream_sz = (uLongf)orig_sz64;
+    if (uncompress(stream, &stream_sz, zstream+8, (uLong)(zstream_sz-8)) != Z_OK){
+        fprintf(stderr,"hbv_unpack: zlib decompress failed\n");
+        free(zstream); free(stream); return HB_ERR_TILES;
+    }
+    free(zstream);
+
+    /* ── Step 5: parse header ── */
+    const uint8_t *p = stream;
+    if (stream_sz < HBV_MAGIC_LEN + 8 || memcmp(p, HBV_MAGIC, HBV_MAGIC_LEN) != 0){
+        fprintf(stderr, "hbv_unpack: bad magic\n"); free(stream); return HB_ERR_TILES;
+    }
+    p += HBV_MAGIC_LEN;
+    uint32_t n_files    = _hbv_r4(p); p += 4;
+    uint32_t payload_sz = _hbv_r4(p); p += 4;
+    (void)payload_sz;
+
+    /* ── Step 6: parse index ── */
+    const uint8_t **names = (const uint8_t **)malloc(n_files * sizeof(uint8_t *));
+    uint16_t       *nlens = (uint16_t *)malloc(n_files * sizeof(uint16_t));
+    uint32_t       *fsizes= (uint32_t *)malloc(n_files * sizeof(uint32_t));
+    uint8_t        (*shas)[32] = (uint8_t (*)[32])malloc(n_files * 32);
+    if (!names || !nlens || !fsizes || !shas){ free(stream); return HB_ERR_ALLOC; }
+
+    for (uint32_t i = 0; i < n_files; i++) {
+        nlens[i] = _hbv_r2(p);       p += 2;
+        names[i] = p;                 p += nlens[i];
+        fsizes[i]= _hbv_r4(p);       p += 4;
+        memcpy(shas[i], p, 32);       p += 32;
+    }
+
+    /* p now points to data section */
+    const uint8_t *data_p = p;
+    int ok_count = 0;
+
+    for (uint32_t i = 0; i < n_files; i++) {
+        /* build output path */
+        char rel[512]; uint16_t nl = nlens[i] < 511 ? nlens[i] : 511;
+        memcpy(rel, names[i], nl); rel[nl] = '\0';
+        /* replace backslash */
+        for (int k = 0; rel[k]; k++) if (rel[k]=='\\') rel[k]='/';
+
+        char full[1024];
+        snprintf(full, sizeof(full), "%s/%s", out_dir, rel);
+
+        /* mkdir -p: create parent dirs */
+        for (char *q = full + strlen(out_dir) + 1; *q; q++) {
+            if (*q == '/') {
+                *q = '\0';
+#ifdef _WIN32
+                _mkdir(full);
+#else
+                mkdir(full, 0755);
+#endif
+                *q = '/';
+            }
+        }
+
+        FILE *f = fopen(full, "wb");
+        if (!f){ fprintf(stderr, "hbv: cannot write %s\n", full); data_p += fsizes[i]; continue; }
+        fwrite(data_p, 1, fsizes[i], f);
+        fclose(f);
+
+        if (verify_sha) {
+            HbvSha256 sh; _hbv_sha_init(&sh);
+            _hbv_sha_update(&sh, data_p, fsizes[i]);
+            uint8_t got[32]; _hbv_sha_final(&sh, got);
+            int match = memcmp(got, shas[i], 32) == 0;
+            printf("  %s %s (%uB)\n", match ? "OK" : "MISMATCH", rel, fsizes[i]);
+            if (match) ok_count++;
+        } else {
+            ok_count++;
+        }
+
+        data_p += fsizes[i];
+    }
+
+    if (verify_sha)
+        printf("\nhbv_unpack: %d/%d files OK\n", ok_count, (int)n_files);
+    else
+        printf("hbv_unpack: %d files restored → %s\n", ok_count, out_dir);
+
+    free(names); free(nlens); free(fsizes); free(shas); free(stream);
+    return HB_OK;
+}
+
+#endif /* HB_VAULT_H */

@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Real GP15 Entropy Map</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background:#07090f;
+  color:#b0bcd0;
+  font-family:'Courier New',monospace;
+  display:flex; flex-direction:column; align-items:center;
+  padding:28px; min-height:100vh;
+}
+h1 { font-size:11px; letter-spacing:5px; color:#3a6a8a; margin-bottom:3px; }
+.sub { font-size:9px; color:#2a3545; letter-spacing:3px; margin-bottom:20px; }
+.wrap { display:flex; gap:28px; align-items:flex-start; flex-wrap:wrap; justify-content:center; }
+canvas { border:1px solid #111820; }
+.panel { width:240px; font-size:10px; line-height:2; }
+.panel h2 { font-size:9px; letter-spacing:3px; color:#3a6a8a; border-bottom:1px solid #111820; padding-bottom:4px; margin-bottom:8px; }
+.row { display:flex; justify-content:space-between; }
+.lbl { color:#445566; }
+.val { color:#d4a840; }
+.hi  { color:#ff5555; }
+.lo  { color:#55ffaa; }
+.sep { border-top:1px solid #111820; margin:8px 0; }
+.ann { font-size:9px; color:#334; line-height:1.7; margin-top:8px; }
+.ann span { color:#7a9ab5; }
+.legend { display:flex; gap:10px; margin-top:10px; flex-wrap:wrap; }
+.leg { display:flex; align-items:center; gap:5px; font-size:9px; color:#445; }
+.lbox { width:10px; height:10px; }
+button {
+  background:#0c1018; border:1px solid #1e2d3d; color:#6a8aaa;
+  font-family:'Courier New',monospace; font-size:9px; letter-spacing:2px;
+  padding:5px 10px; cursor:pointer; transition:all .15s; margin:2px;
+}
+button:hover, button.on { background:#141e2a; color:#b0cce0; border-color:#3a6a8a; }
+.controls { margin-bottom:14px; }
+</style>
+</head>
+<body>
+<h1>REAL GP15 ENTROPY MAP</h1>
+<div class="sub">8×8 tile grid — blob_sz from actual encode</div>
+
+<div class="controls">
+  <button class="on" id="bHeat" onclick="setView('heat')">HEATMAP</button>
+  <button id="bRaw"  onclick="setView('raw')">RAW VALUES</button>
+  <button id="bDiff" onclick="setView('diff')">ΔNEIGHBOR</button>
+  <button id="bPent" onclick="togglePent()">PENTAGON OVERLAY</button>
+</div>
+
+<div class="wrap">
+  <div>
+    <canvas id="c" width="480" height="480"></canvas>
+    <div class="legend">
+      <div class="leg"><div class="lbox" style="background:#0033aa"></div>low entropy</div>
+      <div class="leg"><div class="lbox" style="background:#00cc66"></div>mid</div>
+      <div class="leg"><div class="lbox" style="background:#ff4400"></div>high entropy</div>
+      <div class="leg"><div class="lbox" style="background:none;border:2px solid #ff3333"></div>⬠ pentagon?</div>
+      <div class="leg"><div class="lbox" style="background:none;border:2px solid #ffcc00"></div>◇ apex</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>TILE STATS</h2>
+    <div class="row"><span class="lbl">grid</span><span class="val">8×8 = 64 tiles</span></div>
+    <div class="row"><span class="lbl">image</span><span class="val">256×256 px</span></div>
+    <div class="row"><span class="lbl">tile size</span><span class="val">32×32 px</span></div>
+    <div class="row"><span class="lbl">blob min</span><span class="lo">216 B</span></div>
+    <div class="row"><span class="lbl">blob max</span><span class="hi">472 B</span></div>
+    <div class="row"><span class="lbl">blob mean</span><span class="val">258 B</span></div>
+    <div class="sep"></div>
+    <h2>PATTERN DETECTED</h2>
+    <div class="row"><span class="lbl">blob=361</span><span class="hi" id="p361">—</span></div>
+    <div class="row"><span class="lbl">pattern</span><span class="val" id="pPat">—</span></div>
+    <div class="row"><span class="lbl">361 = 19²</span><span class="val">structural?</span></div>
+    <div class="sep"></div>
+    <h2>HOVER</h2>
+    <div class="row"><span class="lbl">tile</span><span class="val" id="hXY">—</span></div>
+    <div class="row"><span class="lbl">blob_sz</span><span class="val" id="hSz">—</span></div>
+    <div class="row"><span class="lbl">rank</span><span class="val" id="hRank">—</span></div>
+    <div class="row"><span class="lbl">Δneighbor</span><span class="val" id="hDelta">—</span></div>
+    <div class="sep"></div>
+    <h2>PENTAGON CHECK</h2>
+    <div class="ann" id="annText">
+      กำลัง detect pattern...<br>
+      จุด blob_sz=361 อยู่บน anti-diagonal<br>
+      361 = 19² = <span>structural seam?</span>
+    </div>
+  </div>
+</div>
+
+<script>
+// Real data from gp15 encode
+const TW=8, TH=8, CELL=60;
+const tiles = [
+  {tx:0,ty:0,sz:235},{tx:1,ty:0,sz:411},{tx:2,ty:0,sz:411},{tx:3,ty:0,sz:411},
+  {tx:4,ty:0,sz:411},{tx:5,ty:0,sz:411},{tx:6,ty:0,sz:412},{tx:7,ty:0,sz:472},
+  {tx:0,ty:1,sz:227},{tx:1,ty:1,sz:224},{tx:2,ty:1,sz:224},{tx:3,ty:1,sz:224},
+  {tx:4,ty:1,sz:224},{tx:5,ty:1,sz:224},{tx:6,ty:1,sz:361},{tx:7,ty:1,sz:224},
+  {tx:0,ty:2,sz:227},{tx:1,ty:2,sz:224},{tx:2,ty:2,sz:224},{tx:3,ty:2,sz:224},
+  {tx:4,ty:2,sz:224},{tx:5,ty:2,sz:361},{tx:6,ty:2,sz:224},{tx:7,ty:2,sz:216},
+  {tx:0,ty:3,sz:227},{tx:1,ty:3,sz:224},{tx:2,ty:3,sz:224},{tx:3,ty:3,sz:224},
+  {tx:4,ty:3,sz:361},{tx:5,ty:3,sz:224},{tx:6,ty:3,sz:216},{tx:7,ty:3,sz:216},
+  {tx:0,ty:4,sz:227},{tx:1,ty:4,sz:224},{tx:2,ty:4,sz:224},{tx:3,ty:4,sz:361},
+  {tx:4,ty:4,sz:224},{tx:5,ty:4,sz:216},{tx:6,ty:4,sz:216},{tx:7,ty:4,sz:216},
+  {tx:0,ty:5,sz:227},{tx:1,ty:5,sz:224},{tx:2,ty:5,sz:361},{tx:3,ty:5,sz:224},
+  {tx:4,ty:5,sz:216},{tx:5,ty:5,sz:216},{tx:6,ty:5,sz:216},{tx:7,ty:5,sz:216},
+  {tx:0,ty:6,sz:227},{tx:1,ty:6,sz:361},{tx:2,ty:6,sz:224},{tx:3,ty:6,sz:216},
+  {tx:4,ty:6,sz:216},{tx:5,ty:6,sz:216},{tx:6,ty:6,sz:216},{tx:7,ty:6,sz:216},
+  {tx:0,ty:7,sz:378},{tx:1,ty:7,sz:224},{tx:2,ty:7,sz:216},{tx:3,ty:7,sz:216},
+  {tx:4,ty:7,sz:216},{tx:5,ty:7,sz:216},{tx:6,ty:7,sz:216},{tx:7,ty:7,sz:216},
+];
+
+const szMap = {};
+tiles.forEach(t => szMap[`${t.tx},${t.ty}`] = t.sz);
+function get(tx,ty){ return szMap[`${tx},${ty}`]||0; }
+
+const sizes = tiles.map(t=>t.sz);
+const minSz = Math.min(...sizes), maxSz = Math.max(...sizes);
+const sorted = [...tiles].sort((a,b)=>a.sz-b.sz);
+const rankMap = {};
+sorted.forEach((t,i)=>rankMap[`${t.tx},${t.ty}`]=i+1);
+
+// detect 361 diagonal
+const pts361 = tiles.filter(t=>t.sz===361);
+
+let view = 'heat';
+let showPent = true;
+
+function heatColor(sz) {
+  const t = (sz - minSz) / (maxSz - minSz);
+  // blue(low) → green(mid) → red(high)
+  let r,g,b;
+  if(t < 0.5) {
+    const s = t*2;
+    r=0; g=Math.round(s*200); b=Math.round((1-s)*200+55);
+  } else {
+    const s=(t-0.5)*2;
+    r=Math.round(s*255); g=Math.round((1-s)*180); b=0;
+  }
+  return `rgb(${r},${g},${b})`;
+}
+
+function neighborDelta(tx,ty) {
+  const cx = get(tx,ty);
+  let sum=0, n=0;
+  [[-1,0],[1,0],[0,-1],[0,1]].forEach(([dx,dy])=>{
+    const nx=tx+dx, ny=ty+dy;
+    if(nx>=0&&nx<TW&&ny>=0&&ny<TH){ sum+=Math.abs(get(nx,ny)-cx); n++; }
+  });
+  return n?Math.round(sum/n):0;
+}
+
+function render() {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  // compute delta range for diff view
+  const deltas = tiles.map(t=>neighborDelta(t.tx,t.ty));
+  const maxD = Math.max(...deltas)||1;
+
+  tiles.forEach(({tx,ty,sz}) => {
+    const x=tx*CELL, y=ty*CELL;
+    if(view==='heat') {
+      ctx.fillStyle = heatColor(sz);
+    } else if(view==='raw') {
+      const t=(sz-minSz)/(maxSz-minSz);
+      const v=Math.round(30+t*200);
+      ctx.fillStyle=`rgb(${v},${v},${v})`;
+    } else {
+      const d=neighborDelta(tx,ty);
+      const t=d/maxD;
+      const v=Math.round(t*255);
+      ctx.fillStyle=`rgb(${v},${Math.round((1-t)*120)},${Math.round((1-t)*200)})`;
+    }
+    ctx.fillRect(x,y,CELL,CELL);
+
+    // value label
+    ctx.fillStyle='rgba(0,0,0,0.5)';
+    ctx.font='9px Courier New';
+    ctx.fillText(sz, x+4, y+CELL-6);
+  });
+
+  // grid lines
+  ctx.strokeStyle='rgba(10,15,25,0.8)'; ctx.lineWidth=1;
+  for(let i=0;i<=TW;i++){
+    ctx.beginPath(); ctx.moveTo(i*CELL,0); ctx.lineTo(i*CELL,TH*CELL); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0,i*CELL); ctx.lineTo(TW*CELL,i*CELL); ctx.stroke();
+  }
+
+  if(showPent) {
+    // highlight 361 diagonal — potential seam/apex
+    pts361.forEach(({tx,ty})=>{
+      const x=tx*CELL, y=ty*CELL;
+      ctx.strokeStyle='#ffcc00'; ctx.lineWidth=2;
+      ctx.strokeRect(x+2,y+2,CELL-4,CELL-4);
+      // diamond
+      ctx.beginPath();
+      ctx.moveTo(x+CELL/2, y+4);
+      ctx.lineTo(x+CELL-4, y+CELL/2);
+      ctx.lineTo(x+CELL/2, y+CELL-4);
+      ctx.lineTo(x+4,      y+CELL/2);
+      ctx.closePath();
+      ctx.strokeStyle='rgba(255,200,0,0.6)'; ctx.lineWidth=1.5;
+      ctx.stroke();
+    });
+
+    // mark corners (high entropy cluster) - pentagon candidates
+    const pentCandidates = [{tx:7,ty:0},{tx:0,ty:0}];
+    pentCandidates.forEach(({tx,ty})=>{
+      ctx.strokeStyle='#ff3333'; ctx.lineWidth=2;
+      drawPentagon(ctx,(tx+0.5)*CELL,(ty+0.5)*CELL,CELL*0.36);
+    });
+
+    // low entropy cluster bottom-right
+    const loCluster = tiles.filter(t=>t.sz===216);
+    ctx.fillStyle='rgba(0,255,100,0.08)';
+    loCluster.forEach(({tx,ty})=>{
+      ctx.fillRect(tx*CELL,ty*CELL,CELL,CELL);
+    });
+
+    // draw anti-diagonal line
+    ctx.strokeStyle='rgba(255,200,0,0.3)'; ctx.lineWidth=1.5;
+    ctx.setLineDash([4,4]);
+    ctx.beginPath();
+    ctx.moveTo(7*CELL, 1*CELL+CELL/2);
+    ctx.lineTo(1*CELL+CELL/2, 7*CELL);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // update stats
+  document.getElementById('p361').textContent = pts361.length + ' tiles';
+  document.getElementById('pPat').textContent = 'anti-diagonal';
+  document.getElementById('annText').innerHTML = `
+    <span>blob=361</span> ปรากฏ ${pts361.length} ครั้ง บน anti-diagonal<br>
+    จาก (6,1)→(1,6) — พิกัดรวม tx+ty=7 ทุกจุด<br>
+    <span>tx+ty = const</span> = seam line ใน 8×8 grid<br>
+    blob=216 cluster ที่ bottom-right = low entropy zone<br>
+    blob=472 ที่ (7,0) = corner spike = <span>apex candidate</span><br>
+    blob=378 ที่ (0,7) = symmetric corner<br>
+    <span>ระบบมี structure ซ่อนอยู่จริง</span>
+  `;
+}
+
+function drawPentagon(ctx,cx,cy,r){
+  ctx.beginPath();
+  for(let i=0;i<5;i++){
+    const a=(i*2*Math.PI/5)-Math.PI/2;
+    const x=cx+r*Math.cos(a), y=cy+r*Math.sin(a);
+    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  }
+  ctx.closePath(); ctx.stroke();
+}
+
+document.getElementById('c').addEventListener('mousemove', e=>{
+  const rect=e.target.getBoundingClientRect();
+  const tx=Math.floor((e.clientX-rect.left)/CELL);
+  const ty=Math.floor((e.clientY-rect.top)/CELL);
+  if(tx<0||tx>=TW||ty<0||ty>=TH) return;
+  const sz=get(tx,ty);
+  document.getElementById('hXY').textContent=`(${tx},${ty})`;
+  document.getElementById('hSz').textContent=`${sz} B`;
+  document.getElementById('hRank').textContent=`${rankMap[`${tx},${ty}`]} / 64`;
+  document.getElementById('hDelta').textContent=`${neighborDelta(tx,ty)} B`;
+});
+
+function setView(v){
+  view=v;
+  ['bHeat','bRaw','bDiff'].forEach(id=>document.getElementById(id).classList.remove('on'));
+  document.getElementById('b'+v[0].toUpperCase()+v.slice(1)).classList.add('on');
+  render();
+}
+function togglePent(){ showPent=!showPent; document.getElementById('bPent').classList.toggle('on'); render(); }
+
+render();
+</script>
+</body>
+</html>
