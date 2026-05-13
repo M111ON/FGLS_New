@@ -1,0 +1,265 @@
+/*
+ * hamburger_pipe.h — Hamburger Architecture v6: Analog Film Model
+ *
+ * FILM ANALOGY:
+ *   expose   = encode  (light hits RGB film layers)
+ *   negative = invert plane  (free — geometric complement of R+G+B)
+ *   darkroom = decode  (negative + recipe → original)
+ *   solvent  = codec   (each layer picks chemistry from header)
+ *   recipe   = header  (seed + codec per carrier — all frozen at encode)
+ *
+ * plane[INV] = original XOR codec_output  (per-byte, the REAL negative)
+ *   decode:  codec_reconstruct(seed,codec) XOR negative = original  ✓
+ *   "free"   because hilbert address space R+G+B is disjoint by mod-3
+ *            → INV = complement, emerges from geometry
+ *
+ * Invert entry layout (variable, stored in inv_stream):
+ *   [tile_id  2B BE]
+ *   [ttype    1B]
+ *   [res_sz   2B BE]   — residual byte count
+ *   [residual res_sz B]  — original XOR codec_output (the negative itself)
+ *
+ * LUT: tile_id → file offset of its invert entry (O1)
+ *   0xFFFFFFFF = clear tile (residual all-zero, codec matched perfectly)
+ */
+
+#pragma once
+#include <stdint.h>
+#include <string.h>
+#include <stdlib.h>
+#include "gpx5_container.h"
+
+/* ── band classification ────────────────────────────── */
+#define GPX5_BAND_LOW   0u
+#define GPX5_BAND_HIGH  1u
+#define GPX5_BAND_VEC   2u
+
+#define GPX5_PIPE_FLAG_2CARRIER  0x01u
+#define GPX5_PIPE_FLAG_DOMINANT  0x02u
+#define GPX5_PIPE_FLAG_HELPER    0x04u
+
+#define HB_INVERT_MAX_TILES  4096u
+#define HB_INV_HDR_SZ        5u    /* tile_id(2) + ttype(1) + res_sz(2) */
+#define HB_TILE_SZ_MAX       4896u
+
+/* ── band classifier ───────────────────────────────── */
+static inline uint8_t hb_ctype_band(uint8_t ctype) {
+    switch (ctype) {
+        case GPX5_CTYPE_FLAT:   return GPX5_BAND_LOW;
+        case GPX5_CTYPE_GRAD:   return GPX5_BAND_LOW;
+        case GPX5_CTYPE_EDGE:   return GPX5_BAND_HIGH;
+        case GPX5_CTYPE_NOISE:  return GPX5_BAND_HIGH;
+        case GPX5_CTYPE_VECTOR: return GPX5_BAND_VEC;
+        case GPX5_CTYPE_FREQ:   return GPX5_BAND_VEC;
+        default:                return GPX5_BAND_HIGH;
+    }
+}
+
+static inline int hb_2carrier_safe(uint8_t ctype_a, uint8_t ctype_b) {
+    return hb_ctype_band(ctype_a) != hb_ctype_band(ctype_b);
+}
+
+/* ══════════════════════════════════════════════════════
+ * H1: PIPE DISPATCHER
+ * ══════════════════════════════════════════════════════ */
+typedef struct {
+    uint8_t carrier_id;
+    uint8_t codec;
+    uint8_t ctype;
+    uint8_t plane;
+    uint8_t is_helper;
+    uint8_t _pad[3];
+} HbDispatch;
+
+static inline HbDispatch hb_dispatch(
+        uint16_t hilbert_pos, const Gpx5PipeEntry pipes[3])
+{
+    HbDispatch d; memset(&d, 0, sizeof(d));
+    for (int i = 0; i < 3; i++) {
+        if ((hilbert_pos % pipes[i].hilbert_mod) == pipes[i].hilbert_rem) {
+            d.carrier_id = pipes[i].carrier_id;
+            d.codec      = pipes[i].codec;
+            d.ctype      = pipes[i].ctype;
+            d.plane      = pipes[i].carrier_id;
+            d.is_helper  = (pipes[i].lflags & GPX5_PIPE_FLAG_HELPER) ? 1u : 0u;
+            return d;
+        }
+    }
+    uint8_t cid = (uint8_t)(hilbert_pos % 3u);
+    d.carrier_id = cid; d.codec = pipes[cid].codec;
+    d.ctype = pipes[cid].ctype; d.plane = cid;
+    return d;
+}
+
+static inline HbDispatch hb_dispatch_2carrier(
+        uint16_t hilbert_pos, const Gpx5PipeEntry pipes[3])
+{
+    if (!hb_2carrier_safe(pipes[0].ctype, pipes[1].ctype)) {
+        HbDispatch d; memset(&d, 0, sizeof(d)); d.carrier_id = 2u; return d;
+    }
+    uint8_t cid = (uint8_t)(hilbert_pos % 2u);
+    HbDispatch d; memset(&d, 0, sizeof(d));
+    d.carrier_id = cid; d.codec = pipes[cid].codec;
+    d.ctype = pipes[cid].ctype; d.plane = cid;
+    return d;
+}
+
+/* ══════════════════════════════════════════════════════
+ * H2: INVERT RECORDER — THE NEGATIVE
+ *
+ * residual[i] = original_tile[i] XOR codec_output[i]
+ *
+ * This is the analog negative:
+ *   - what the film "absorbed" that the codec didn't predict
+ *   - all-zero residual = perfect prediction = free (clear tile)
+ *   - stored once, accessed O(1) via LUT on decode
+ *
+ * decode path:
+ *   base = hb_codec_invert(seed, codec, ...)  // reconstruct from recipe
+ *   original = base XOR residual              // apply negative
+ * ══════════════════════════════════════════════════════ */
+
+/* worst case: every tile fully non-zero at HB_TILE_SZ_MAX bytes */
+#define HB_RES_BUF_CAP  (HB_INVERT_MAX_TILES * HB_TILE_SZ_MAX)
+
+typedef struct {
+    uint8_t  *res_buf;                       /* heap: all residuals packed    */
+    uint32_t  res_buf_used;
+    uint32_t  res_off[HB_INVERT_MAX_TILES];  /* offset into res_buf per tile  */
+    uint16_t  res_sz [HB_INVERT_MAX_TILES];  /* residual byte count per tile  */
+    uint8_t   ttype  [HB_INVERT_MAX_TILES];
+    uint16_t  n_tiles;
+    uint8_t   frozen;
+    uint8_t   _pad;
+} HbInvertRecorder;
+
+static inline int hb_invert_init(HbInvertRecorder *rec) {
+    memset(rec, 0, sizeof(*rec));
+    rec->res_buf = (uint8_t *)calloc(1, HB_RES_BUF_CAP);
+    return rec->res_buf ? 0 : -1;
+}
+
+static inline void hb_invert_free(HbInvertRecorder *rec) {
+    free(rec->res_buf); rec->res_buf = NULL;
+}
+
+/*
+ * hb_invert_record_residual — expose the film for one tile.
+ *
+ * original : raw tile bytes  (what went into codec)
+ * encoded  : codec_apply output  (what came out)
+ * sz       : original byte count
+ *
+ * residual = original XOR encoded  → stored as the negative
+ * all-zero → clear tile → skip (free compression)
+ */
+static inline void hb_invert_record_enc(
+        HbInvertRecorder *rec,
+        uint16_t tile_id,
+        const uint8_t *original, const uint8_t *encoded,
+        uint16_t orig_sz, uint16_t enc_sz, uint8_t ttype)
+{
+    if (rec->frozen || tile_id >= HB_INVERT_MAX_TILES) return;
+    if (!original || !encoded || orig_sz == 0 || enc_sz == 0) return;
+
+    rec->ttype[tile_id] = ttype;
+    if (tile_id >= rec->n_tiles) rec->n_tiles = (uint16_t)(tile_id + 1u);
+
+    /* check all-zero (clear tile = perfect codec prediction) */
+    int clear = (orig_sz == enc_sz);
+    if (clear) {
+        for (uint16_t i = 0; i < orig_sz; i++)
+            if (original[i] != encoded[i]) { clear = 0; break; }
+    }
+
+    if (clear) {
+        rec->res_off[tile_id] = 0xFFFFFFFFu;
+        rec->res_sz [tile_id] = 0u;
+        return;
+    }
+
+    if (rec->res_buf_used + enc_sz > HB_RES_BUF_CAP) return;
+    rec->res_off[tile_id] = rec->res_buf_used;
+    rec->res_sz [tile_id] = enc_sz;
+    /* store encoded bytes verbatim (the negative = codec output) */
+    memcpy(rec->res_buf + rec->res_buf_used, encoded, enc_sz);
+    rec->res_buf_used += enc_sz;
+}
+
+static inline int hb_invert_is_clear(
+        const HbInvertRecorder *rec, uint16_t tile_id) {
+    return (tile_id >= HB_INVERT_MAX_TILES) || (rec->res_sz[tile_id] == 0u);
+}
+
+static inline uint32_t hb_invert_freeze(HbInvertRecorder *rec) {
+    rec->frozen = 1u;
+    uint32_t active = 0u;
+    for (uint16_t i = 0; i < rec->n_tiles; i++)
+        if (!hb_invert_is_clear(rec, i)) active++;
+    return active;
+}
+
+/*
+ * hb_invert_write_stream — serialise negatives to byte buffer.
+ * Per active tile: [tile_id 2B][ttype 1B][res_sz 2B][residual res_sz B]
+ */
+static inline uint32_t hb_invert_write_stream(
+        const HbInvertRecorder *rec, uint8_t *buf)
+{
+    uint32_t w = 0u;
+    for (uint16_t i = 0; i < rec->n_tiles; i++) {
+        if (hb_invert_is_clear(rec, i)) continue;
+        uint16_t sz = rec->res_sz[i];
+        buf[w+0] = (uint8_t)(i >> 8);
+        buf[w+1] = (uint8_t)(i);
+        buf[w+2] = rec->ttype[i];
+        buf[w+3] = (uint8_t)(sz >> 8);
+        buf[w+4] = (uint8_t)(sz);
+        w += HB_INV_HDR_SZ;
+        memcpy(buf + w, rec->res_buf + rec->res_off[i], sz);
+        w += sz;
+    }
+    return w;
+}
+
+static inline uint32_t hb_inv_entry_sz(uint16_t res_sz) {
+    return HB_INV_HDR_SZ + (uint32_t)res_sz;
+}
+
+/* ══════════════════════════════════════════════════════
+ * LUT BUILDER
+ * ══════════════════════════════════════════════════════ */
+static inline uint32_t hb_build_lut(
+        const HbInvertRecorder *rec,
+        Gpx5LutEntry *lut,
+        uint16_t set_id,
+        uint32_t invert_base_offset)
+{
+    uint32_t stream_pos = 0u, active = 0u;
+    for (uint16_t i = 0; i < rec->n_tiles; i++) {
+        lut[i].tile_id = i;
+        lut[i].set_id  = set_id;
+        if (!hb_invert_is_clear(rec, i)) {
+            lut[i].invert_offset = invert_base_offset + stream_pos;
+            stream_pos += hb_inv_entry_sz(rec->res_sz[i]);
+            active++;
+        } else {
+            lut[i].invert_offset = 0xFFFFFFFFu;
+        }
+    }
+    return active;
+}
+
+/* ── tick helper (warm-up loop) ── */
+typedef struct {
+    uint16_t tile_id; uint32_t tick; HbDispatch dispatch;
+} HbTickResult;
+
+static inline HbTickResult hb_tick(
+        uint32_t tick, uint16_t tile_id, const Gpx5PipeEntry pipes[3])
+{
+    HbTickResult r;
+    r.tick = tick; r.tile_id = tile_id;
+    r.dispatch = hb_dispatch((uint16_t)(tick % GPX5_COMPOUNDS), pipes);
+    return r;
+}

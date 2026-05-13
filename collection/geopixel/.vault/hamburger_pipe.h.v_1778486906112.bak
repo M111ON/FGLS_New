@@ -1,0 +1,408 @@
+/*
+ * hamburger_pipe.h — Hamburger Architecture: Pipe Dispatcher + Invert Recorder
+ *
+ * H1: Pipe dispatcher  — routes each tile to carrier R/G/B based on Hilbert pos
+ * H2: Invert recorder  — passive state logger (before/after per tile, per set)
+ *
+ * R/G/B are NOT color. They are carrier variables assigned by header.
+ * Each carrier selects its own codec. They live in separate Hilbert dimensions.
+ * Carriers never collide because Hilbert address mod-assignment is disjoint.
+ *
+ * 1 SET = 4 planes:
+ *   plane[0] R  — carrier 0, ch=0, live zone
+ *   plane[1] G  — carrier 1, ch=1, live zone
+ *   plane[2] B  — carrier 2, ch=2, residual zone
+ *   plane[3] INV — negative space of 0+1+2, NOT stored, NOT computed
+ *                  signature emerges from geometry, recorded passively
+ *
+ * Invert recorder rule:
+ *   It does not know which tile belongs to which carrier.
+ *   It only knows: "what was state before me" + "what changed".
+ *   This is intentional — like git log: each commit only knows its parent.
+ *
+ * 2-carrier mode:
+ *   When ctype of two carriers are in different frequency bands (flat+edge,
+ *   low+high), third carrier can be reconstructed from invert plane alone.
+ *   Flag GPX5_PIPE_FLAG_2CARRIER enables this. System falls back to 3-carrier
+ *   automatically if band check fails.
+ *
+ * No malloc in hot path. No float. Integer only.
+ * Depends on: gpx5_container.h, geo_pixel.h, geo_tring_addr.h
+ */
+
+#pragma once
+#include <stdint.h>
+#include <string.h>
+#include "gpx5_container.h"
+
+/* ── band classification for 2-carrier safety check ─── */
+#define GPX5_BAND_LOW   0u   /* FLAT, GRAD  — smooth, predictable      */
+#define GPX5_BAND_HIGH  1u   /* EDGE, NOISE — sharp, high entropy       */
+#define GPX5_BAND_VEC   2u   /* VECTOR, FREQ — motion / frequency data  */
+
+/* pipe flags */
+#define GPX5_PIPE_FLAG_2CARRIER  0x01u  /* 2-carrier mode active        */
+#define GPX5_PIPE_FLAG_DOMINANT  0x02u  /* this carrier is the heavy one */
+#define GPX5_PIPE_FLAG_HELPER    0x04u  /* dynamic load-balance helper   */
+
+/* max tiles tracked per invert recorder (stack-safe) */
+#define HB_INVERT_MAX_TILES  4096u
+
+/* ══════════════════════════════════════════════════════
+ * BAND CLASSIFIER
+ * ══════════════════════════════════════════════════════ */
+
+static inline uint8_t hb_ctype_band(uint8_t ctype) {
+    switch (ctype) {
+        case GPX5_CTYPE_FLAT:   return GPX5_BAND_LOW;
+        case GPX5_CTYPE_GRAD:   return GPX5_BAND_LOW;
+        case GPX5_CTYPE_EDGE:   return GPX5_BAND_HIGH;
+        case GPX5_CTYPE_NOISE:  return GPX5_BAND_HIGH;
+        case GPX5_CTYPE_VECTOR: return GPX5_BAND_VEC;
+        case GPX5_CTYPE_FREQ:   return GPX5_BAND_VEC;
+        default:                return GPX5_BAND_HIGH;
+    }
+}
+
+/*
+ * hb_2carrier_safe — returns 1 if two carriers can safely drop to 2-carrier mode.
+ * Safe only when the two carriers are in DIFFERENT bands.
+ * Same band → silent quality drop → must use 3-carrier.
+ */
+static inline int hb_2carrier_safe(uint8_t ctype_a, uint8_t ctype_b) {
+    return hb_ctype_band(ctype_a) != hb_ctype_band(ctype_b);
+}
+
+/* ══════════════════════════════════════════════════════
+ * H1: PIPE DISPATCHER
+ * Routes a tile (identified by its Hilbert position) to its carrier.
+ * Returns carrier_id (0=R, 1=G, 2=B).
+ * ══════════════════════════════════════════════════════ */
+
+/*
+ * HbDispatch — result of routing one tile through pipe table.
+ *   carrier_id : which carrier owns this tile
+ *   codec      : codec the carrier will use (from pipe table)
+ *   ctype      : payload type the carrier handles
+ *   plane      : 0/1/2 (INV=3 is never dispatched, it is derived)
+ *   is_helper  : 1 if this assignment is a dynamic load-balance assist
+ */
+typedef struct {
+    uint8_t carrier_id;
+    uint8_t codec;
+    uint8_t ctype;
+    uint8_t plane;
+    uint8_t is_helper;
+    uint8_t _pad[3];
+} HbDispatch;
+
+/*
+ * hb_dispatch — route tile at hilbert_pos to carrier via pipe table.
+ *
+ * Logic:
+ *   1. Find first pipe entry where (hilbert_pos % hilbert_mod) == hilbert_rem
+ *   2. If no match: fallback to hilbert_pos % 3 (default 3-way split)
+ *   3. Fill HbDispatch with carrier's codec and ctype
+ *
+ * This is the only routing decision in the entire pipeline.
+ * Everything downstream is passive — no routing, no decisions.
+ */
+static inline HbDispatch hb_dispatch(
+        uint16_t hilbert_pos,
+        const Gpx5PipeEntry pipes[3])
+{
+    HbDispatch d;
+    memset(&d, 0, sizeof(d));
+
+    for (int i = 0; i < 3; i++) {
+        if ((hilbert_pos % pipes[i].hilbert_mod) == pipes[i].hilbert_rem) {
+            d.carrier_id = pipes[i].carrier_id;
+            d.codec      = pipes[i].codec;
+            d.ctype      = pipes[i].ctype;
+            d.plane      = pipes[i].carrier_id;   /* plane index = carrier_id */
+            d.is_helper  = (pipes[i].lflags & GPX5_PIPE_FLAG_HELPER) ? 1u : 0u;
+            return d;
+        }
+    }
+
+    /* fallback: default 3-way */
+    uint8_t cid = (uint8_t)(hilbert_pos % 3u);
+    d.carrier_id = cid;
+    d.codec      = pipes[cid].codec;
+    d.ctype      = pipes[cid].ctype;
+    d.plane      = cid;
+    d.is_helper  = 0;
+    return d;
+}
+
+/*
+ * hb_dispatch_2carrier — check if tile can be handled in 2-carrier mode.
+ * If safe: route to active carrier (0 or 1 only).
+ * If not safe: returns carrier 2 as signal to fall back to 3-carrier.
+ *
+ * Caller checks: if result.carrier_id == 2 && mode was 2carrier → use 3-carrier.
+ */
+static inline HbDispatch hb_dispatch_2carrier(
+        uint16_t hilbert_pos,
+        const Gpx5PipeEntry pipes[3])
+{
+    /* safety check on the two active carriers */
+    if (!hb_2carrier_safe(pipes[0].ctype, pipes[1].ctype)) {
+        /* band collision — signal fallback to 3-carrier */
+        HbDispatch d; memset(&d, 0, sizeof(d));
+        d.carrier_id = 2u;   /* sentinel: use 3-carrier */
+        return d;
+    }
+    /* safe: route among carrier 0 and 1 only */
+    uint8_t cid = (uint8_t)(hilbert_pos % 2u);
+    HbDispatch d;
+    d.carrier_id = cid;
+    d.codec      = pipes[cid].codec;
+    d.ctype      = pipes[cid].ctype;
+    d.plane      = cid;
+    d.is_helper  = 0;
+    memset(d._pad, 0, sizeof(d._pad));
+    return d;
+}
+
+/* ══════════════════════════════════════════════════════
+ * H2: INVERT RECORDER
+ *
+ * Passive state logger. Records before/after for each tile.
+ * Does NOT know carrier, does NOT know tile content.
+ * Only knows: "state before me" and "what changed".
+ *
+ * Storage: two parallel arrays (before[], after[]) indexed by tile_id.
+ * before[i] = state hash before tile i was processed
+ * after[i]  = state hash after  tile i was processed
+ * invert[i] = before[i] XOR after[i]  ← computed on freeze, not stored live
+ *
+ * invert[i] == 0 means tile did not change state → delta = 0 → free compression
+ * invert[i] != 0 means tile changed state → signature recorded
+ *
+ * This is the "plane[3]" that emerges from geometry — no explicit computation.
+ * ══════════════════════════════════════════════════════ */
+
+typedef struct {
+    uint32_t before[HB_INVERT_MAX_TILES];  /* state hash before processing  */
+    uint32_t after [HB_INVERT_MAX_TILES];  /* state hash after  processing  */
+    uint8_t  ttype [HB_INVERT_MAX_TILES];  /* tile type per tile (TTYPE_*)   */
+    uint16_t n_tiles;                       /* tiles recorded so far          */
+    uint8_t  frozen;                        /* 1 = invert plane is sealed     */
+    uint8_t  _pad;
+} HbInvertRecorder;
+
+static inline void hb_invert_init(HbInvertRecorder *rec) {
+    memset(rec, 0, sizeof(*rec));
+}
+
+/*
+ * hb_invert_record — passive tick: record before/after for one tile.
+ * Caller provides:
+ *   tile_id   : tile index
+ *   state_before : hash of tile state BEFORE current carrier processed it
+ *   state_after  : hash of tile state AFTER current carrier processed it
+ *
+ * Recorder does not interpret these values.
+ * It does not know which carrier called it.
+ */
+static inline void hb_invert_record(
+        HbInvertRecorder *rec,
+        uint16_t tile_id,
+        uint32_t state_before,
+        uint32_t state_after,
+        uint8_t  ttype)
+{
+    if (rec->frozen || tile_id >= HB_INVERT_MAX_TILES) return;
+    rec->before[tile_id] = state_before;
+    rec->after [tile_id] = state_after;
+    rec->ttype [tile_id] = ttype;
+    if (tile_id >= rec->n_tiles)
+        rec->n_tiles = (uint16_t)(tile_id + 1u);
+}
+
+/*
+ * hb_invert_get — compute invert value for tile_id on demand.
+ * invert = before XOR after
+ * Returns 0 if tile never changed (delta free).
+ */
+static inline uint32_t hb_invert_get(
+        const HbInvertRecorder *rec, uint16_t tile_id)
+{
+    if (tile_id >= HB_INVERT_MAX_TILES) return 0u;
+    return rec->before[tile_id] ^ rec->after[tile_id];
+}
+
+/*
+ * hb_invert_freeze — seal the recorder, build the LUT pointer offsets.
+ * After freeze: caller can write invert values to file sequentially.
+ * Returns number of non-zero (active) invert entries = real signature count.
+ * Tiles with invert==0 are free — they need no storage.
+ */
+static inline uint32_t hb_invert_freeze(HbInvertRecorder *rec) {
+    rec->frozen = 1u;
+    uint32_t active = 0u;
+    for (uint16_t i = 0; i < rec->n_tiles; i++)
+        if (hb_invert_get(rec, i) != 0u) active++;
+    return active;
+}
+
+/*
+ * hb_invert_write_stream — write active invert entries to buffer.
+ * Format per entry: [tile_id 2B][invert_val 4B] = 6B each
+ * Only writes non-zero entries (zero = free, skip).
+ * Returns total bytes written.
+ * buf must be pre-allocated: n_tiles * 6 bytes (worst case).
+ */
+#define HB_INVERT_ENTRY_SZ  7u
+
+static inline uint32_t hb_invert_write_stream(
+        const HbInvertRecorder *rec, uint8_t *buf)
+{
+    uint32_t written = 0u;
+    for (uint16_t i = 0; i < rec->n_tiles; i++) {
+        uint32_t inv = hb_invert_get(rec, i);
+        if (inv == 0u) continue;
+        buf[written+0] = (uint8_t)(i >> 8);
+        buf[written+1] = (uint8_t)(i);
+        buf[written+2] = rec->ttype[i];          /* ttype byte */
+        buf[written+3] = (uint8_t)(inv >> 24);
+        buf[written+4] = (uint8_t)(inv >> 16);
+        buf[written+5] = (uint8_t)(inv >>  8);
+        buf[written+6] = (uint8_t)(inv);
+        written += HB_INVERT_ENTRY_SZ;
+    }
+    return written;
+}
+
+/* ══════════════════════════════════════════════════════
+ * TILE STATE HASH
+ *
+ * Lightweight, integer-only. Used as the "before/after" value
+ * passed to hb_invert_record.
+ *
+ * Input: raw tile bytes + tile_id + tick
+ * Output: 32-bit hash representing tile state at this moment
+ *
+ * Not cryptographic. Purpose: detect change, not authenticate.
+ * Two tiles with different geometry → different hash with high probability.
+ * ══════════════════════════════════════════════════════ */
+
+static inline uint32_t hb_tile_state_hash(
+        const uint8_t *tile_data, uint32_t tile_sz,
+        uint16_t tile_id, uint32_t tick)
+{
+    uint32_t h = 0x811c9dc5u ^ ((uint32_t)tile_id * 0x9e3779b9u) ^ tick;
+    for (uint32_t i = 0; i < tile_sz; i++) {
+        h ^= (uint32_t)tile_data[i];
+        h *= 0x01000193u;
+    }
+    return h;
+}
+
+/* ══════════════════════════════════════════════════════
+ * WARM-UP LOOP HELPER
+ *
+ * Drives the 1440-tick warm-up cycle for one set.
+ * For each tick:
+ *   1. Compute hilbert position for this tick
+ *   2. Dispatch to carrier (H1)
+ *   3. Record invert state (H2)
+ *
+ * After 1440 ticks: invert recorder is ready to freeze.
+ * Caller provides tile data array and pipe table.
+ *
+ * This is the "cost paid once" step.
+ * After freeze + LUT build: all access is O(1).
+ * ══════════════════════════════════════════════════════ */
+
+typedef struct {
+    uint16_t   tile_id;
+    uint32_t   tick;
+    HbDispatch dispatch;
+    uint32_t   state_before;
+    uint32_t   state_after;
+} HbTickResult;
+
+/*
+ * hb_tick — process one tick of the warm-up cycle.
+ * tick         : current tick (0..1439)
+ * tile_data    : pointer to this tile's raw bytes
+ * tile_sz      : byte count of tile data
+ * tile_id      : index of tile being processed
+ * pipes        : pipe table (3 entries)
+ * rec          : invert recorder
+ *
+ * Returns HbTickResult with dispatch info and state transition.
+ * Caller accumulates results to build LUT after 1440 ticks.
+ */
+static inline HbTickResult hb_tick(
+        uint32_t tick,
+        const uint8_t *tile_data,
+        uint32_t tile_sz,
+        uint16_t tile_id,
+        const Gpx5PipeEntry pipes[3],
+        HbInvertRecorder *rec)
+{
+    HbTickResult r;
+    r.tick     = tick;
+    r.tile_id  = tile_id;
+
+    /* hilbert position for this tick = tick mod compounds (fibo period) */
+    uint16_t hilbert_pos = (uint16_t)(tick % GPX5_COMPOUNDS);
+
+    /* H1: dispatch */
+    r.dispatch = hb_dispatch(hilbert_pos, pipes);
+
+    /* H2: record state transition */
+    r.state_before = hb_tile_state_hash(tile_data, tile_sz, tile_id, tick);
+    /* after = same hash with next tick — simulates one processing step */
+    r.state_after  = hb_tile_state_hash(tile_data, tile_sz, tile_id, tick + 1u);
+
+    hb_invert_record(rec, tile_id, r.state_before, r.state_after, 0u);
+    return r;
+}
+
+/* ══════════════════════════════════════════════════════
+ * LUT BUILDER
+ *
+ * After warm-up (1440 ticks) and invert freeze:
+ * Build Gpx5LutEntry array from invert recorder.
+ * Each entry maps tile_id → invert_offset in output stream.
+ *
+ * invert_offset is the byte position in the invert stream
+ * where this tile's signature lives.
+ * After this, every tile access is one array lookup. O(1).
+ * ══════════════════════════════════════════════════════ */
+
+/*
+ * hb_build_lut — populate lut[] from frozen invert recorder.
+ * lut must be pre-allocated: n_tiles entries.
+ * invert_base_offset: byte offset in file where invert stream starts.
+ * Returns number of active LUT entries (tiles with non-zero invert).
+ */
+static inline uint32_t hb_build_lut(
+        const HbInvertRecorder *rec,
+        Gpx5LutEntry *lut,
+        uint16_t set_id,
+        uint32_t invert_base_offset)
+{
+    uint32_t stream_pos = 0u;
+    uint32_t active     = 0u;
+
+    for (uint16_t i = 0; i < rec->n_tiles; i++) {
+        lut[i].tile_id  = i;
+        lut[i].set_id   = set_id;
+
+        if (hb_invert_get(rec, i) != 0u) {
+            lut[i].invert_offset = invert_base_offset + stream_pos;
+            stream_pos += HB_INVERT_ENTRY_SZ;
+            active++;
+        } else {
+            /* zero invert = free tile, offset points to zero sentinel */
+            lut[i].invert_offset = 0xFFFFFFFFu;
+        }
+    }
+    return active;
+}
+

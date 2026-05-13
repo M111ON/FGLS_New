@@ -1,0 +1,256 @@
+/*
+ * hamburger_classify.h — Tile classifier for Hamburger Architecture
+ *
+ * Extracted from geopixel_v21_o25.c — standalone, no external deps.
+ * No float in classify path (uses integer variance scaled *100).
+ * No malloc, no atomics, no threads.
+ *
+ * Provides:
+ *   hb_classify_tile()   — classify one tile → GPX5_TTYPE_*
+ *   hb_ttype_to_ctype()  — map ttype → GPX5_CTYPE_*
+ *   hb_ttype_to_codec()  — map ttype → GPX5_CODEC_*
+ *   hb_auto_pipes()      — build pipe table from 3 dominant ttypes
+ *
+ * Input: packed YCgCo int planes (same as v21 convention)
+ * Output: GPX5_TTYPE_* values (maps 1:1 to v21 TTYPE_*)
+ *
+ * Depends on: gpx5_container.h
+ */
+
+#pragma once
+#include <stdint.h>
+#include <string.h>
+#include "gpx5_container.h"
+
+/* ── predictor ids (internal) ──────────────────────────── */
+#define HBC_PRED_MED   0
+#define HBC_PRED_GRAD  1
+#define HBC_PRED_LEFT  2
+#define HBC_PRED_TOP   3
+#define HBC_PRED_AVG   4
+#define HBC_N_PRED     5
+
+/* ── flat tile: max unique YCgCo combos to still call it flat ── */
+#define HBC_MAX_FLAT_COLORS  4
+
+/* ── variance thresholds (×100 to avoid float) ──────────── */
+/* avg_var = sum(residuals²) / n_pixels                       */
+/* Thresholds tuned from the preview image distribution, scaled by 100:
+ *   flat   remains strict and mostly reserved for near-uniform tiles
+ *   grad   covers smooth structure that still benefits from DELTA
+ *   edge   keeps structured high-variance tiles out of RAW
+ * The goal is to bias real images toward predictive codecs before RAW. */
+#define HBC_THRESH_FLAT_X100   2000u
+#define HBC_THRESH_GRAD_X100  10000u
+#define HBC_THRESH_EDGE_X100  80000u  /* covers real-world edge range; NOISE = true high-freq only */
+
+/* ══════════════════════════════════════════════════════════
+ * hb_classify_tile
+ *
+ * tile_Y/Cg/Co : int arrays, stride = img_w
+ * x0,y0,x1,y1  : tile bounds (x1,y1 exclusive)
+ * img_w         : full image row stride
+ *
+ * Returns GPX5_TTYPE_FLAT / GRADIENT / EDGE / NOISE
+ * ══════════════════════════════════════════════════════════ */
+static inline uint8_t hb_classify_tile(
+        const int *tile_Y,
+        const int *tile_Cg,
+        const int *tile_Co,
+        int x0, int y0, int x1, int y1,
+        int img_w)
+{
+    int tw = x1 - x0;
+    int th = y1 - y0;
+    int tn = tw * th;
+    if (tn <= 0) return GPX5_TTYPE_FLAT;
+
+    /* ── variance of best predictor (Y channel only, × 100) ── */
+    uint64_t var[HBC_N_PRED];
+    memset(var, 0, sizeof(var));
+
+    for (int y = y0; y < y1; y++) {
+        for (int x = x0; x < x1; x++) {
+            int LY  = (x > x0) ? tile_Y[y*img_w + x-1]        : 128;
+            int TY  = (y > y0) ? tile_Y[(y-1)*img_w + x]       : 128;
+            int TLY = (x > x0 && y > y0) ? tile_Y[(y-1)*img_w + x-1] : 128;
+            int vY  = tile_Y[y*img_w + x];
+
+            int hiY = LY > TY ? LY : TY;
+            int loY = LY < TY ? LY : TY;
+            int med = (TLY >= hiY) ? loY : (TLY <= loY) ? hiY : LY + TY - TLY;
+
+            int preds[HBC_N_PRED];
+            preds[HBC_PRED_MED]  = med;
+            preds[HBC_PRED_GRAD] = LY + TY - TLY;
+            preds[HBC_PRED_LEFT] = LY;
+            preds[HBC_PRED_TOP]  = TY;
+            preds[HBC_PRED_AVG]  = (LY + TY) >> 1;
+
+            for (int p = 0; p < HBC_N_PRED; p++) {
+                int r = vY - preds[p];
+                var[p] += (uint64_t)((int64_t)r * r);
+            }
+        }
+    }
+
+    int best = 0;
+    for (int p = 1; p < HBC_N_PRED; p++)
+        if (var[p] < var[best]) best = p;
+
+    /* avg_var × 100 = var[best] * 100 / tn */
+    uint64_t avg_var_x100 = (var[best] * 100u) / (uint64_t)tn;
+
+    /* ── flat check: unique YCgCo combos ── */
+    int palY[HBC_MAX_FLAT_COLORS];
+    int palCg[HBC_MAX_FLAT_COLORS];
+    int palCo[HBC_MAX_FLAT_COLORS];
+    int n_pal = 0, is_flat = 1;
+
+    for (int y = y0; y < y1 && is_flat; y++) {
+        for (int x = x0; x < x1 && is_flat; x++) {
+            int gi  = y * img_w + x;
+            int fy  = tile_Y[gi];
+            int fcg = tile_Cg[gi];
+            int fco = tile_Co[gi];
+            int found = 0;
+            for (int k = 0; k < n_pal; k++) {
+                if (palY[k] == fy && palCg[k] == fcg && palCo[k] == fco) {
+                    found = 1; break;
+                }
+            }
+            if (!found) {
+                if (n_pal >= HBC_MAX_FLAT_COLORS) { is_flat = 0; break; }
+                palY[n_pal] = fy; palCg[n_pal] = fcg; palCo[n_pal] = fco;
+                n_pal++;
+            }
+        }
+    }
+
+    /* flat: few unique colors AND low variance (guards checkerboard 0/255 case) */
+    if (is_flat && avg_var_x100 < HBC_THRESH_FLAT_X100) return GPX5_TTYPE_FLAT;
+    if (avg_var_x100 < HBC_THRESH_GRAD_X100) return GPX5_TTYPE_GRADIENT;
+    if (avg_var_x100 < HBC_THRESH_EDGE_X100) return GPX5_TTYPE_EDGE;
+    return GPX5_TTYPE_NOISE;
+}
+
+/* ══════════════════════════════════════════════════════════
+ * ttype → ctype / codec mapping
+ *
+ * Design rule:
+ *   FLAT     → CTYPE_FLAT   + CODEC_SEED    (triplet seed)
+ *   GRADIENT → CTYPE_GRAD   + CODEC_FREQ    (block low-freq + residual)
+ *   EDGE     → CTYPE_EDGE   + CODEC_RICE3   (entropy-coded residuals)
+ *   NOISE    → CTYPE_NOISE  + CODEC_ZSTD19  (compressed if it helps, raw fallback)
+ * ══════════════════════════════════════════════════════════ */
+static inline uint8_t hb_ttype_to_ctype(uint8_t ttype) {
+    switch (ttype) {
+        case GPX5_TTYPE_FLAT:     return GPX5_CTYPE_FLAT;
+        case GPX5_TTYPE_GRADIENT: return GPX5_CTYPE_GRAD;
+        case GPX5_TTYPE_EDGE:     return GPX5_CTYPE_EDGE;
+        case GPX5_TTYPE_NOISE:    return GPX5_CTYPE_NOISE;
+        default:                  return GPX5_CTYPE_RAW;
+    }
+}
+
+static inline uint8_t hb_ttype_to_codec(uint8_t ttype) {
+    switch (ttype) {
+        case GPX5_TTYPE_FLAT:     return GPX5_CODEC_SEED;
+        case GPX5_TTYPE_GRADIENT: return GPX5_CODEC_FREQ;
+        case GPX5_TTYPE_EDGE:     return GPX5_CODEC_RICE3;
+        case GPX5_TTYPE_NOISE:    return GPX5_CODEC_ZSTD19;
+        default:                  return GPX5_CODEC_RAW;
+    }
+}
+
+/* ══════════════════════════════════════════════════════════
+ * hb_auto_pipes — build pipe table from ttype histogram
+ *
+ * Scans all n_tiles ttype values → counts each type →
+ * assigns the 3 most common to carriers R/G/B with:
+ *   - hilbert_mod = 3, hilbert_rem = 0/1/2 (default 3-way split)
+ *   - codec auto-selected via hb_ttype_to_codec()
+ *   - load_pct proportional to count
+ *
+ * ttypes[] : array of GPX5_TTYPE_* values, one per tile
+ * n_tiles  : total tiles
+ * pipes[]  : output, 3 entries
+ *
+ * If fewer than 3 types present: remaining carriers get CTYPE_RAW.
+ * ══════════════════════════════════════════════════════════ */
+static inline void hb_auto_pipes(
+        const uint8_t *ttypes,
+        uint32_t n_tiles,
+        Gpx5PipeEntry pipes[3])
+{
+    /* count each ttype (4 types: FLAT/GRAD/EDGE/NOISE) */
+    uint32_t cnt[4] = {0, 0, 0, 0};
+    for (uint32_t i = 0; i < n_tiles; i++) {
+        uint8_t t = ttypes[i];
+        if (t < 4u) cnt[t]++;
+    }
+
+    /* sort types by count descending — pick top 3 */
+    /* simple insertion sort on 4 elements */
+    uint8_t order[4] = {0, 1, 2, 3};
+    for (int i = 1; i < 4; i++) {
+        uint8_t key = order[i];
+        int j = i - 1;
+        while (j >= 0 && cnt[order[j]] < cnt[key]) {
+            order[j+1] = order[j]; j--;
+        }
+        order[j+1] = key;
+    }
+
+    /* assign top 3 to carriers 0/1/2 */
+    uint32_t total = n_tiles > 0 ? n_tiles : 1u;
+    for (int i = 0; i < 3; i++) {
+        uint8_t ttype = order[i];
+        pipes[i].carrier_id  = (uint8_t)i;
+        if (cnt[ttype] == 0u) {
+            pipes[i].ctype    = GPX5_CTYPE_RAW;
+            pipes[i].codec    = GPX5_CODEC_RAW;
+            pipes[i].load_pct = 0u;
+        } else {
+            pipes[i].ctype    = hb_ttype_to_ctype(ttype);
+            pipes[i].codec    = hb_ttype_to_codec(ttype);
+            pipes[i].load_pct = (uint8_t)((cnt[ttype] * 100u) / total);
+        }
+        pipes[i].hilbert_mod = 3u;
+        pipes[i].hilbert_rem = (uint8_t)i;
+        pipes[i].lflags      = 0u;
+    }
+}
+
+/* ══════════════════════════════════════════════════════════
+ * hb_classify_batch — classify all tiles in one pass
+ *
+ * Convenience wrapper: classifies n_tiles tiles and fills
+ * ttypes[] array. Caller can then call hb_auto_pipes().
+ *
+ * tile_stride : pixel stride between tile origins (= tile width)
+ * tile_w, tile_h : tile dimensions in pixels
+ * img_w : full image row stride
+ * ══════════════════════════════════════════════════════════ */
+static inline void hb_classify_batch(
+        const int *img_Y,
+        const int *img_Cg,
+        const int *img_Co,
+        int img_w,
+        int tile_w, int tile_h,
+        int tiles_x, int tiles_y,
+        uint8_t *ttypes)   /* output: tiles_x * tiles_y entries */
+{
+    for (int ty = 0; ty < tiles_y; ty++) {
+        for (int tx = 0; tx < tiles_x; tx++) {
+            int x0 = tx * tile_w;
+            int y0 = ty * tile_h;
+            int x1 = x0 + tile_w;
+            int y1 = y0 + tile_h;
+            uint32_t tid = (uint32_t)(ty * tiles_x + tx);
+            ttypes[tid] = hb_classify_tile(
+                img_Y, img_Cg, img_Co,
+                x0, y0, x1, y1, img_w);
+        }
+    }
+}

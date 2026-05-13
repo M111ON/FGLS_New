@@ -1,0 +1,1828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Inbox Manager</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Syne:wght@400;700;800&display=swap');
+
+:root {
+  --bg: #080a0f;
+  --surface: #0e1118;
+  --card: #131720;
+  --border: #1e2535;
+  --border2: #2a3348;
+  --ink: #c8d6f0;
+  --muted: #5a6e8a;
+  --dim: #3a4a62;
+  --accent: #4af0c8;
+  --accent2: #4a8fff;
+  --warn: #f0c04a;
+  --danger: #f05a7a;
+  --ok: #4af09a;
+  --mono: 'JetBrains Mono', monospace;
+  --sans: 'Syne', sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 14px; /* Slightly larger base font size */
+  line-height: 1.6; /* Improved line height for readability */
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* grid noise bg */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 40px 40px;
+  opacity: 0.25;
+  pointer-events: none;
+  z-index: 0;
+}
+
+#app { position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; padding: 32px; }
+
+/* ── Header ── */
+header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 36px; padding-bottom: 16px;
+  border-bottom: 1px solid var(--border2);
+}
+.logo { font-family: var(--sans); font-size: 22px; font-weight: 800; letter-spacing: -0.5px; }
+.logo span { color: var(--accent); }
+.status-bar { display: flex; gap: 8px; align-items: center; font-size: 11px; color: var(--muted); }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--dim); }
+.dot.active { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+
+/* ── Workspace picker ── */
+#ws-section {
+  background: var(--card);
+  border: 1px solid var(--border2);
+  border-radius: 12px;
+  padding: 20px 24px;
+  margin-bottom: 20px;
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+}
+.ws-label { font-family: var(--sans); font-weight: 700; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+.ws-path {
+  flex: 1; background: var(--bg); border: 1px solid var(--border2); border-radius: 8px;
+  padding: 10px 14px; color: var(--accent); font-family: var(--mono); font-size: 12px;
+  min-width: 200px;
+}
+.ws-path.empty { color: var(--muted); font-style: italic; }
+
+/* ── Buttons ── */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border2);
+  background: var(--surface); color: var(--ink); font-family: var(--mono);
+  font-size: 12px; cursor: pointer; transition: all 0.15s ease-in-out; white-space: nowrap;
+}
+.btn:hover { border-color: var(--accent2); color: var(--accent2); transform: translateY(-1px); }
+.btn.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 700; }
+.btn.primary:hover { background: #6af8d8; border-color: #6af8d8; transform: translateY(-1px); }
+.btn.danger { border-color: var(--danger); color: var(--danger); }
+.btn.danger:hover { background: rgba(240,90,122,0.1); border-color: var(--danger); transform: translateY(-1px); }
+.btn.sm { padding: 5px 10px; font-size: 11px; }
+.btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* ── Drop zone ── */
+#drop-zone {
+  border: 2px dashed var(--border2);
+  border-radius: 14px;
+  padding: 48px 24px;
+  text-align: center;
+  transition: all 0.2s;
+  margin-bottom: 20px;
+  cursor: pointer;
+  position: relative;
+}
+#drop-zone.over {
+  border-color: var(--accent);
+  background: rgba(74,240,200,0.04);
+  box-shadow: 0 0 30px rgba(74,240,200,0.08) inset;
+}
+#drop-zone.disabled { opacity: 0.4; cursor: not-allowed; }
+.drop-icon { font-size: 36px; margin-bottom: 12px; opacity: 0.6; }
+.drop-title { font-family: var(--sans); font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+.drop-sub { color: var(--muted); font-size: 12px; }
+#zip-input { display: none; }
+
+/* ── Panels grid ── */
+.panels { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+@media(max-width: 900px) { .panels { grid-template-columns: 1fr; } }
+
+.panel {
+  background: var(--card);
+  border: 1px solid var(--border2);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.panel-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.panel-title { font-family: var(--sans); font-weight: 700; font-size: 13px; }
+.panel-title .tag {
+  display: inline-block; margin-left: 8px; padding: 2px 8px;
+  border-radius: 4px; font-size: 10px; font-weight: 600;
+  background: rgba(74,143,255,0.15); color: var(--accent2);
+}
+.panel-body { padding: 16px; max-height: 360px; overflow-y: auto; }
+
+/* ── File items ── */
+.file-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: 8px;
+  border: 1px solid transparent;
+  margin-bottom: 6px; transition: all 0.12s;
+}
+.file-item:hover { background: rgba(255,255,255,0.03); border-color: var(--border); }
+.file-icon { font-size: 14px; flex-shrink: 0; }
+.file-info { flex: 1; min-width: 0; }
+.file-name { color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
+.file-meta { color: var(--muted); font-size: 10px; margin-top: 2px; }
+.file-badge {
+  flex-shrink: 0; padding: 2px 8px; border-radius: 4px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+}
+.badge-new { background: rgba(74,240,154,0.15); color: var(--ok); }
+.badge-update { background: rgba(74,143,255,0.15); color: var(--accent2); }
+.badge-conflict { background: rgba(240,192,74,0.15); color: var(--warn); }
+.badge-downgrade { background: rgba(240,90,122,0.15); color: var(--danger); }
+.badge-same { background: rgba(90,110,138,0.2); color: var(--muted); }
+
+/* ── Conflict queue ── */
+.conflict-item {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+.conflict-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.conflict-name { font-weight: 600; color: var(--warn); font-size: 12px; }
+.conflict-detail { color: var(--muted); font-size: 11px; margin-bottom: 10px; }
+.conflict-actions { display: flex; gap: 6px; }
+
+/* ── Log ── */
+.log-line {
+  padding: 5px 8px; border-radius: 5px;
+  font-size: 11px; margin-bottom: 3px;
+  display: flex; gap: 10px; align-items: flex-start;
+}
+.log-time { color: var(--dim); flex-shrink: 0; }
+.log-ok { color: var(--ok); }
+.log-warn { color: var(--warn); }
+.log-err { color: var(--danger); }
+.log-info { color: var(--muted); }
+
+/* ── Vault ── */
+.vault-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 10px; border-radius: 7px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+.vault-item:last-child { border-bottom: none; }
+.vault-ver { color: var(--accent2); font-weight: 600; font-size: 11px; min-width: 50px; }
+.vault-ts { color: var(--muted); flex: 1; }
+
+/* ── Progress ── */
+.progress-bar {
+  height: 3px; background: var(--border);
+  border-radius: 2px; overflow: hidden; margin: 8px 0;
+}
+.progress-fill {
+  height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2));
+  border-radius: 2px; transition: width 0.3s;
+}
+
+/* ── Full-width log panel ── */
+#log-panel { margin-bottom: 20px; }
+#log-panel .panel-body { max-height: 180px; }
+
+/* ── Dep graph ── */
+.dep-file {
+  padding: 8px 10px; border-radius: 8px; cursor: pointer;
+  border: 1px solid transparent; margin-bottom: 4px; transition: all 0.12s;
+}
+.dep-file:hover { background: rgba(255,255,255,0.03); border-color: var(--border); }
+.dep-file.selected { border-color: var(--accent2); background: rgba(74,143,255,0.06); }
+.dep-name { font-size: 12px; color: var(--ink); }
+.dep-meta { font-size: 10px; color: var(--muted); margin-top: 2px; }
+.dep-tag { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 9px; margin-right: 3px; margin-top: 2px; }
+.dep-tag.inc { background: rgba(74,240,200,0.12); color: var(--accent); }
+.dep-tag.used { background: rgba(74,143,255,0.12); color: var(--accent2); }
+.dep-tag.miss { background: rgba(240,90,122,0.12); color: var(--danger); }
+.dep-tag.pogls { background: rgba(255,165,0,0.15); color: #FFA500; }
+.dep-detail {
+  background: var(--surface); border: 1px solid var(--border2);
+  border-radius: 10px; padding: 14px 16px; margin-bottom: 12px;
+}
+.dep-section-title { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+.dep-chip {
+  display: inline-block; padding: 3px 10px; border-radius: 5px; font-size: 11px;
+  margin: 2px; border: 1px solid var(--border2); cursor: pointer;
+}
+.dep-chip:hover { border-color: var(--accent2); color: var(--accent2); }
+.dep-chip.found { color: var(--ok); }
+.dep-chip.missing { color: var(--danger); border-color: rgba(240,90,122,0.3); }
+/* ── Tabs ── */
+.tab-bar { display: flex; gap: 2px; padding: 6px 8px; background: var(--bg); border-bottom: 1px solid var(--border); }
+.tab { padding: 5px 14px; border-radius: 6px; font-size: 11px; cursor: pointer; color: var(--muted); transition: all 0.12s; }
+.tab.active { background: var(--border2); color: var(--ink); }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+.dep-file.missing-file { border-color: rgba(240,90,122,0.2); background: rgba(240,90,122,0.04); }
+.export-opt { padding: 10px 14px; cursor: pointer; font-size: 12px; border-bottom: 1px solid var(--border); transition: background 0.1s; }
+.export-opt:last-child { border-bottom: none; }
+.export-opt:hover { background: var(--surface); }
+#export-dropdown.open { display: block !important; }
+/* ── File Explorer ── */
+.tree-folder { user-select: none; }
+.tree-folder-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 8px; border-radius: 6px; cursor: pointer;
+  font-size: 11px; color: var(--muted); transition: background 0.1s;
+}
+.tree-folder-row:hover { background: rgba(255,255,255,0.03); color: var(--ink); }
+.tree-arrow { font-size: 9px; width: 12px; text-align: center; transition: transform 0.15s; }
+.tree-arrow.open { transform: rotate(90deg); }
+.tree-children { padding-left: 16px; display: none; }
+.tree-children.open { display: block; }
+.tree-file {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 8px; border-radius: 6px; font-size: 11px;
+  transition: background 0.1s; cursor: default;
+}
+.tree-file:hover { background: rgba(255,255,255,0.03); }
+.tree-file .file-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tree-search {
+  width: 100%; background: var(--bg); border: 1px solid var(--border2);
+  border-radius: 6px; padding: 6px 10px; color: var(--ink);
+  font-family: var(--mono); font-size: 11px; margin-bottom: 8px;
+}
+/* ── Version switcher in editor ── */
+#editor-ver-bar {
+  display: none; padding: 6px 16px; border-bottom: 1px solid var(--border);
+  background: var(--surface); font-size: 11px; align-items: center; gap: 10px;
+}
+#editor-ver-bar.visible { display: flex; }
+#editor-ver-select {
+  background: var(--bg); border: 1px solid var(--border2); border-radius: 6px;
+  color: var(--ink); font-family: var(--mono); font-size: 11px; padding: 4px 8px;
+}
+/* ── Missing resolver ── */
+.missing-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px; border-radius: 8px; margin-bottom: 4px;
+  border: 1px solid rgba(240,90,122,0.2); background: rgba(240,90,122,0.04);
+  font-size: 11px;
+}
+.missing-name { flex: 1; color: var(--danger); font-weight: 600; }
+.missing-candidates { font-size: 10px; color: var(--muted); }
+
+#editor-modal {
+  display: none; position: fixed; inset: 0; z-index: 100;
+  background: rgba(8,10,15,0.85); backdrop-filter: blur(4px);
+  align-items: center; justify-content: center;
+}
+#editor-modal.open { display: flex; }
+#editor-box {
+  background: var(--card); border: 1px solid var(--border2);
+  border-radius: 14px; width: min(900px, 95vw); height: min(680px, 90vh);
+  display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.6);
+}
+#editor-titlebar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+  background: var(--surface); flex-shrink: 0;
+}
+#editor-filename { font-family: var(--sans); font-weight: 700; font-size: 13px; flex: 1; }
+#editor-path { font-size: 10px; color: var(--muted); }
+#editor-dirty { color: var(--warn); font-size: 11px; display: none; }
+#editor-textarea {
+  flex: 1; background: var(--bg); color: var(--ink);
+  font-family: var(--mono); font-size: 12px; line-height: 1.7;
+  border: none; outline: none; resize: none;
+  padding: 16px 20px; tab-size: 2;
+}
+#editor-statusbar {
+  display: flex; align-items: center; gap: 16px;
+  padding: 7px 16px; border-top: 1px solid var(--border);
+  background: var(--surface); font-size: 10px; color: var(--muted); flex-shrink: 0;
+}
+#editor-pos { min-width: 80px; }
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+/* ── Badges ── */
+.pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--border2); font-size: 10px; color: var(--muted);
+}
+
+/* ── Stats bar ── */
+#stats-bar {
+  display: flex; gap: 16px; flex-wrap: wrap;
+  padding: 12px 16px;
+  background: var(--card);
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  margin-bottom: 16px;
+  font-size: 11px;
+}
+.stat { display: flex; gap: 6px; align-items: center; }
+.stat-val { font-weight: 700; font-size: 16px; font-family: var(--sans); }
+.stat-val.ok { color: var(--ok); }
+.stat-val.warn { color: var(--warn); }
+.stat-val.danger { color: var(--danger); }
+.stat-lbl { color: var(--muted); }
+
+.empty-state { text-align: center; padding: 32px; color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="logo">inbox<span>.</span>manager</div>
+    <div class="status-bar">
+      <div class="dot" id="ws-dot"></div>
+      <span id="ws-status-text">no workspace selected</span>
+    </div>
+  </header>
+
+  <!-- Workspace picker -->
+  <div id="ws-section">
+    <span class="ws-label">Roots</span>
+    <div id="roots-list" style="display:flex;flex-wrap:wrap;gap:6px;flex:1;align-items:center">
+      <span class="ws-path empty" id="ws-display">— add a root folder —</span>
+    </div>
+    <button class="btn primary" id="pick-ws-btn">＋ Add Root</button>
+    <button class="btn" id="scan-ws-btn" disabled>🔍 Scan</button>
+  </div>
+
+  <!-- Stats -->
+  <div id="stats-bar">
+    <div class="stat"><span class="stat-val ok" id="stat-total">0</span><span class="stat-lbl">files</span></div>
+    <div class="stat"><span class="stat-val ok" id="stat-new">0</span><span class="stat-lbl">new</span></div>
+    <div class="stat"><span class="stat-val" id="stat-update" style="color:var(--accent2)">0</span><span class="stat-lbl">updates</span></div>
+    <div class="stat"><span class="stat-val warn" id="stat-conflict">0</span><span class="stat-lbl">conflicts</span></div>
+    <div class="stat"><span class="stat-val danger" id="stat-downgrade">0</span><span class="stat-lbl">downgrades</span></div>
+    <div class="stat"><span class="stat-val" style="color:var(--muted)" id="stat-vault">0</span><span class="stat-lbl">vaulted</span></div>
+  </div>
+
+  <!-- Drop zone -->
+  <div id="drop-zone" class="disabled">
+    <div class="drop-icon">⬇</div>
+    <div class="drop-title">Drop ZIP files here</div>
+    <div class="drop-sub">or <span style="color:var(--accent);cursor:pointer" onclick="document.getElementById('zip-input').click()">browse</span> — multiple ZIPs accepted</div>
+    <div class="progress-bar" id="progress-bar" style="max-width:300px;margin:12px auto 0">
+      <div class="progress-fill" id="progress-fill" style="width:0%"></div>
+    </div>
+  </div>
+  <input type="file" id="zip-input" accept=".zip" multiple/>
+
+  <!-- Main panels -->
+  <div class="panels">
+    <!-- Incoming preview -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Incoming <span class="tag" id="incoming-count">0</span></span>
+        <div style="display:flex;gap:6px">
+          <button class="btn sm" id="apply-all-btn" disabled>Apply All Safe</button>
+          <button class="btn sm danger" id="clear-incoming-btn">Clear</button>
+        </div>
+      </div>
+      <div class="panel-body" id="incoming-list">
+        <div class="empty-state">Drop a ZIP to preview changes</div>
+      </div>
+    </div>
+
+    <!-- Conflicts queue -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Conflicts <span class="tag" id="conflict-count" style="background:rgba(240,192,74,0.15);color:var(--warn)">0</span></span>
+        <button class="btn sm" id="approve-all-btn" disabled>Approve All</button>
+      </div>
+      <div class="panel-body" id="conflict-list">
+        <div class="empty-state">No conflicts</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panels">
+    <!-- Workspace file explorer -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Workspace</span>
+        <div style="display:flex;gap:6px">
+          <button class="btn sm" id="resolve-missing-btn" disabled style="color:var(--danger);border-color:rgba(240,90,122,0.4)">⚠ Resolve Missing</button>
+          <button class="btn sm" id="rescan-btn" disabled>Rescan</button>
+        </div>
+      </div>
+      <div style="padding:8px 12px;border-bottom:1px solid var(--border)">
+        <input class="tree-search" id="ws-search" placeholder="Search files…" oninput="filterTree(this.value)"/>
+      </div>
+      <div class="panel-body" id="ws-files-list">
+        <div class="empty-state">Select workspace to scan</div>
+      </div>
+    </div>
+
+    <!-- Vault: searchable, deduped -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Vault</span>
+        <span style="font-size:11px;color:var(--muted)">last 5 per file</span>
+      </div>
+      <div style="padding:8px 12px;border-bottom:1px solid var(--border)">
+        <input type="text" id="vault-search" placeholder="Search file…"
+          oninput="renderVault(this.value)"
+          style="width:100%;background:var(--bg);border:1px solid var(--border2);border-radius:6px;
+                 padding:5px 10px;color:var(--ink);font-family:var(--mono);font-size:11px"/>
+      </div>
+      <div class="panel-body" id="vault-list">
+        <div class="empty-state">No vaulted files yet</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dependencies full-width -->
+  <div class="panel" style="margin-bottom:20px">
+    <div class="panel-header">
+      <span class="panel-title">Dependencies</span>
+      <div style="display:flex;gap:6px;align-items:center">
+        <button class="btn sm" id="scan-deps-btn" disabled>🔗 Scan Deps</button>
+        <button class="btn sm" id="toggle-missing-deps-btn">🚫 Hide Missing</button>
+        <button class="btn sm" id="toggle-basic-libs-btn">📚 Hide Basic/Libs</button>
+        <div style="position:relative" id="export-menu-wrap">
+          <button class="btn sm" id="export-tree-btn" disabled>
+            📤 Export Context ▾
+          </button>
+          <div id="export-dropdown" style="display:none;position:absolute;right:0;top:calc(100% + 4px);
+            background:var(--card);border:1px solid var(--border2);border-radius:8px;
+            min-width:180px;z-index:20;overflow:hidden">
+            <div class="export-opt" onclick="exportContext('skeleton')">
+              <div style="font-weight:700">Skeleton</div>
+              <div style="color:var(--muted);font-size:10px">~200 tokens · structure only</div>
+            </div>
+            <div class="export-opt" onclick="exportContext('active')">
+              <div style="font-weight:700">Active</div>
+              <div style="color:var(--muted);font-size:10px">~1-5K tokens · hubs + versions</div>
+            </div>
+            <div class="export-opt" onclick="exportContext('full')">
+              <div style="font-weight:700">Full</div>
+              <div style="color:var(--muted);font-size:10px">complete · handoff / archive</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:280px 1fr;height:400px">
+      <!-- left: file list -->
+      <div style="border-right:1px solid var(--border);overflow-y:auto;padding:10px">
+        <input type="text" id="dep-filter" placeholder="Filter…" oninput="renderDepList(this.value)"
+          style="width:100%;background:var(--bg);border:1px solid var(--border2);border-radius:6px;
+                 padding:5px 10px;color:var(--ink);font-family:var(--mono);font-size:11px;margin-bottom:8px"/>
+        <div style="display:flex;gap:6px;margin-bottom:8px">
+          <input type="text" id="custom-dep-filter-input" placeholder="Add custom filter…"
+            style="flex:1;background:var(--bg);border:1px solid var(--border2);border-radius:6px;
+                   padding:5px 10px;color:var(--ink);font-family:var(--mono);font-size:11px"/>
+          <button class="btn sm" id="add-custom-dep-filter-btn">＋ Add</button>
+        </div>
+        <div id="custom-dep-filters-list" style="margin-bottom:8px"></div>
+        <div id="dep-files-list"><div class="empty-state">Scan to analyse</div></div>
+      </div>
+      <!-- right: detail + treemap -->
+      <div style="overflow-y:auto;padding:10px">
+        <div id="dep-detail-box"><div class="empty-state" style="margin-top:60px">Select a file to inspect</div></div>
+        <canvas id="treemap-canvas" style="display:none;width:100%;border-radius:8px;margin-top:10px"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Log -->
+  <div class="panel" id="log-panel">
+    <div class="panel-header">
+      <span class="panel-title">Log</span>
+      <button class="btn sm" onclick="clearLog()">Clear</button>
+    </div>
+    <div class="panel-body" id="log-body"></div>
+  </div>
+</div><!-- #app -->
+
+<!-- Editor modal -->
+<div id="editor-modal">
+  <div id="editor-box">
+    <div id="editor-titlebar">
+      <div style="flex:1;min-width:0">
+        <div id="editor-filename">—</div>
+        <div id="editor-path"></div>
+      </div>
+      <span id="editor-dirty">● unsaved</span>
+      <div style="display:flex;gap:6px;margin-left:12px">
+        <button class="btn sm primary" id="editor-save-btn">💾 Save + Vault</button>
+        <button class="btn sm" id="editor-close-btn">✕</button>
+      </div>
+    </div>
+    <div id="editor-ver-bar">
+      <span style="color:var(--muted)">View version:</span>
+      <select id="editor-ver-select"><option>current</option></select>
+      <button class="btn sm" id="editor-ver-restore-btn" style="display:none">Restore this version</button>
+      <span id="editor-ver-badge" style="font-size:10px;color:var(--muted)"></span>
+    </div>
+    <textarea id="editor-textarea" spellcheck="false"></textarea>
+    <div id="editor-statusbar">
+      <span id="editor-pos">Ln 1, Col 1</span>
+      <span id="editor-lines">0 lines</span>
+      <span style="flex:1"></span>
+      <span id="editor-vault-note" style="color:var(--accent2)"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────
+const state = {
+  wsHandle: null,
+  wsRoots: [],        // [{handle, name}] — all registered roots
+  wsFiles: {},        // rel → {handle, name, parsed, rootIdx}
+  vault: {},
+  incoming: [],
+  conflicts: [],
+  vaultHandle: null,
+  depGraph: {},
+  filterMissingDeps: false,
+  filterBasicLibs: false,
+  customFilterPatterns: [], // New state for custom filter patterns
+};
+
+// ── Version parse ──────────────────────────────────────────
+const VER_RE = /^(.+?)_v(\d+(?:[._]\d+)*)(\.[a-z0-9]+)$/i;
+
+function parseFilename(name) {
+  const m = name.match(VER_RE);
+  if (!m) return { raw: name, base: name.replace(/\.[^.]+$/, ''), ver: null, ext: name.includes('.') ? name.slice(name.lastIndexOf('.')) : '' };
+  const verParts = m[2].split(/[._]/).map(Number);
+  return { raw: name, base: m[1], ver: m[2], verParts, ext: m[3] };
+}
+
+function verGt(a, b) {
+  if (!a || !b) return false;
+  const pa = a.verParts, pb = b.verParts;
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const ai = pa[i] || 0, bi = pb[i] || 0;
+    if (ai !== bi) return ai > bi;
+  }
+  return false;
+}
+
+function verEq(a, b) {
+  if (!a || !b) return a === b;
+  return a.ver === b.ver;
+}
+
+// ── Workspace (multi-root) ─────────────────────────────────
+document.getElementById('pick-ws-btn').onclick = async () => {
+  try {
+    const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+    // dedupe
+    if (state.wsRoots.some(r => r.name === handle.name)) {
+      log('warn', `Root "${handle.name}" already added`); return;
+    }
+    state.wsRoots.push({ handle, name: handle.name });
+    if (!state.wsHandle) state.wsHandle = handle; // first root = primary (vault home)
+    renderRootChips();
+    document.getElementById('ws-dot').classList.add('active');
+    document.getElementById('ws-status-text').textContent = state.wsRoots.map(r=>r.name).join(', ');
+    document.getElementById('drop-zone').classList.remove('disabled');
+    document.getElementById('scan-ws-btn').disabled = false;
+    document.getElementById('rescan-btn').disabled = false;
+    document.getElementById('scan-deps-btn').disabled = false;
+    await scanWorkspace();
+  } catch(e) { if (e.name !== 'AbortError') log('err', 'Folder access denied: ' + e.message); }
+};
+
+function renderRootChips() {
+  const el = document.getElementById('roots-list');
+  if (!state.wsRoots.length) {
+    el.innerHTML = '<span class="ws-path empty" id="ws-display">— add a root folder —</span>'; return;
+  }
+  el.innerHTML = state.wsRoots.map((r, i) => `
+    <span style="display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--border2);
+      border-radius:7px;padding:5px 10px;font-size:11px;color:var(--accent)">
+      ${i === 0 ? '⭐' : '📁'} ${r.name}
+      <span onclick="removeRoot(${i})" style="cursor:pointer;color:var(--muted);font-size:13px;line-height:1" title="Remove">×</span>
+    </span>`).join('');
+}
+
+window.removeRoot = async (i) => {
+  state.wsRoots.splice(i, 1);
+  if (i === 0) state.wsHandle = state.wsRoots[0]?.handle || null;
+  renderRootChips();
+  await scanWorkspace();
+};
+
+document.getElementById('clear-incoming-btn').onclick = () => {
+  state.incoming = [];
+  state.conflicts = [];
+  renderIncoming();
+  renderConflicts();
+  updateStats();
+  document.getElementById('apply-all-btn').disabled = true;
+  log('info', 'Incoming queue cleared');
+};
+
+document.getElementById('scan-ws-btn').onclick = () => scanWorkspace();
+document.getElementById('rescan-btn').onclick = () => scanWorkspace();
+document.getElementById('scan-deps-btn').onclick = async () => { await scanDeps(); };
+
+document.getElementById('export-tree-btn').onclick = () => {
+  document.getElementById('export-dropdown').classList.toggle('open');
+};
+
+document.getElementById('toggle-missing-deps-btn').onclick = () => {
+  state.filterMissingDeps = !state.filterMissingDeps;
+  document.getElementById('toggle-missing-deps-btn').textContent = state.filterMissingDeps ? '✅ Show Missing' : '🚫 Hide Missing';
+  renderDepList(); // Re-render with the new filter state
+};
+
+document.getElementById('toggle-basic-libs-btn').onclick = () => {
+  state.filterBasicLibs = !state.filterBasicLibs;
+  document.getElementById('toggle-basic-libs-btn').textContent = state.filterBasicLibs ? '✅ Show Basic/Libs' : '📚 Hide Basic/Libs';
+  renderDepList(); // Re-render with the new filter state
+};
+
+document.getElementById('add-custom-dep-filter-btn').onclick = () => {
+  const input = document.getElementById('custom-dep-filter-input');
+  const pattern = input.value.trim();
+  if (pattern && !state.customFilterPatterns.includes(pattern)) {
+    state.customFilterPatterns.push(pattern);
+    input.value = ''; // Clear input
+    renderCustomFilters();
+    renderDepList(); // Re-render to apply new filter
+  }
+};
+
+function renderCustomFilters() {
+  const el = document.getElementById('custom-dep-filters-list');
+  el.innerHTML = state.customFilterPatterns.map((pattern, i) => `
+    <span class="pill" style="margin-right:4px;margin-bottom:4px;">
+      ${pattern}
+      <span onclick="removeCustomFilter('${pattern}')" style="cursor:pointer;color:var(--muted);font-size:13px;line-height:1" title="Remove filter">×</span>
+    </span>`).join('');
+}
+
+window.removeCustomFilter = (patternToRemove) => {
+  state.customFilterPatterns = state.customFilterPatterns.filter(p => p !== patternToRemove);
+  renderCustomFilters();
+  renderDepList(); // Re-render to remove filter
+};
+
+// Patterns for filtering "basic stuff" / common libraries
+const BASIC_LIBS_PATTERNS = [
+  // C/C++ standard headers
+  /^stdio\.h$/, /^stdlib\.h$/, /^string\.h$/, /^math\.h$/, /^stdint\.h$/, /^stdbool\.h$/, /^errno\.h$/, /^unistd\.h$/, /^pthread\.h$/,
+  // Python common libraries and built-ins
+  /^numpy$/, /^os$/, /^sys$/, /^math$/, /^json$/, /^re$/, /^__name__$/, /^_^_/ // Common Python modules and dunder names
+];
+
+async function scanWorkspace() {
+  if (!state.wsRoots.length) return;
+  state.wsFiles = {};
+  log('info', `Scanning ${state.wsRoots.length} root(s)…`);
+
+  // vault in primary root
+  try { state.vaultHandle = await state.wsRoots[0].handle.getDirectoryHandle('.vault', { create: true }); } catch(e) {}
+
+  for (let ri = 0; ri < state.wsRoots.length; ri++) {
+    await walkDir(state.wsRoots[ri].handle, '', state.wsFiles, ri);
+  }
+  renderWsFiles();
+  await loadVaultIndex();
+  log('ok', `Scanned ${Object.keys(state.wsFiles).length} files across ${state.wsRoots.length} root(s)`);
+  updateStats();
+}
+
+async function walkDir(dirHandle, prefix, out, rootIdx = 0) {
+  for await (const [name, handle] of dirHandle.entries()) {
+    if (name === '.vault' || name.startsWith('.') || name === '__pycache__') continue;
+    const rel = (rootIdx > 0 ? state.wsRoots[rootIdx].name + '/' : '') + (prefix ? prefix + '/' + name : name);
+    if (handle.kind === 'directory') {
+      await walkDir(handle, prefix ? prefix + '/' + name : name, out, rootIdx);
+    } else {
+      out[rel] = { handle, name, parsed: parseFilename(name), rootIdx };
+    }
+  }
+}
+
+// ── File Explorer (tree) ───────────────────────────────────
+let treeOpenState = {};
+
+function buildTree(files, filterQ = '') {
+  const tree = {};
+  const q = filterQ.toLowerCase();
+  for (const [rel, f] of files) {
+    if (q && !f.name.toLowerCase().includes(q) && !rel.toLowerCase().includes(q)) continue;
+    const parts = rel.split('/');
+    const folder = parts.length > 1 ? parts.slice(0, -1).join('/') : '__root__';
+    if (!tree[folder]) tree[folder] = [];
+    tree[folder].push([rel, f]);
+  }
+  return tree;
+}
+
+function renderWsFiles(filterQ = '') {
+  const el = document.getElementById('ws-files-list');
+  const files = Object.entries(state.wsFiles);
+  if (!files.length) { el.innerHTML = '<div class="empty-state">No files found</div>'; return; }
+
+  const vaultedBases = new Set(Object.keys(state.vault));
+  const wsFileSet = new Set(files.map(([,f]) => f.name));
+  const tree = buildTree(files, filterQ);
+  const multiRoot = state.wsRoots.length > 1;
+
+  const folders = Object.keys(tree).sort((a, b) => {
+    if (a === '__root__') return -1; if (b === '__root__') return 1;
+    return a.localeCompare(b);
+  });
+
+  const renderFile = ([rel, f]) => {
+    const hasVersions = vaultedBases.has(f.parsed.base);
+    const vCount = hasVersions ? state.vault[f.parsed.base].length : 0;
+    const rootName = state.wsRoots[f.rootIdx]?.name || '';
+    const node = state.depGraph?.[f.name];
+    const hasWarn = node && [...node.imports].some(d => !wsFileSet.has(d));
+    return `<div class="tree-file">
+      <span>${extIcon(f.parsed.ext)}</span>
+      <span class="file-name" title="${rel}">${f.name}${hasVersions ? `<span style="color:var(--accent2);font-size:9px;margin-left:3px">⊕${vCount}</span>` : ''}${hasWarn ? '<span style="color:var(--danger);font-size:9px;margin-left:3px">⚠</span>' : ''}</span>
+      ${f.parsed.ver ? `<span style="color:var(--muted);font-size:9px">v${f.parsed.ver}</span>` : ''}
+      ${multiRoot ? `<span style="color:var(--dim);font-size:9px">[${rootName}]</span>` : ''}
+      ${TEXT_EXTS.has(f.parsed.ext) ? `<button class="btn sm" style="padding:2px 8px;font-size:10px;flex-shrink:0" onclick="openEditor('${rel.replace(/'/g,"\\'")}')" >Edit</button>` : ''}
+    </div>`;
+  };
+
+  el.innerHTML = folders.map(folder => {
+    const folderFiles = tree[folder];
+    const isRoot = folder === '__root__';
+    const label = isRoot ? '/' : folder;
+    const key = folder;
+    const isOpen = filterQ ? true : (treeOpenState[key] !== false);
+    const safeKey = key.replace(/[^a-z0-9]/gi, '_');
+    return `<div class="tree-folder">
+      <div class="tree-folder-row" onclick="toggleFolder('${key.replace(/'/g,"\\'")}')" >
+        <span class="tree-arrow ${isOpen ? 'open' : ''}">▶</span>
+        <span>📁</span>
+        <span style="flex:1">${label}</span>
+        <span style="color:var(--dim);font-size:10px">${folderFiles.length}</span>
+      </div>
+      <div class="tree-children ${isOpen ? 'open' : ''}" id="tree_${safeKey}">
+        ${folderFiles.map(renderFile).join('')}
+      </div>
+    </div>`;
+  }).join('') + `<div style="padding:6px 8px;font-size:10px;color:var(--dim)">${files.length} files</div>`;
+}
+
+window.toggleFolder = (key) => {
+  treeOpenState[key] = treeOpenState[key] === false ? true : false;
+  const safeKey = key.replace(/[^a-z0-9]/gi, '_');
+  const el = document.getElementById('tree_' + safeKey);
+  const arrow = el?.previousElementSibling?.querySelector('.tree-arrow');
+  if (el) el.classList.toggle('open');
+  if (arrow) arrow.classList.toggle('open');
+};
+
+window.filterTree = (q) => renderWsFiles(q);
+
+// ── ZIP drop ───────────────────────────────────────────────
+const dropZone = document.getElementById('drop-zone');
+const zipInput = document.getElementById('zip-input');
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); if (!state.wsHandle) return; dropZone.classList.add('over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('over'));
+dropZone.addEventListener('drop', async e => {
+  e.preventDefault(); dropZone.classList.remove('over');
+  if (!state.wsHandle) return;
+  const files = [...e.dataTransfer.files].filter(f => f.name.endsWith('.zip'));
+  if (files.length) await processZips(files);
+});
+dropZone.onclick = () => { if (state.wsHandle) zipInput.click(); };
+zipInput.onchange = async (e) => {
+  if (e.target.files.length) await processZips([...e.target.files]);
+  e.target.value = '';
+};
+
+async function processZips(zipFiles) {
+  state.incoming = [];
+  state.conflicts = [];
+  setProgress(0);
+
+  for (let zi = 0; zi < zipFiles.length; zi++) {
+    const zipFile = zipFiles[zi];
+    log('info', `Processing ${zipFile.name}…`);
+    try {
+      const buf = await zipFile.arrayBuffer();
+      const zip = await JSZip.loadAsync(buf);
+      const entries = Object.values(zip.files).filter(f => !f.dir);
+
+      for (let i = 0; i < entries.length; i++) {
+        const entry = entries[i];
+        setProgress(((zi * entries.length + i) / (zipFiles.length * entries.length)) * 100);
+        await classifyEntry(entry, zipFile.name);
+      }
+
+      // archive ZIP to vault
+      await archiveZip(zipFile);
+    } catch(e) {
+      log('err', `Failed to read ${zipFile.name}: ${e.message}`);
+    }
+  }
+
+  setProgress(100);
+  renderIncoming();
+  renderConflicts();
+  updateStats();
+  document.getElementById('apply-all-btn').disabled = state.incoming.length === 0;
+  setTimeout(() => setProgress(0), 1200);
+}
+
+async function classifyEntry(entry, zipName) {
+  // strip leading folder from zip (common pattern: zip_name/actual_file.h)
+  let name = entry.name;
+  const parts = name.split('/');
+  if (parts.length > 1) name = parts[parts.length - 1];
+  if (!name) return;
+
+  const parsed = parseFilename(name);
+  const content = await entry.async('uint8array');
+
+  // find match in workspace by base name
+  let matchKey = null, matchFile = null, status = 'new';
+
+  for (const [rel, wf] of Object.entries(state.wsFiles)) {
+    if (wf.parsed.base === parsed.base && wf.parsed.ext === parsed.ext) {
+      matchKey = rel; matchFile = wf; break;
+    }
+  }
+
+  if (matchFile) {
+    if (!parsed.ver || !matchFile.parsed.ver) {
+      status = 'conflict'; // can't compare versions
+    } else if (verEq(parsed, matchFile.parsed)) {
+      status = 'same';
+    } else if (verGt(parsed, matchFile.parsed)) {
+      status = 'update';
+    } else {
+      status = 'downgrade';
+    }
+  }
+
+  const item = { name, zipName, parsed, status, matchKey, matchFile, content };
+  state.incoming.push(item);
+  if (status === 'conflict' || status === 'downgrade') state.conflicts.push(item);
+}
+
+// ── Apply ──────────────────────────────────────────────────
+document.getElementById('apply-all-btn').onclick = async () => {
+  const safe = state.incoming.filter(i => i.status === 'new' || i.status === 'update');
+  for (const item of safe) await applyItem(item);
+  await scanWorkspace();
+  renderIncoming();
+  updateStats();
+};
+
+document.getElementById('approve-all-btn').onclick = async () => {
+  for (const item of state.conflicts) await applyItem(item);
+  state.conflicts = [];
+  renderConflicts();
+  await scanWorkspace();
+  updateStats();
+};
+
+async function applyItem(item) {
+  if (!state.wsRoots.length) return;
+
+  // auto-vault existing silently
+  if (item.matchKey && item.matchFile) {
+    await vaultFile(item.matchKey, item.matchFile);
+  }
+
+  const targetDir = item.matchKey
+    ? (() => {
+        // strip root prefix if multi-root
+        let rel = item.matchKey;
+        if (state.wsRoots.length > 1) {
+          const rootName = state.wsRoots[item.matchFile.rootIdx]?.name;
+          if (rootName && rel.startsWith(rootName + '/')) rel = rel.slice(rootName.length + 1);
+        }
+        return rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : null;
+      })()
+    : null;
+
+  const rootHandle = item.matchFile ? state.wsRoots[item.matchFile.rootIdx]?.handle : state.wsRoots[0].handle;
+
+  try {
+    const dirHandle = targetDir ? await getDirHandle(targetDir, rootHandle) : rootHandle;
+    const fh = await dirHandle.getFileHandle(item.name, { create: true });
+    const w = await fh.createWritable();
+    await w.write(item.content);
+    await w.close();
+    log('ok', `${item.status === 'new' ? 'Added' : 'Updated'} → ${targetDir ? targetDir + '/' : ''}${item.name}`);
+    item.status = 'done';
+  } catch(e) {
+    log('err', `Failed to write ${item.name}: ${e.message}`);
+  }
+}
+
+async function getDirHandle(path, root = null) {
+  let cur = root || state.wsRoots[0].handle;
+  for (const part of path.split('/').filter(Boolean)) {
+    cur = await cur.getDirectoryHandle(part, { create: true });
+  }
+  return cur;
+}
+
+// ── Vault ──────────────────────────────────────────────────
+async function vaultFile(relPath, wsFile) {
+  if (!state.vaultHandle) return;
+  try {
+    const file = await wsFile.handle.getFile();
+    const content = await file.arrayBuffer();
+
+    // dedupe: hash content, skip if identical to last vaulted
+    const hashBuf = await crypto.subtle.digest('SHA-256', content);
+    const hash = Array.from(new Uint8Array(hashBuf)).map(b=>b.toString(16).padStart(2,'0')).join('').slice(0,16);
+    const existing = state.vault[wsFile.parsed.base] || [];
+    if (existing.length && existing[0].hash === hash) {
+      log('info', `Vault skip ${wsFile.name} — identical content`);
+      return;
+    }
+
+    const ts = Date.now();
+    const vaultName = wsFile.name + '.v_' + ts + '.bak';
+    const fh = await state.vaultHandle.getFileHandle(vaultName, { create: true });
+    const w = await fh.createWritable();
+    await w.write(content);
+    await w.close();
+
+    if (!state.vault[wsFile.parsed.base]) state.vault[wsFile.parsed.base] = [];
+    state.vault[wsFile.parsed.base].unshift({ ver: wsFile.parsed.ver, ts, vaultName, originalName: wsFile.name, hash });
+    state.vault[wsFile.parsed.base] = state.vault[wsFile.parsed.base].slice(0, 5);
+
+    log('info', `Vaulted ${wsFile.name}`);
+    renderVault();
+    updateStats();
+  } catch(e) {
+    log('warn', `Vault failed for ${wsFile.name}: ${e.message}`);
+  }
+}
+
+async function archiveZip(zipFile) {
+  if (!state.vaultHandle) return;
+  try {
+    let zipVaultHandle;
+    try { zipVaultHandle = await state.vaultHandle.getDirectoryHandle('zips', { create: true }); }
+    catch(e) { return; }
+    const ts = Date.now();
+    const archiveName = zipFile.name.replace('.zip', '') + '_' + ts + '.zip';
+    const fh = await zipVaultHandle.getFileHandle(archiveName, { create: true });
+    const w = await fh.createWritable();
+    await w.write(await zipFile.arrayBuffer());
+    await w.close();
+    log('info', `Archived ZIP → .vault/zips/${archiveName}`);
+  } catch(e) {}
+}
+
+async function rollbackFile(baseName, vaultEntry) {
+  if (!state.vaultHandle) return;
+  try {
+    const vfh = await state.vaultHandle.getFileHandle(vaultEntry.vaultName);
+    const file = await vfh.getFile();
+    const content = await file.arrayBuffer();
+    const match = Object.values(state.wsFiles).find(f => f.parsed.base === baseName);
+    if (!match) { log('warn', `Cannot rollback: ${baseName} not in workspace`); return; }
+    const w = await match.handle.createWritable();
+    await w.write(content);
+    await w.close();
+    log('ok', `Rolled back ${vaultEntry.originalName} → v${vaultEntry.ver}`);
+    await scanWorkspace();
+  } catch(e) {
+    log('err', `Rollback failed: ${e.message}`);
+  }
+}
+
+async function loadVaultIndex() {
+  if (!state.vaultHandle) return;
+  state.vault = {};
+  try {
+    for await (const [name] of state.vaultHandle.entries()) {
+      if (!name.endsWith('.bak')) continue;
+      const m = name.match(/^(.+)\.v_(\d+)\.bak$/);
+      if (!m) continue;
+      const originalName = m[1];
+      const ts = parseInt(m[2]);
+      const parsed = parseFilename(originalName);
+      const base = parsed.base;
+      if (!state.vault[base]) state.vault[base] = [];
+      state.vault[base].push({ ver: parsed.ver, ts, vaultName: name, originalName });
+    }
+    for (const k in state.vault) {
+      state.vault[k].sort((a,b) => b.ts - a.ts);
+      state.vault[k] = state.vault[k].slice(0, 5);
+    }
+  } catch(e) {}
+  renderVault();
+}
+
+// ── Render ─────────────────────────────────────────────────
+function renderIncoming() {
+  const el = document.getElementById('incoming-list');
+  document.getElementById('incoming-count').textContent = state.incoming.length;
+  if (!state.incoming.length) { el.innerHTML = '<div class="empty-state">Drop a ZIP to preview changes</div>'; return; }
+
+  el.innerHTML = state.incoming.map((item, i) => `
+    <div class="file-item">
+      <span class="file-icon">${extIcon(item.parsed.ext)}</span>
+      <div class="file-info">
+        <div class="file-name">${item.name}</div>
+        <div class="file-meta">from ${item.zipName}${item.matchFile ? ' · ws: v' + (item.matchFile.parsed.ver || '?') : ''}</div>
+      </div>
+      <span class="file-badge badge-${item.status}">${item.status.toUpperCase()}</span>
+      ${item.status === 'new' || item.status === 'update'
+        ? `<button class="btn sm" onclick="applySingle(${i})">Apply</button>`
+        : item.status === 'done' ? '<span style="color:var(--ok);font-size:11px">✓</span>' : ''}
+    </div>`).join('');
+}
+
+window.applySingle = async (i) => {
+  await applyItem(state.incoming[i]);
+  await scanWorkspace();
+  renderIncoming();
+  updateStats();
+};
+
+function renderConflicts() {
+  const el = document.getElementById('conflict-list');
+  document.getElementById('conflict-count').textContent = state.conflicts.length;
+  document.getElementById('approve-all-btn').disabled = state.conflicts.length === 0;
+
+  if (!state.conflicts.length) { el.innerHTML = '<div class="empty-state">No conflicts</div>'; return; }
+
+  el.innerHTML = state.conflicts.map((item, i) => `
+    <div class="conflict-item">
+      <div class="conflict-header">
+        <span class="conflict-name">${item.name}</span>
+        <span class="file-badge badge-${item.status}">${item.status}</span>
+      </div>
+      <div class="conflict-detail">
+        Workspace: v${item.matchFile?.parsed.ver || '?'} &nbsp;→&nbsp; Incoming: v${item.parsed.ver || '?'}<br/>
+        From: ${item.zipName}
+      </div>
+      <div class="conflict-actions">
+        <button class="btn sm primary" onclick="approveConflict(${i})">Apply Incoming</button>
+        <button class="btn sm danger" onclick="rejectConflict(${i})">Keep Current</button>
+      </div>
+    </div>`).join('');
+}
+
+window.approveConflict = async (i) => {
+  await applyItem(state.conflicts[i]);
+  state.conflicts.splice(i, 1);
+  renderConflicts();
+  await scanWorkspace();
+  updateStats();
+};
+
+window.rejectConflict = (i) => {
+  log('info', `Kept current version of ${state.conflicts[i].name}`);
+  state.conflicts.splice(i, 1);
+  renderConflicts();
+  updateStats();
+};
+
+function renderVault(filter = '') {
+  const el = document.getElementById('vault-list');
+  const q = (filter || '').toLowerCase();
+  const entries = Object.entries(state.vault)
+    .filter(([base]) => !q || base.toLowerCase().includes(q))
+    .sort((a, b) => {
+      const ta = a[1][0]?.ts || 0, tb = b[1][0]?.ts || 0;
+      return tb - ta;
+    });
+
+  if (!entries.length) {
+    el.innerHTML = '<div class="empty-state">' + (q ? 'No match' : 'No vaulted files yet') + '</div>';
+    return;
+  }
+  el.innerHTML = entries.map(([base, versions]) => `
+    <div style="margin-bottom:12px">
+      <div style="font-size:11px;color:var(--muted);padding:4px 10px;border-bottom:1px solid var(--border);
+                  margin-bottom:4px;font-weight:600;display:flex;justify-content:space-between">
+        <span>${base}</span><span style="color:var(--dim)">${versions.length} version(s)</span>
+      </div>
+      ${versions.map(v => `
+        <div class="vault-item">
+          <span class="vault-ver">v${v.ver || '0'}</span>
+          <span class="vault-ts">${new Date(v.ts).toLocaleString()}</span>
+          <button class="btn sm" onclick="rollbackFile('${base}', ${JSON.stringify(v).replace(/"/g,'&quot;')})">Rollback</button>
+        </div>`).join('')}
+    </div>`).join('');
+}
+
+// ── Log ────────────────────────────────────────────────────
+function log(type, msg) {
+  const el = document.getElementById('log-body');
+  const ts = new Date().toLocaleTimeString();
+  const icon = { ok: '✓', warn: '⚠', err: '✕', info: '·' }[type] || '·';
+  const div = document.createElement('div');
+  div.className = `log-line log-${type}`;
+  div.innerHTML = `<span class="log-time">${ts}</span><span>${icon} ${msg}</span>`;
+  el.prepend(div);
+  // keep max 100 lines
+  while (el.children.length > 100) el.removeChild(el.lastChild);
+}
+window.clearLog = () => { document.getElementById('log-body').innerHTML = ''; };
+
+// ── Helpers ────────────────────────────────────────────────
+function extIcon(ext) {
+  const m = { '.h': '🔷', '.c': '🔶', '.py': '🐍', '.json': '📋', '.yaml': '📋', '.yml': '📋', '.md': '📝', '.zip': '📦', '.js': '🟨', '.ts': '🟦' };
+  return m[ext] || '📄';
+}
+
+function setProgress(pct) {
+  document.getElementById('progress-fill').style.width = pct + '%';
+}
+
+function updateStats() {
+  const counts = { new: 0, update: 0, conflict: 0, downgrade: 0 };
+  state.incoming.forEach(i => { if (counts[i.status] !== undefined) counts[i.status]++; });
+  document.getElementById('stat-total').textContent = Object.keys(state.wsFiles).length;
+  document.getElementById('stat-new').textContent = counts.new;
+  document.getElementById('stat-update').textContent = counts.update;
+  document.getElementById('stat-conflict').textContent = counts.conflict;
+  document.getElementById('stat-downgrade').textContent = counts.downgrade;
+  document.getElementById('stat-vault').textContent = Object.values(state.vault).reduce((a, b) => a + b.length, 0);
+}
+
+// ── Tab switcher ───────────────────────────────────────────
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', ['files','deps'][i] === name));
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+}
+
+// ── Dependency Scanner ─────────────────────────────────────
+// Patterns: C/C++ #include, Python import/from, JS/TS import/require
+const DEP_PATTERNS = [
+  { re: /^\s*#\s*include\s+"([^"]+)"/gm,   lang: 'c'  },
+  { re: /^\s*(?:import|from)\s+([\w.]+)/gm,        lang: 'py' },
+  { re: /(?:import|require)\s*\(?['"]([^'"]+)['"]\)?/gm, lang: 'js' },
+];
+const TEXT_EXTS = new Set(['.h','.c','.cpp','.py','.js','.ts','.json','.yaml','.yml','.md','.txt']);
+
+async function readFileText(handle) {
+  try {
+    const f = await handle.getFile();
+    if (f.size > 500_000) return null; // skip large binary
+    return await f.text();
+  } catch { return null; }
+}
+
+async function scanDeps() {
+  if (!state.wsHandle) return;
+  log('info', 'Scanning dependencies…');
+  state.depGraph = {}; // base_name → { imports: Set, importedBy: Set }
+
+  const allFiles = Object.entries(state.wsFiles);
+  const nameIndex = new Set(allFiles.map(([,f]) => f.name)); // fast lookup
+
+  for (const [rel, f] of allFiles) {
+    if (!TEXT_EXTS.has(f.parsed.ext)) continue;
+    const text = await readFileText(f.handle);
+    if (!text) continue;
+
+    const imports = new Set();
+    for (const { re } of DEP_PATTERNS) {
+      re.lastIndex = 0;
+      let m;
+      while ((m = re.exec(text)) !== null) {
+        // extract just filename part
+        const raw = m[1];
+        const fname = raw.includes('/') ? raw.slice(raw.lastIndexOf('/') + 1) : raw;
+        if (fname !== f.name) imports.add(fname);
+      }
+    }
+
+    if (!state.depGraph[f.name]) state.depGraph[f.name] = { imports: new Set(), importedBy: new Set(), rel, isPogls: false };
+    if (f.parsed.base.startsWith('pogls_')) {
+      state.depGraph[f.name].isPogls = true;
+    }
+    imports.forEach(dep => state.depGraph[f.name].imports.add(dep));
+  }
+
+  // build reverse (importedBy)
+  for (const [fname, node] of Object.entries(state.depGraph)) {
+    node.imports.forEach(dep => {
+      if (!state.depGraph[dep]) state.depGraph[dep] = { imports: new Set(), importedBy: new Set(), rel: null, isPogls: false };
+      state.depGraph[dep].importedBy.add(fname);
+    });
+  }
+
+  renderDepList();
+  document.getElementById('export-tree-btn').disabled = false;
+  document.getElementById('resolve-missing-btn').disabled = false;
+  log('ok', `Dep scan complete — ${Object.keys(state.depGraph).length} nodes`);
+}
+
+function renderDepList(filter = '') {
+  const el = document.getElementById('dep-files-list');
+  if (!state.depGraph || !Object.keys(state.depGraph).length) {
+    el.innerHTML = '<div class="empty-state">Scan to analyse</div>'; return;
+  }
+  const q = filter.toLowerCase();
+  const entries = Object.entries(state.depGraph)
+    .filter(([n]) => !q || n.toLowerCase().includes(q))
+    .filter(([n, node]) => { // Apply missing filter
+      if (state.filterMissingDeps) {
+        const inWs = Object.values(state.wsFiles).some(f => f.name === n);
+        const isMissing = !inWs && node.importedBy.size > 0;
+        return !isMissing; // Only show if not missing
+      }
+      return true; // Show all if filter is off
+    })
+    .filter(([n, node]) => { // Apply basic/libs filter
+      if (state.filterBasicLibs) {
+        // Check if the file name matches any of the basic lib patterns
+        return !BASIC_LIBS_PATTERNS.some(pattern => pattern.test(n));
+      }
+      return true; // Show all if filter is off
+    })
+    .filter(([n, node]) => { // Apply custom filters
+      return !state.customFilterPatterns.some(pattern => n.includes(pattern));
+    })
+    .sort((a, b) => (b[1].importedBy.size + b[1].imports.size) - (a[1].importedBy.size + a[1].imports.size));
+
+  const missing = entries.filter(([n, node]) => !Object.values(state.wsFiles).some(f => f.name === n) && node.importedBy.size > 0);
+  const rest = entries.filter(([n, node]) => Object.values(state.wsFiles).some(f => f.name === n) || node.importedBy.size === 0);
+
+  const renderItem = ([name, node]) => {
+    const inWs = Object.values(state.wsFiles).some(f => f.name === name);
+    const isMissing = !inWs && node.importedBy.size > 0;
+    return `<div class="dep-file${isMissing ? ' missing-file' : ''}" onclick="showDepDetail('${name.replace(/'/g,"\\'")}')">
+      <div class="dep-name">${extIcon(name.includes('.') ? '.'+name.split('.').pop() : '')} ${name}
+        ${isMissing ? '<span style="color:var(--danger);font-size:10px"> ⚠</span>' : ''}
+      </div>
+      <div class="dep-meta">
+        <span class="dep-tag inc">↑ ${node.imports.size}</span>
+        <span class="dep-tag used">↓ ${node.importedBy.size}</span>
+        ${node.isPogls ? '<span class="dep-tag pogls">POGLS</span>' : ''}
+        ${isMissing ? '<span class="dep-tag miss">missing</span>' : ''}
+      </div>
+    </div>`;
+  };
+
+  el.innerHTML = (missing.length ? `<div style="font-size:10px;color:var(--danger);padding:4px 6px;margin-bottom:4px;border-bottom:1px solid var(--border)">⚠ ${missing.length} missing</div>${missing.map(renderItem).join('')}<div style="height:6px"></div>` : '')
+    + rest.slice(0, 100).map(renderItem).join('')
+    + (rest.length > 100 ? `<div class="empty-state">+${rest.length-100} more…</div>` : '');
+}
+
+window.showDepDetail = (name) => {
+  const node = state.depGraph?.[name];
+  if (!node) return;
+  const el = document.getElementById('dep-detail-box');
+
+  // find in which roots this file exists
+  const foundIn = Object.entries(state.wsFiles)
+    .filter(([,f]) => f.name === name)
+    .map(([rel, f]) => ({ rel, rootIdx: f.rootIdx, rootName: state.wsRoots[f.rootIdx]?.name }));
+
+  const inCurrentRoot = foundIn.length > 0;
+  const missingRoots = state.wsRoots
+    .map((r, i) => ({ ...r, idx: i }))
+    .filter(r => !foundIn.some(f => f.rootIdx === r.idx));
+
+  el.innerHTML = `<div class="dep-detail">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <span style="font-weight:700;font-size:13px">${name}</span>
+      <div style="display:flex;gap:8px;align-items:center;">
+        ${node.isPogls ? '<span class="file-badge badge-update" style="background:rgba(255,165,0,0.15);color:#FFA500;">POGLS CORE</span>' : ''}
+        <span class="file-badge ${inCurrentRoot ? 'badge-update' : 'badge-downgrade'}">${inCurrentRoot ? `IN ${foundIn.length} ROOT(S)` : 'MISSING'}</span>
+      </div>
+    </div>
+    ${foundIn.length > 0 ? `<div style="font-size:10px;color:var(--ok);margin-bottom:8px">
+      Found in: ${foundIn.map(f => `<span style="color:var(--accent)">${f.rootName || 'root'}</span> (${f.rel})`).join(', ')}
+    </div>` : ''}
+    ${foundIn.length > 0 && missingRoots.length > 0 ? `
+      <div class="dep-section-title" style="color:var(--warn)">Missing in ${missingRoots.length} root(s) — copy to:</div>
+      <div style="margin-bottom:10px">
+        ${missingRoots.map(r => `
+          <button class="btn sm" style="margin:2px" onclick="copyToRoot('${name}','${foundIn[0].rel}',${r.idx})">
+            → ${r.name}
+          </button>`).join('')}
+      </div>` : ''}
+    <div class="dep-section-title">Imports (${node.imports.size})</div>
+    <div style="margin-bottom:10px">
+      ${node.imports.size ? [...node.imports].map(d => {
+        const found = Object.values(state.wsFiles).some(f => f.name === d);
+        return `<span class="dep-chip ${found ? 'found' : 'missing'}" onclick="showDepDetail('${d}')">${d}</span>`;
+      }).join('') : '<span style="color:var(--muted);font-size:11px">none</span>'}
+    </div>
+    <div class="dep-section-title">Used by (${node.importedBy.size})</div>
+    <div>
+      ${node.importedBy.size ? [...node.importedBy].map(d =>
+        `<span class="dep-chip found" onclick="showDepDetail('${d}')">${d}</span>`
+      ).join('') : '<span style="color:var(--muted);font-size:11px">none</span>'}
+    </div>
+    ${node.rel ? `<div style="margin-top:8px;font-size:10px;color:var(--muted)">${node.rel}</div>` : ''}
+  </div>`;
+};
+
+window.copyToRoot = async (fileName, sourceRel, destRootIdx) => {
+  const srcFile = state.wsFiles[sourceRel];
+  if (!srcFile) { log('err', `Source not found: ${sourceRel}`); return; }
+  const destRoot = state.wsRoots[destRootIdx];
+  if (!destRoot) return;
+  try {
+    const file = await srcFile.handle.getFile();
+    const content = await file.arrayBuffer();
+    // preserve subfolder structure (strip root prefix if needed)
+    let rel = sourceRel;
+    const srcRootName = state.wsRoots[srcFile.rootIdx]?.name;
+    if (srcRootName && rel.startsWith(srcRootName + '/')) rel = rel.slice(srcRootName.length + 1);
+    const subDir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : null;
+    const dirHandle = subDir ? await getDirHandle(subDir, destRoot.handle) : destRoot.handle;
+    const fh = await dirHandle.getFileHandle(fileName, { create: true });
+    const w = await fh.createWritable();
+    await w.write(content);
+    await w.close();
+    log('ok', `Copied ${fileName} → [${destRoot.name}]${subDir ? '/' + subDir : ''}`);
+    await scanWorkspace();
+    showDepDetail(fileName); // refresh detail
+  } catch(e) {
+    log('err', `Copy failed: ${e.message}`);
+  }
+};
+
+// ── Export Context (tiered) ────────────────────────────────
+document.addEventListener('click', e => {
+  if (!document.getElementById('export-menu-wrap')?.contains(e.target))
+    document.getElementById('export-dropdown')?.classList.remove('open');
+});
+
+function exportContext(tier) {
+  document.getElementById('export-dropdown').classList.remove('open');
+  const graph = state.depGraph || {};
+  const wsFileSet = new Set(Object.values(state.wsFiles).map(f => f.name));
+  const roots = state.wsRoots.map(r => r.name);
+  const ts = new Date().toLocaleString();
+
+  const missing = Object.entries(graph)
+    .filter(([n, node]) => !wsFileSet.has(n) && node.importedBy.size > 0);
+
+  const hubs = Object.entries(graph)
+    .filter(([n]) => wsFileSet.has(n))
+    .map(([n, node]) => ({ n, i: node.imports.size, u: node.importedBy.size, s: node.imports.size + node.importedBy.size * 2 }))
+    .sort((a, b) => b.s - a.s);
+
+  const vaultedFiles = Object.keys(state.vault);
+
+  // folder structure
+  const folders = {};
+  for (const [rel, f] of Object.entries(state.wsFiles)) {
+    const parts = rel.split('/');
+    const folder = parts.length > 1 ? parts.slice(0, -1).join('/') : '.';
+    if (!folders[folder]) folders[folder] = [];
+    folders[folder].push(f.name);
+  }
+
+  let out = '';
+
+  // ── SKELETON (~200 tokens) ──────────────────────────────
+  if (tier === 'skeleton') {
+    out += `# PROJECT CONTEXT — SKELETON\n# ${ts}\n\n`;
+    out += `[ROOTS] ${roots.join(' | ')}\n`;
+    out += `[FILES] total:${wsFileSet.size} folders:${Object.keys(folders).length}\n`;
+    out += `[ARCH]  ${Object.keys(folders).slice(0, 12).join(' ')}\n`;
+    out += `[HUBS]  ${hubs.slice(0, 8).map(h => `${h.n}(↓${h.u})`).join(' ')}\n`;
+    if (missing.length)
+      out += `[MISS]  ${missing.map(([n]) => n).join(' ')}\n`;
+    const versioned = Object.values(state.wsFiles).filter(f => f.parsed.ver).map(f => `${f.name}`);
+    if (versioned.length)
+      out += `[VER]   ${versioned.slice(0, 12).join(' ')}\n`;
+    if (vaultedFiles.length)
+      out += `[VAULT] ${vaultedFiles.slice(0, 8).join(' ')}${vaultedFiles.length > 8 ? ` +${vaultedFiles.length-8}` : ''}\n`;
+    out += `\n# Paste this block at start of LLM session.\n`;
+  }
+
+  // ── ACTIVE (~1-5K tokens) ───────────────────────────────
+  else if (tier === 'active') {
+    out += `# PROJECT CONTEXT — ACTIVE\n# ${ts}\n`;
+    out += `# Roots: ${roots.join(', ')} | Files: ${wsFileSet.size}\n\n`;
+
+    out += `## ARCHITECTURE\n`;
+    for (const [folder, files] of Object.entries(folders)) {
+      out += `  ${folder}/\n`;
+      files.slice(0, 6).forEach(f => out += `    ${f}\n`);
+      if (files.length > 6) out += `    ... +${files.length-6}\n`;
+    }
+
+    out += `\n## HUBS (top connected)\n`;
+    hubs.slice(0, 15).forEach(h => {
+      const node = graph[h.n];
+      const deps = [...(node?.imports || [])].slice(0, 4).join(', ');
+      out += `  ${h.n}  ↑${h.i} ↓${h.u}${deps ? `  deps:[${deps}]` : ''}\n`;
+    });
+
+    if (missing.length) {
+      out += `\n## ⚠ MISSING\n`;
+      missing.forEach(([n, node]) =>
+        out += `  ${n}  used-by:[${[...node.importedBy].join(', ')}]\n`);
+    }
+
+    out += `\n## VERSIONS\n`;
+    Object.values(state.wsFiles).filter(f => f.parsed.ver)
+      .forEach(f => out += `  ${f.name}  v${f.parsed.ver}\n`);
+
+    if (vaultedFiles.length) {
+      out += `\n## VAULT (files with history)\n`;
+      vaultedFiles.forEach(base => {
+        const v = state.vault[base];
+        out += `  ${base}  [${v.map(x=>'v'+(x.ver||'?')).join(' → ')}]\n`;
+      });
+    }
+  }
+
+  // ── FULL ────────────────────────────────────────────────
+  else {
+    out += `# PROJECT CONTEXT — FULL\n# ${ts}\n`;
+    out += `# Roots: ${roots.join(', ')}\n\n`;
+
+    out += `## FOLDER STRUCTURE\n`;
+    for (const [folder, files] of Object.entries(folders)) {
+      out += `  ${folder}/\n`;
+      files.forEach(f => {
+        const node = graph[f];
+        const ver = Object.values(state.wsFiles).find(x => x.name === f)?.parsed.ver;
+        const warn = node && [...node.imports].some(d => !wsFileSet.has(d)) ? ' ⚠' : '';
+        out += `    ${f}${ver ? ' v'+ver : ''}${warn}`;
+        if (node) out += `  [↑${node.imports.size} ↓${node.importedBy.size}]`;
+        out += '\n';
+      });
+    }
+
+    out += `\n## FULL DEP GRAPH\n`;
+    for (const [name, node] of Object.entries(graph)) {
+      if (!node.imports.size && !node.importedBy.size) continue;
+      const inWs = wsFileSet.has(name);
+      out += `  ${inWs ? '' : '✕ '}${name}\n`;
+      if (node.imports.size) out += `    imports: ${[...node.imports].join(', ')}\n`;
+      if (node.importedBy.size) out += `    used-by: ${[...node.importedBy].join(', ')}\n`;
+    }
+
+    if (missing.length) {
+      out += `\n## ⚠ MISSING FILES\n`;
+      missing.forEach(([n, node]) =>
+        out += `  ${n}  used-by:[${[...node.importedBy].join(', ')}]\n`);
+    }
+
+    if (vaultedFiles.length) {
+      out += `\n## VAULT\n`;
+      vaultedFiles.forEach(base => {
+        out += `  ${base}\n`;
+        state.vault[base].forEach(v =>
+          out += `    v${v.ver || '?'}  ${new Date(v.ts).toLocaleString()}\n`);
+      });
+    }
+  }
+
+  // estimate tokens (~4 chars/token)
+  const estTokens = Math.round(out.length / 4);
+  const fname = `context_${tier}_${Date.now()}.md`;
+  const blob = new Blob([out], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fname;
+
+  // Temporarily append the link to the DOM to ensure click works in all browsers
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a); // Clean up the element
+
+  // Revoke the URL after a short delay to allow download to initiate
+  setTimeout(() => {
+    URL.revokeObjectURL(url);
+  }, 100);
+
+  log('ok', `Exported [${tier}] ${fname} — ~${estTokens.toLocaleString()} tokens (${out.length} chars)`);
+}
+
+// ── Editor ─────────────────────────────────────────────────
+const editorState = { rel: null, originalContent: null, currentText: null, dirty: false, viewingVersion: false };
+
+window.openEditor = async (rel) => {
+  const wsFile = state.wsFiles[rel];
+  if (!wsFile) return;
+  const file = await wsFile.handle.getFile();
+  const text = await file.text();
+
+  editorState.rel = rel;
+  editorState.originalContent = text;
+  editorState.currentText = text;
+  editorState.dirty = false;
+  editorState.viewingVersion = false;
+
+  const ta = document.getElementById('editor-textarea');
+  ta.value = text;
+  ta.readOnly = false;
+  document.getElementById('editor-filename').textContent = wsFile.name;
+  document.getElementById('editor-path').textContent = rel;
+  document.getElementById('editor-dirty').style.display = 'none';
+
+  // build version dropdown
+  const versions = state.vault[wsFile.parsed.base] || [];
+  const verBar = document.getElementById('editor-ver-bar');
+  const verSel = document.getElementById('editor-ver-select');
+  const verRestore = document.getElementById('editor-ver-restore-btn');
+  if (versions.length) {
+    verSel.innerHTML = '<option value="current">● current</option>' +
+      versions.map((v, i) => `<option value="${i}">v${v.ver || '?'} — ${new Date(v.ts).toLocaleString()}</option>`).join('');
+    verSel.value = 'current';
+    verBar.classList.add('visible');
+    verRestore.style.display = 'none';
+  } else {
+    verBar.classList.remove('visible');
+  }
+
+  document.getElementById('editor-vault-note').textContent =
+    versions.length ? `${versions.length} version(s) in vault` : 'no vault yet';
+  updateEditorStatus();
+  document.getElementById('editor-modal').classList.add('open');
+  ta.focus();
+};
+
+document.getElementById('editor-ver-select').onchange = async function() {
+  const val = this.value;
+  const rel = editorState.rel;
+  const wsFile = state.wsFiles[rel];
+  if (!wsFile) return;
+  const ta = document.getElementById('editor-textarea');
+  const verRestore = document.getElementById('editor-ver-restore-btn');
+  const badge = document.getElementById('editor-ver-badge');
+
+  if (val === 'current') {
+    ta.value = editorState.currentText;
+    ta.readOnly = false;
+    editorState.viewingVersion = false;
+    verRestore.style.display = 'none';
+    badge.textContent = '';
+  } else {
+    const vIdx = parseInt(val);
+    const vEntry = state.vault[wsFile.parsed.base]?.[vIdx];
+    if (!vEntry || !state.vaultHandle) return;
+    try {
+      const fh = await state.vaultHandle.getFileHandle(vEntry.vaultName);
+      const f = await fh.getFile();
+      ta.value = await f.text();
+      ta.readOnly = true;
+      editorState.viewingVersion = vIdx;
+      verRestore.style.display = 'inline-flex';
+      badge.textContent = '(read-only — editing disabled)';
+    } catch(e) { log('err', 'Cannot read vault file: ' + e.message); }
+  }
+  updateEditorStatus();
+};
+
+document.getElementById('editor-ver-restore-btn').onclick = async () => {
+  const rel = editorState.rel;
+  const wsFile = state.wsFiles[rel];
+  if (!wsFile || editorState.viewingVersion === false) return;
+  const vEntry = state.vault[wsFile.parsed.base]?.[editorState.viewingVersion];
+  if (!vEntry) return;
+  if (!confirm(`Restore v${vEntry.ver || '?'} from ${new Date(vEntry.ts).toLocaleString()}?`)) return;
+  // vault current first
+  await vaultFile(rel, wsFile);
+  // write vault content to file
+  const fh = await state.vaultHandle.getFileHandle(vEntry.vaultName);
+  const content = await (await fh.getFile()).arrayBuffer();
+  const w = await wsFile.handle.createWritable();
+  await w.write(content); await w.close();
+  log('ok', `Restored ${wsFile.name} to v${vEntry.ver || '?'}`);
+  await scanWorkspace();
+  openEditor(rel);
+};
+
+document.getElementById('editor-textarea').addEventListener('input', () => {
+  const ta = document.getElementById('editor-textarea');
+  editorState.dirty = ta.value !== editorState.originalContent;
+  document.getElementById('editor-dirty').style.display = editorState.dirty ? 'inline' : 'none';
+  updateEditorStatus();
+});
+
+document.getElementById('editor-textarea').addEventListener('keydown', e => {
+  // Tab → insert spaces
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    const ta = e.target, s = ta.selectionStart, en = ta.selectionEnd;
+    ta.value = ta.value.slice(0, s) + '  ' + ta.value.slice(en);
+    ta.selectionStart = ta.selectionEnd = s + 2;
+    editorState.dirty = true;
+    document.getElementById('editor-dirty').style.display = 'inline';
+  }
+  // Ctrl/Cmd+S → save
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault();
+    document.getElementById('editor-save-btn').click();
+  }
+});
+
+document.getElementById('editor-textarea').addEventListener('keyup', updateEditorStatus);
+document.getElementById('editor-textarea').addEventListener('click', updateEditorStatus);
+
+function updateEditorStatus() {
+  const ta = document.getElementById('editor-textarea');
+  const text = ta.value;
+  const before = text.slice(0, ta.selectionStart);
+  const ln = (before.match(/\n/g) || []).length + 1;
+  const col = before.length - before.lastIndexOf('\n');
+  const lines = (text.match(/\n/g) || []).length + 1;
+  document.getElementById('editor-pos').textContent = `Ln ${ln}, Col ${col}`;
+  document.getElementById('editor-lines').textContent = `${lines} lines`;
+}
+
+document.getElementById('editor-save-btn').onclick = async () => {
+  const rel = editorState.rel;
+  const wsFile = state.wsFiles[rel];
+  if (!wsFile) return;
+
+  // vault first (silent, with hash dedupe)
+  await vaultFile(rel, wsFile);
+
+  // write
+  try {
+    const w = await wsFile.handle.createWritable();
+    const text = document.getElementById('editor-textarea').value;
+    await w.write(new TextEncoder().encode(text));
+    await w.close();
+    editorState.originalContent = text;
+    editorState.dirty = false;
+    document.getElementById('editor-dirty').style.display = 'none';
+    const vCount = state.vault[wsFile.parsed.base]?.length || 0;
+    document.getElementById('editor-vault-note').textContent = `saved · ${vCount} version(s) in vault`;
+    log('ok', `Edited + vaulted ${wsFile.name}`);
+    renderVault();
+    renderWsFiles();
+  } catch(e) {
+    log('err', `Save failed: ${e.message}`);
+  }
+};
+
+document.getElementById('editor-close-btn').onclick = () => {
+  if (editorState.dirty && !confirm('Unsaved changes — close anyway?')) return;
+  document.getElementById('editor-modal').classList.remove('open');
+};
+
+// click backdrop to close
+document.getElementById('editor-modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('editor-modal')) {
+    document.getElementById('editor-close-btn').click();
+  }
+});
+
+// ── Missing Resolver ──────────────────────────────────────
+// Called after scanDeps — finds missing deps and checks if they
+// exist somewhere in roots (cross-root) or vault
+async function resolveMissing() {
+  const graph = state.depGraph || {};
+  const wsFileSet = new Set(Object.values(state.wsFiles).map(f => f.name));
+
+  const missingList = Object.entries(graph)
+    .filter(([n, node]) => !wsFileSet.has(n) && node.importedBy.size > 0);
+
+  if (!missingList.length) { log('ok', 'No missing dependencies'); return; }
+
+  // candidates[name] = { crossRoot: [{rel,rootName}], vaultHit: entry|null }
+  const candidates = {};
+  for (const [name] of missingList) {
+    // cross-root: file exists in a root but dep graph says it's missing from another
+    // → scan ALL wsFiles for exact name match (could be in a different root/folder)
+    const crossRoot = Object.entries(state.wsFiles)
+      .filter(([, f]) => f.name === name)
+      .map(([rel, f]) => ({ rel, rootName: state.wsRoots[f.rootIdx]?.name || 'root' }));
+
+    // vault: look by base name (strip extension)
+    const base = name.replace(/\.[^.]+$/, '');
+    const vaultHit = state.vault[base]?.[0] || null;
+
+    candidates[name] = { crossRoot, vaultHit };
+  }
+
+  // Show modal
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;z-index:200;background:rgba(8,10,15,0.9);display:flex;align-items:center;justify-content:center';
+  modal.innerHTML = `
+    <div style="background:var(--card);border:1px solid var(--border2);border-radius:14px;width:min(700px,95vw);max-height:80vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <span style="font-family:var(--sans);font-weight:700">Missing Dependency Resolver</span>
+        <span style="color:var(--muted);font-size:11px">${missingList.length} missing</span>
+      </div>
+      <div style="overflow-y:auto;padding:14px;flex:1">
+        ${missingList.map(([name, node]) => {
+          const { crossRoot, vaultHit: vHit } = candidates[name] || { crossRoot: [], vaultHit: null };
+          const usedBy = [...node.importedBy].slice(0, 3).join(', ') + (node.importedBy.size > 3 ? '…' : '');
+          return `<div class="missing-row" id="mrow_${name.replace(/[^a-z0-9]/gi,'_')}">
+            <div style="flex:1">
+              <div class="missing-name">✕ ${name}</div>
+              <div class="missing-candidates">used by: ${usedBy}</div>
+              ${crossRoot.length ? `<div style="color:var(--ok);font-size:10px;margin-top:2px">Found in: ${crossRoot.map(c=>c.rootName||'root').join(', ')}</div>` : ''}
+              ${vHit ? `<div style="color:var(--accent2);font-size:10px;margin-top:2px">Vault hit: v${vHit.ver || '?'}</div>` : ''}
+            </div>
+            <div style="display:flex;gap:4px;flex-wrap:wrap">
+              ${crossRoot.map(c => `<button class="btn sm" onclick="copyMissingToAll('${name}','${c.rel}',this.closest('[id^=mrow]'))">Copy from [${c.rootName}]</button>`).join('')}
+              ${vHit ? `<button class="btn sm" style="border-color:var(--accent2);color:var(--accent2)" onclick="restoreMissingFromVault('${name}','${vHit.vaultName}',this.closest('[id^=mrow]'))">Restore from Vault</button>` : ''}
+              ${!crossRoot.length && !vHit ? `<span style="color:var(--muted);font-size:10px">Not found in any root or vault</span>` : ''}
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+      <div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn sm primary" id="resolve-all-btn">Copy All Found</button>
+        <button class="btn sm" onclick="this.closest('div[style*=fixed]').remove()">Close</button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(modal);
+
+  modal.querySelector('#resolve-all-btn').onclick = async () => {
+    for (const [name] of missingList) {
+      const { crossRoot, vaultHit } = candidates[name] || {};
+      if (crossRoot?.length) {
+        await copyMissingToAll(name, crossRoot[0].rel, null);
+      } else if (vaultHit) {
+        await restoreMissingFromVault(name, vaultHit.vaultName, null);
+      }
+    }
+    await scanWorkspace();
+    modal.remove();
+    log('ok', 'Resolved all found missing deps');
+  };
+}
+
+window.copyMissingToAll = async (fileName, sourceRel, rowEl) => {
+  const srcFile = state.wsFiles[sourceRel];
+  if (!srcFile) return;
+  const file = await srcFile.handle.getFile();
+  const content = await file.arrayBuffer();
+  // copy to primary root
+  try {
+    const fh = await state.wsRoots[0].handle.getFileHandle(fileName, { create: true });
+    const w = await fh.createWritable(); await w.write(content); await w.close();
+    log('ok', `Resolved: copied ${fileName} to primary root`);
+    if (rowEl) rowEl.style.opacity = '0.4';
+    await scanWorkspace();
+  } catch(e) { log('err', 'Copy failed: ' + e.message); }
+};
+
+window.restoreMissingFromVault = async (fileName, vaultName, rowEl) => {
+  if (!state.vaultHandle) return;
+  try {
+    const fh = await state.vaultHandle.getFileHandle(vaultName);
+    const content = await (await fh.getFile()).arrayBuffer();
+    const wfh = await state.wsRoots[0].handle.getFileHandle(fileName, { create: true });
+    const w = await wfh.createWritable(); await w.write(content); await w.close();
+    log('ok', `Restored missing ${fileName} from vault`);
+    if (rowEl) rowEl.style.opacity = '0.4';
+    await scanWorkspace();
+  } catch(e) { log('err', 'Vault restore failed: ' + e.message); }
+};
+
+document.getElementById('resolve-missing-btn').onclick = () => resolveMissing();
+
+// ── Boot check ─────────────────────────────────────────────
+if (!('showDirectoryPicker' in window)) {
+  document.getElementById('ws-section').innerHTML = `
+    <div style="color:var(--danger);font-size:12px;padding:8px">
+      ⚠ File System Access API not supported. Open this file via <code>python3 -m http.server 8000</code> and access at <strong>http://localhost:8000</strong>
+    </div>`;
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,50 @@
+===============================
+SUMMARY #1 - 10/5/2569 01:42:20
+===============================
+
+# สถาปัตยกรรม EHCPTopo POC: การผสาน EHCP และ Topology สำหรับระบบ Zero-delete
+
+บทความนี้วิเคราะห์ถึงการออกแบบและพิสูจน์แนวคิด (Proof of Concept) ของระบบ **EHCPTopo** ซึ่งเป็นการรวมจุดเด่นของ **EHCP (Extended Hilbert Curve Partitioning)** ในด้านการจัดการพื้นที่และสี เข้ากับ **Topology Graph** เพื่อสร้างระบบที่สามารถลบข้อมูลได้โดยไม่สูญเสียโครงสร้าง (Zero-delete)
+
+## 1. โครงสร้างพื้นฐานของ Cell และ Residue Zone
+
+ในระบบนี้ `Cell` ถูกออกแบบให้ใช้ `int8_t state` เพื่อเก็บสถานะแบบ Signed (-1/0/+1) ซึ่งรองรับกลไกการทำงานดังนี้:
+- **STATE_GHOST (-1):** สถานะที่ Cell ถูกลบแต่ยังคงอยู่ในระบบ (Amnesia) ทำหน้าที่เป็นจุดผ่านของสัญญาณ
+- **STATE_ACTIVE (1):** สถานะปกติที่ Cell ทำงานและเชื่อมต่อกับ Neighbor
+- **FOLD Mechanism:** เมื่อ Cell ถูกลบ จะเกิดกระบวนการ `Ghost + Fold` พร้อมกัน โดย Cell จะเปลี่ยนรูปทรงเป็น `HEX6` ซึ่งมี `tri slots` ทั้งหมด 6 ช่อง ทำหน้าที่เป็น **Residue Zone** สำหรับเก็บ Metadata:
+    - `tri[0]`: Tombstone (หลักฐานการมีอยู่เดิม)
+    - `tri[1]`: Meta Data
+    - `tri[2]`: **WARP (Redirection Pointer)** สำหรับชี้ไปยังปลายทางใหม่
+    - `tri[3]`: Versioning
+    - `tri[4]`: Boundary/Topology Snapshot
+    - `tri[5]`: **Flow Condition** (เงื่อนไขการเปิด Switch)
+
+## 2. กลไก Transitive Bypass และการรักษา Connectivity
+
+ปัญหาหลักของการลบ Node ใน Graph คือการขาดตอนของเส้นทาง (Path Disruption) ระบบจึงนำกลไก **Transitive Bypass** มาใช้ผ่านฟังก์ชัน `resolve_active(hid)`:
+- **Logic:** เมื่อระบบพบ Ghost Node มันจะไม่หยุดการทำงาน แต่จะทำการ Walk ผ่าน Ghost Chain ไปเรื่อยๆ จนกว่าจะพบ Active Node ถัดไป
+- **Complexity:** มีประสิทธิภาพระดับ `O(k)` โดยที่ `k` คือความลึกของ Ghost Chain ซึ่งเร็วกว่าการทำ BFS/DFS ใหม่ทั้งระบบ
+- **Result:** พิสูจน์ผ่าน Test T7 ว่าแม้ Node กลางจะถูก Fold ไป แต่ Path ระหว่าง Node ต้นทางและปลายทางยังคงเชื่อมต่อกันได้จริงผ่านการ Stitch active ends เข้าหากัน
+
+## 3. ระบบ Circuit Switch Module (Relay Logic)
+
+เพื่อป้องกันช่องโหว่จากการที่ Attacker อาจคาดเดาตำแหน่งของ Folded Cell ผ่าน EHCP Complement ระบบจึงถูกยกระดับให้เป็น **Circuit Switch**:
+- **Concept:** มองว่า `SQUARE (Active)` คือ Circuit Closed (กระแสไหล) และ `HEX6 (Folded)` คือ Circuit Open (ตัดวงจรแต่สายยังอยู่)
+- **Implementation:** ใช้ `tri[5]` เป็นตัวเก็บเงื่อนไข (Condition) และ `tri[2]` เป็น Relay Contact
+- **Functions:**
+    - `circuit_arm()`: ตั้งค่า Relay (เขียนปลายทางและเงื่อนไข)
+    - `circuit_trip()`: ตรวจสอบ Key กับเงื่อนไข
+    - `circuit_resolve()`: หาก Key ถูกต้อง ระบบจะคืนค่า Warp Destination หากไม่ถูกต้องจะถือเป็น Open Circuit (ขุดข้อมูลไม่ได้)
+
+## 4. การขยายผลสู่ GeoFace Router (Inter-geometry Mapping)
+
+แนวคิดขั้นสูงของระบบนี้คือการทำ **Geometry Morphism** โดยอาศัยความสอดคล้องของตัวเลข (Invariant) เช่น `digit_sum = 9 family` หรือ `5/6 symmetry` เพื่อเชื่อมโยงรูปทรงที่ต่างกัน:
+- **Universal Addressing:** ใช้ `face_id` เป็น Address กลางในการ Reroute ระหว่างรูปทรง เช่น จาก Cube (6 faces) ไปยัง Dodecahedron (12 faces) หรือ Goldberg Polyhedra
+- **Mapping Key:** ระบบไม่ต้องแปลง Geometry จริง แต่ใช้การ Remap Pointer ของ Face ระหว่างรูปทรงโดยใช้ Invariant เป็น Anchor ทำให้สามารถ Reroute ข้อมูลข้ามมิติของรูปทรงได้โดยไม่กระทบต่อ Performance
+
+## 5. บทสรุปการประยุกต์ใช้งาน
+
+สถาปัตยกรรมนี้เหมาะอย่างยิ่งสำหรับ:
+- **Storage Engine (POGLS):** ใช้ Fold แทนการ Free slot เพื่อลด Fragmentation และใช้ Warp เป็น Version chain
+- **LLM Context Routing:** ใช้ Ghost Node ในการ "ลืม" บริบทโดยไม่ทำลายโครงสร้างความสัมพันธ์
+- **Neural Hybrid:** ใช้ Signed State ในการกำหนด Polarity ของสัญญาณเลียนแบบการทำงานของ Synapse ในระบบประสาท

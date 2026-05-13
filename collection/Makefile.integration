@@ -1,0 +1,26 @@
+CC ?= gcc
+CFLAGS ?= -O2 -Wall -Wextra
+INCLUDES := -Isrc -Icore/core -Icore/geo_headers -Icore/pogls_engine -Igeopixel -Iactive_updates
+
+TEST_DIR := tests/integration
+BIN_DIR := build/integration
+
+TESTS := \
+  test_dispatch_v2 \
+  test_ground_lcgw \
+  test_rewind_lcgw \
+  test_metatron_route \
+  test_frustum_wire
+
+.PHONY: all clean dirs
+
+all: dirs $(TESTS)
+
+dirs:
+	@mkdir -p $(BIN_DIR)
+
+$(TESTS): %: $(TEST_DIR)/%.c
+	$(CC) $(CFLAGS) $(INCLUDES) $< -o $(BIN_DIR)/$@
+
+clean:
+	rm -rf $(BIN_DIR)
