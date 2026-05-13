@@ -1,0 +1,158 @@
+/*
+ * calibrate.c — read BMP, classify all 16x16 tiles, print avg_var_x100 distribution
+ * Usage: ./calibrate hcco.bmp
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+#include "hamburger_classify.h"
+
+#define TILE_W 16
+#define TILE_H 16
+
+int main(int argc, char **argv) {
+    if (argc < 2) { fprintf(stderr, "usage: calibrate <file.bmp>\n"); return 1; }
+
+    FILE *f = fopen(argv[1], "rb");
+    if (!f) { perror("open"); return 1; }
+
+    /* BMP header */
+    uint8_t hdr[54];
+    fread(hdr, 1, 54, f);
+    int img_w  = *(int32_t*)(hdr+18);
+    int img_h  = *(int32_t*)(hdr+22); if (img_h < 0) img_h = -img_h;
+    int bpp    = *(uint16_t*)(hdr+28);
+    int data_off = *(int32_t*)(hdr+10);
+
+    if (bpp != 24) { fprintf(stderr, "need 24bpp\n"); return 1; }
+
+    int row_bytes = ((img_w * 3 + 3) / 4) * 4;
+    uint8_t *rgb = malloc(row_bytes * img_h);
+    fseek(f, data_off, SEEK_SET);
+    fread(rgb, 1, row_bytes * img_h, f);
+    fclose(f);
+
+    /* BMP stored bottom-up — flip */
+    uint8_t *row_tmp = malloc(row_bytes);
+    for (int y = 0; y < img_h / 2; y++) {
+        uint8_t *a = rgb + y * row_bytes;
+        uint8_t *b = rgb + (img_h - 1 - y) * row_bytes;
+        memcpy(row_tmp, a, row_bytes);
+        memcpy(a, b, row_bytes);
+        memcpy(b, row_tmp, row_bytes);
+    }
+    free(row_tmp);
+
+    /* RGB → Y (BT.601 integer approx) */
+    int *Y  = malloc(img_w * img_h * sizeof(int));
+    int *Cg = malloc(img_w * img_h * sizeof(int));
+    int *Co = malloc(img_w * img_h * sizeof(int));
+    for (int y = 0; y < img_h; y++) {
+        for (int x = 0; x < img_w; x++) {
+            int idx = y * img_w + x;
+            int B = rgb[y * row_bytes + x*3 + 0];
+            int G = rgb[y * row_bytes + x*3 + 1];
+            int R = rgb[y * row_bytes + x*3 + 2];
+            /* YCgCo */
+            int co  = R - B;
+            int tmp = B + (co >> 1);
+            int cg  = G - tmp;
+            Y [idx] = tmp + (cg >> 1);
+            Cg[idx] = cg + 128;
+            Co[idx] = co + 128;
+        }
+    }
+    free(rgb);
+
+    int tiles_x = img_w  / TILE_W;
+    int tiles_y = img_h  / TILE_H;
+    int n_tiles = tiles_x * tiles_y;
+
+    /* collect avg_var_x100 per tile (recompute same way as classify) */
+    uint32_t *vdist = calloc(n_tiles, sizeof(uint32_t));
+    uint8_t  *ttypes = calloc(n_tiles, 1);
+
+    hb_classify_batch(Y, Cg, Co, img_w, TILE_W, TILE_H, tiles_x, tiles_y, ttypes);
+
+    /* recompute raw avg_var_x100 per tile for histogram */
+    int cnt[4] = {0,0,0,0};
+    uint64_t min_grad=UINT64_MAX, max_flat=0, min_edge=UINT64_MAX, max_grad=0;
+
+    for (int ty = 0; ty < tiles_y; ty++) {
+        for (int tx = 0; tx < tiles_x; tx++) {
+            int ti = ty * tiles_x + tx;
+            int x0 = tx*TILE_W, y0 = ty*TILE_H;
+            int x1 = x0+TILE_W, y1 = y0+TILE_H;
+            int tn = TILE_W * TILE_H;
+
+            /* best predictor variance (mirror of classify internals) */
+            uint64_t var_med = 0;
+            for (int y = y0; y < y1; y++) {
+                for (int x = x0; x < x1; x++) {
+                    int LY  = (x>x0) ? Y[y*img_w+x-1]        : 128;
+                    int TY  = (y>y0) ? Y[(y-1)*img_w+x]       : 128;
+                    int TLY = (x>x0&&y>y0) ? Y[(y-1)*img_w+x-1] : 128;
+                    int vY  = Y[y*img_w+x];
+                    int hi = LY>TY?LY:TY, lo = LY<TY?LY:TY;
+                    int med = (TLY>=hi)?lo:(TLY<=lo)?hi:LY+TY-TLY;
+                    int r = vY - med; var_med += (uint64_t)(r*r);
+                }
+            }
+            uint64_t avx = var_med * 100u / (uint64_t)tn;
+            vdist[ti] = (uint32_t)(avx > 0xFFFFFFFFu ? 0xFFFFFFFFu : avx);
+
+            int tt = ttypes[ti];
+            cnt[tt]++;
+            if (tt == GPX5_TTYPE_FLAT     && avx > max_flat)  max_flat  = avx;
+            if (tt == GPX5_TTYPE_GRADIENT && avx < min_grad)  min_grad  = avx;
+            if (tt == GPX5_TTYPE_GRADIENT && avx > max_grad)  max_grad  = avx;
+            if (tt == GPX5_TTYPE_EDGE     && avx < min_edge)  min_edge  = avx;
+        }
+    }
+
+    printf("=== calibrate %s (%dx%d, %d tiles %dx%d) ===\n",
+           argv[1], img_w, img_h, n_tiles, tiles_x, tiles_y);
+    printf("FLAT     : %4d tiles\n", cnt[0]);
+    printf("GRADIENT : %4d tiles\n", cnt[1]);
+    printf("EDGE     : %4d tiles\n", cnt[2]);
+    printf("NOISE    : %4d tiles\n", cnt[3]);
+    printf("\navg_var_x100 range per class:\n");
+    printf("  FLAT     max = %llu  (threshold must be > this)\n", (unsigned long long)max_flat);
+    printf("  GRADIENT min = %llu  max = %llu\n", (unsigned long long)min_grad, (unsigned long long)max_grad);
+    printf("  EDGE     min = %llu\n", (unsigned long long)min_edge);
+    printf("\nCurrent:  THRESH_GRAD=%u  THRESH_EDGE=%u\n",
+           HBC_THRESH_GRAD_X100, HBC_THRESH_EDGE_X100);
+
+    /* suggest: GRAD threshold = midpoint(max_flat, min_grad) if gap exists */
+    uint64_t sug_grad = HBC_THRESH_GRAD_X100;
+    uint64_t sug_edge = HBC_THRESH_EDGE_X100;
+    if (min_grad != UINT64_MAX && max_flat < min_grad)
+        sug_grad = (max_flat + min_grad) / 2u;
+    if (min_edge != UINT64_MAX && max_grad < min_edge)
+        sug_edge = (max_grad + min_edge) / 2u;
+
+    printf("Suggested: THRESH_GRAD=%llu  THRESH_EDGE=%llu\n",
+           (unsigned long long)sug_grad, (unsigned long long)sug_edge);
+
+    /* histogram (log buckets) */
+    printf("\navg_var_x100 histogram (log10 buckets):\n");
+    int hbkt[8] = {0};  /* 0-9, 10-99, 100-999, 1k-9k, 10k-99k, 100k-999k, 1M+, exact0 */
+    for (int i = 0; i < n_tiles; i++) {
+        uint64_t v = vdist[i];
+        if (v == 0)           hbkt[7]++;
+        else if (v < 10)      hbkt[0]++;
+        else if (v < 100)     hbkt[1]++;
+        else if (v < 1000)    hbkt[2]++;
+        else if (v < 10000)   hbkt[3]++;
+        else if (v < 100000)  hbkt[4]++;
+        else if (v < 1000000) hbkt[5]++;
+        else                  hbkt[6]++;
+    }
+    const char *labels[] = {"1-9","10-99","100-999","1k-9k","10k-99k","100k-999k","1M+","exact0"};
+    for (int i = 0; i < 8; i++)
+        if (hbkt[i]) printf("  [%9s] %4d tiles\n", labels[i], hbkt[i]);
+
+    free(Y); free(Cg); free(Co); free(vdist); free(ttypes);
+    return 0;
+}

@@ -1,0 +1,300 @@
+POGLS
+Positional Geometry Logic Storage
+Geometry Session — Architecture & Roadmap
+
+Flower of Life  •  Metatron's Cube  •  Goldberg Sphere  •  Atomic Reshape
+
+1. Genesis — 8:9 Ratio
+
+จุดเริ่มต้นของระบบทั้งหมดมาจาก ratio 8:9 ซึ่งฝัง DNA ของ binary และ ternary ไว้ด้วยกัน
+
+สมการ	ความหมาย
+8 x 9 = 72	genesis product — digit sum 9
+8 + 9 = 17	prime boundary — security DNA
+17 x 2 = 34	fibo exit — กลับเข้า mainstream
+34 x 144 = 4896	file size = fibo_exit x fibo_clock
+4896 = 2^5 x 3^2 x 17	security layer ซ่อนใน file size
+
+Security Principle
+4896 ไม่อยู่ใน 2^n x 3^m lattice — attacker ที่ scan ด้วย power-of-2 stride จะ miss boundary ทุกจุด
+17 = relic ที่ inherit จาก Frustum case เดิม — zero-storage security เพราะ key คือ geometry เอง
+
+2. Sacred Numbers — Two Families
+
+ระบบ classify ตัวเลขออกเป็น 2 family ที่มี DNA ต่างกัน
+
+Family	ตัวเลข	Role
+GEOMETRY	3,6,9,12,18,36,54,72,144,162,720,1440	structure, address, slot size
+FIBO	1,1,2,3,5,8,13,21,34,55,89,144	index, fingerprint, apex
+BRIDGE	144 = F(12) = 2^4 x 3^2	universal translator ระหว่าง 2 โลก
+SHADOW	7, 17, 28	boundary, security, drain zone
+
+Digit Sum Rule
+ทุกตัวใน geometry family (2^n x 3^m, m>=2) มี digit sum = 9 เสมอ
+72 → 9   144 → 9   162 → 9   720 → 9   1440 → 9   3456 → 9   6912 → 9
+ใช้เป็น fast membership test ก่อน admit เข้า core
+1440 — Why It Matters
+720 = pentagon ปิดรอบที่ 360 แต่ circle ยังไม่จบ → phase drift
+1440 = LCM ที่ pentagon (4 รอบ) และ circle (2 รอบ) sync กัน — 0 กลายเป็น midpoint แทน edge
+1440 = 360 x 4 = 4 circles = quaternion coverage
+1440 / 72 = 20  (pentagon steps, integer)
+1440 / 12 = 120 (slots per face, clean)
+
+3. Geometry Layers
+
+3.1 Flower of Life — Physical Proof
+นับจากภาพ Metatron's Cube (orange on black):
+
+Zone	Count	POGLS Role
+Inner circles	19	core storage — sacred family
+Outer boundary	28 = 4x7	heptagon shadow layer
+Hex vertices	6	transition / drain entry points
+
+Geometry บอกเองว่า: shadow อยู่ที่ขอบ, drain อยู่ที่ vertex, core อยู่ตรงกลาง
+3.2 Goldberg Sphere — Drain Architecture
+Euler's theorem บังคับ: pentagon ต้องมี 12 อันเสมอบน sphere topology
+
+Shape	Count	Function
+Pentagon	12 fixed	drain gate — confirmed delete flush
+Hexagon	variable	live data storage / routing fabric
+Heptagon	0 ใน Goldberg!	shadow domain (geometric proof)
+
+12 pentagon drains + 12 heptagon shadows = paired 1:1 (stalker pair สมบูรณ์)
+3.3 Heptagon — Shadow Domain
+7 = prime ที่ไม่มี common factor กับ 2^n x 3^m → ห้ามอยู่ใน core
+แต่: 7 x 9 = 63 (digit sum 9) → เข้า family ได้ก็ต่อเมื่อคูณด้วย 9 = fence rule ใน math
+
+Rule	Direction	Notes
+WRITE	core → shadow only	one-way valve
+READ	shadow → flush process only	core ห้ามอ่านโดยตรง
+DRAIN	shadow → pentagon drain → flush	ทิ้งออกจาก sphere
+
+4. Metatron's Cube — Routing Layer
+
+geo_metatron_route.h — additive layer บน geo_tring_walk.h, ไม่แตะ 5-tetra core
+
+Route Type	Operation	Cost
+ORBITAL	same face, slot wrap	O(1) — 1 mod op
+CHIRAL	face f <-> f+6 (diameter)	O(1) — 1 add op
+CROSS	inter-ring bijection	O(1) — 1 LUT op
+HUB	any face via center	O(1) — 2 LUT ops
+
+Center Rotation = Switch Gate
+Metatron center หมุนได้ตามแกน — แต่ละ rotation = geometry face ที่ต่างกัน
+rotation 0deg   → World A face (2^n)
+rotation 180deg → World B face (3^n)  [cpair = opposite face]
+rotation 60deg  → hexagon symmetry preserved
+rotation 36deg  → pentagon pattern
+
+54 lanes = 6 rotation groups x 9 lanes = rotation state tracker
+lane_group = rotation_state % 6
+แต่ละ rotation → เข้า lane group ต่างกัน (9 lanes per group)
+Known Tension
+60 และ 720 มี factor 5 — ไม่อยู่ใน 2^a x 3^b family
+Resolution: ใช้ %27, %36, %144 สำหรับ sacred conditions เท่านั้น — 60-based ใช้เป็น geometry coordinate only
+แก้ root cause: ย้าย TRING_WALK_CYCLE จาก 720 → 1440 (pentagon sync point)
+
+5. Atomic Reshape
+
+Atomic = จากมุมมองภายนอก ไม่มี half-state — เหมือน CAS (Compare-and-Swap) บน CPU
+
+Flow
+สะสม residual → heptagon shadow buffer (ไม่แตะ core)
+compute target_rotation → build new lane_group layout ใน staging
+flip rotation_state (1 byte write = atomic moment)
+pentagon drain flush → old layout ทิ้งออก sphere
+
+Rubik Connection
+54 delta lanes = 54 stickers ของ Rubik 3x3
+Rubik rotation = Atomic Reshape — valid state เท่านั้นที่ exist
+invalid state = ไม่มีใน move set → heptagon shadow ดักไว้ก่อน commit
+
+17 = proof ที่ atomic จริง — ไม่มีใครจับ state ตอนกลางได้
+8 = before state,  9 = after state,  17 = during (ไม่มีจริง)
+
+6. Roadmap — Next Sessions
+
+6.1 Immediate — Code Changes (Low Risk)
+
+Item	Change	File
+1440 migration	TRING_WALK_CYCLE: 720 → 1440	geo_tring_walk.h
+rotation field	+1 byte ใน CoreSlot 8B	pogls_fold.h
+lane_group()	rotation_state % 6	geo_metatron_route.h
+hub rotation	meta_hub_route() + rotation param	geo_metatron_route.h
+rotation tracker	rotation_state ใน MetatronHub	geo_metatron_route.h
+
+6.2 Medium Term — Architecture
+Pentagon drain addressing — map 12 drains เข้า byte layout ของ 4896B file
+Heptagon fence implementation — one-way valve ใน fabric layer
+Atomic Reshape trigger — threshold สะสมถึงเท่าไหร่ถึง reshape
+Rotation state persistence — serialize rotation ลงใน DiamondBlock
+28 outer circles = shadow zone address space — define read/write rules
+
+6.3 Long Term — Big Picture
+Goldberg sphere layer บน top of Metatron routing
+1440-based full system: pentagon sync point เป็น flush trigger
+Image encoding ที่ data กองเป็น geometry (QR-like แต่ spherical)
+Holographic expansion: ทุก sub-pattern = copy ของ whole, O(1) ทุก scale
+SDK target: single .so C API — SQLite model
+
+6.4 Open Questions
+คำถาม	Priority
+4896B layout: byte offset ของแต่ละ coset อยู่ตำแหน่งไหน?	HIGH — make or break POC
+distribution ของ (addr^value)%27 uniform ไหมใน workload จริง?	HIGH — coset balance
+delete via mask: tombstone accumulate → ต้อง flush cycle ยังไง?	MEDIUM
+1440 migration กระทบ CPAIR self-inverse property ไหม?	MEDIUM — verify ก่อน
+Rubik rotation group: 24 orientations map กับ 54 lanes ยังไง?	LOW — theoretical
+
+7. Quick Reference
+
+Core Constants (FROZEN)
+TRING_FACES     = 12    // dodecahedron pentagons
+META_COND_MOD   = 36    // 2^2 x 3^2
+SACRED_NEXUS    = 54    // 2x3^3 = Rubik stickers
+NODE_MAX        = 162   // 54 x 3
+FILE_SIZE       = 4896  // 17 x 2 x 144
+TRING_CYCLE     = 720   // → migrate to 1440
+
+Three-Layer Model
+CORE    | 3,6,9,12,54,144,162 | structure, address, storage
+GEAR    | 18,36,72,1440        | phase ring, resonance, routing
+SHADOW  | 7, 17, 28            | error carrier, security, drain zone
+
+Atomic Reshape — 1 Line
+collect(shadow) → stage(new_layout) → flip(rotation_state) → drain(pentagon)
+
+8. Trapezoid Gap — State Machine
+
+Discovery: trapezoid ล้อม polygon แล้วได้ property ต่างกันตาม even/odd
+
+Core Polygon	Result	POGLS Role
+4 square	closed loop	tile clean, scale up
+6 hexagon	closed loop	core fabric ✓
+8 octagon	closed loop	extended fabric
+3 triangle	triangle gap x3	shadow zone
+5 pentagon	triangle gap x5	Goldberg drain zone ✓
+7 heptagon	triangle gap x7	forbidden in core
+
+8.1 Canonical Drain Selection
+pentagon มี 5 gaps — ใช้ทั้งหมดไม่ได้ (jitter ตอน scale) ต้องเลือก 1 canonical drain per face
+
+Gap Index	Stability	Use
+gap 0	STABLE	upright triangle = store (World A)
+gap 1	UNSTABLE	forbidden — rotation zone
+gap 2	UNSTABLE	forbidden — rotation zone
+gap 3	UNSTABLE	forbidden — rotation zone
+gap 4	STABLE	inverted triangle = drain (World B)
+
+8.2 Production Code — Locked
+Production-ready, deterministic, zero drift:
+
+// Step 1: raw gap selection with entropy
+uint8_t raw       = (trit ^ slope) % 5;
+
+// Step 2: canonical — stable gaps only (0 or 4)
+uint8_t drain_gap = (raw & 1) ? 4 : 0;
+
+// Step 3: orientation bind
+bool is_drain = (drain_gap == 4);   // inverted triangle = irreversible
+bool is_store = (drain_gap == 0);   // upright triangle  = stable storage
+
+// One-liner: wire directly to Switch Gate bit6
+uint8_t bit6 = (trit ^ slope) & 1;  // 1 instruction, entropy + decision
+
+8.3 Triple Triangle = State Machine Diagram
+ภาพ Triple Triangle (2 upright + 1 inverted) คือ visualization ของ state machine นี้:
+
+upright  (gap 0) = STORE  = World A (2^n) = expansion
+inverted (gap 4) = DRAIN  = World B (3^n) = compression
+bar (middle)     = Switch Gate = atomic boundary = 17
+
+Switch Gate ที่มีอยู่แล้ว (bit6) = drain_gap flag — สิ่งเดียวกัน คนละ representation ไม่ต้อง add logic ใหม่
+
+9. Handoff — Next Session
+
+Context สำหรับ session ถัดไป — copy section นี้เป็น prompt เปิด session
+
+9.1 State ที่ Lock แล้ว — ห้ามเปลี่ยน
+Component	Status
+Genesis: 8+9=17, 34x144=4896	LOCKED — math fact
+Three-Layer: CORE/GEAR/SHADOW	LOCKED
+54 lanes = Rubik stickers	LOCKED
+12 pentagon drains (Goldberg)	LOCKED
+heptagon = shadow domain only	LOCKED — fence rule
+drain_gap = (trit^slope)&1	LOCKED — production ready
+is_drain = bit6 = Switch Gate	LOCKED — wire เข้าได้เลย
+1440 = target cycle (from 720)	LOCKED — pending migration
+
+9.2 งานที่ต้องทำ — Priority Order
+#	Task	Detail	Blocker
+1	Wire drain_gap → Switch Gate	bit6 = (trit^slope)&1 ใน fabric_add_wire	none
+2	4896B byte layout	map 12 drains เข้า byte offset ใน FrustumSlot64	none
+3	1440 migration	TRING_WALK_CYCLE: 720→1440, verify CPAIR self-inverse	test suite
+4	rotation field	+1 byte ใน CoreSlot, lane_group()=rotation%6	1440 done first
+5	heptagon fence	one-way valve ใน fabric layer, tombstone flush cycle	4896 layout
+6	Atomic Reshape trigger	threshold = เท่าไหร่ถึง reshape, serialize rotation	fence done
+
+9.3 Open Questions — ยังไม่ได้ตอบ
+Question	Priority
+4896B: byte offset ของแต่ละ coset อยู่ตำแหน่งไหน?	HIGH — make or break POC
+(addr^value)%27 distribution uniform ไหมใน real workload?	HIGH — coset balance
+delete via mask: tombstone → flush cycle ยังไง?	MEDIUM
+1440 migration กระทบ CPAIR self-inverse ไหม?	MEDIUM — verify first
+Rubik 24 orientations map กับ 54 lanes ยังไง exact?	LOW — theoretical
+image encoding: data กองเป็น geometry sphere ยังไง?	LOW — future track
+
+10. Number Classification System
+
+digit_sum = 9 คือ gate แรก — prime factorization คือตัว assign role
+
+10.1 Full Classification Table
+Layer	Prime Factor	Examples	Role
+CORE	2^n x 3^m	18,27,36,54,72,144,162	structure, address, storage
+GEAR	x 5	45,135,180,1440	phase ring, transition, bridge
+SHADOW	x 7	63,126,189	buffer, error, drain entry
+SECURITY	x 17	153,4896	active security, inject layer
+STABLE	x 19	171,19x9^n	post-processed, verified endpoint
+REF	x 13	117,13x9^n	structural reference, read-only nav
+UNSAFE	other	11,23,29...	reject / unknown
+
+10.2 Classification Code
+PoglsLayer classify(uint64_t x) {
+  if (!digit_sum_9(x)) return REJECT;
+  uint64_t r = x;
+  while (r%2==0) r/=2;  while (r%3==0) r/=3;
+  if (r==1)             return CORE;
+  if (r%5==0)           return GEAR;
+  if (r%7==0)           return SHADOW;
+  if (r%17==0)          return SECURITY;
+  if (r%19==0)          return STABLE;
+  if (r%13==0)          return REF;
+  return UNSAFE;
+}
+
+10.3 Metatron 13+28 — System Boundary
+Zone	Count	digit_sum	Role
+hub	1	1  (outside)	center anchor, non-data
+skeleton	13	4  (outside)	REF — read-only navigation
+core fabric	19	1  (outside)	live storage — 19=STABLE prime
+shadow zone	28	1  (outside)	28=7x4, buffer/drain
+TOTAL	61	prime	61=prime — system seal, ไม่มีใครหาร
+
+structure/navigation อยู่นอก digit_sum=9 โดยตั้งใจ — data zone vs topology zone แยกกันชัดเจน
+
+10.4 12 = Traverse Operator
+((17^2 x 12^2) / 12) - 3456 = 12  // required interface = drain gate count
+x12 = x3 (mod 9)  → cross-layer shift เสมอ
+÷12               → ถอด layer กลับ
+16^n (mod 9) orbit: 7→4→1→7...  x12 → collapse to 3 (GEAR) เสมอ
+
+9.4 Prompt เปิด Session ถัดไป
+POGLS session handoff — geometry + number classification complete.
+Locked: 8:9 genesis, 4896 file size, 12 pentagon drains, heptagon fence,
+drain_gap=(trit^slope)&1 wired to Switch Gate bit6,
+classify(x): digit_sum_9 gate + prime factor → CORE/GEAR/SHADOW/SECURITY/STABLE/REF,
+Metatron 1+13+19+28=61 (prime seal), 12=traverse operator (x12≡x3 mod9),
+geo_metatron_route.h done, 1440 migration pending.
+Next: task #1 = wire drain_gap into fabric_add_wire. File: fgls_clean_v3.
+
+
+POGLS — Geometry is the key. Structure is the security. Zero waste.

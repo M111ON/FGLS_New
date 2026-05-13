@@ -31,9 +31,9 @@
 #include <stdbool.h>
 
 #include "geo_tring_goldberg_wire.h"
-#include "../pogls_engine/fgls_twin_store.h"
+#include "fgls_twin_store.h"
 #include "geo_payload_store.h"
-#include "../pogls_engine/lc_twin_gate.h"
+#include "lc_twin_gate.h"
 
 /* ── blueprint → GeoPacket (same logic as test_geomatrix_verdict) ── */
 static inline GeoPacket _tgwd_bp_to_pkt(const GBBlueprint *bp,
@@ -127,7 +127,7 @@ static inline void tgw_dispatch(TGWDispatch    *d,
     {
         LCHdr hA = lc_hdr_encode_addr(addr);
         LCHdr hB = lc_hdr_encode_value(value);
-        LCGate gate = lch_gate(hA, hB, d->lc.palette_a, d->lc.palette_b);
+        LCGate gate = lch_gate(hA, hB, &d->lc.palette_a, &d->lc.palette_b);
         if (gate == LC_GATE_GROUND) {
             pl_write(&d->ps, addr, value);
             d->lc.gate_counts[LC_GATE_GROUND]++;

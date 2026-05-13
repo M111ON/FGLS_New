@@ -38,6 +38,8 @@
 #define GCFS_META_BYTES         (GCFS_ACTIVE_COSETS * GCFS_META_REC_BYTES) /* 252 */
 #define GCFS_PAYLOAD_BYTES      4608u
 #define GCFS_TOTAL_BYTES        (GCFS_HEADER_BYTES + GCFS_META_BYTES + GCFS_PAYLOAD_BYTES) /* 4896 */
+/* Back-compat alias used by older handoff tests/tools. */
+#define LCGW_RAW_BYTES          GCFS_TOTAL_BYTES
 
 /* ── CRC32 (portable) ── */
 static inline uint32_t _lcgw_crc32(const uint8_t *buf, uint32_t len) {
@@ -163,6 +165,11 @@ static LCGWFile lcgw_files[LCGW_MAX_FILES];
 static inline void lcgw_init(void) {
     lcfs_init();
     memset(lcgw_files, 0, sizeof(lcgw_files));
+}
+
+/* Back-compat helper expected by older rewind tests. */
+static inline void lcgw_reset(void) {
+    lcgw_init();
 }
 
 static inline int lcgw_find_slot(void) {

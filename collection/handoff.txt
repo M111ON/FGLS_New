@@ -1,0 +1,418 @@
+ ลำดับจริงในระบบตอนนี้:
+
+  1. เริ่มระบบ (startup)
+
+  - สร้าง LUT/route table ก่อนใช้งาน เช่น geo_addr_net_init()
+  - จุดนี้คือเตรียม world mapping (AB/face/spoke/polarity) ให้ O(1)
+  - อ้างอิง: src/tgw_dispatch_v2.h, src/geo_addr_net.h
+
+  2. ตอน packet/addr วิ่งเข้า dispatch (runtime per event)
+
+  - geo_net_encode(addr) แตก address เป็น geometry fields
+  - จากนั้น TGW ใช้ผลนี้ไปตัดสิน route/ground และแปลงเข้า dodeca/goldberg pipeline
+  3. ชั้น Metatron/icosa-dodeca logic (runtime routing policy)
+
+  - ใช้ meta_route, meta_cpair, meta_cross เพื่อตัดสินการเดินบน 12-face topology
+  - นี่คือส่วน “world AB / face คู่ตรงข้าม / cross ring” ที่คุณถาม
+  4. ชั้น Frustum/parallel hook (runtime side path)
+
+  - เขียนข้อมูลเข้า frustum path ควบคู่ dispatch หลัก (ไม่ชน core path)
+  - ใช้สำหรับต่อ spatial/frustum zone
+  - อ้างอิง: src/tgw_frustum_wire.h, src/geo_compound_cfg.h
+
+  5. ชั้น GeoPixel output/session (runtime output stage)
+
+  - แปลงผลไปเป็น session/timeline GPX4
+  - geometry ที่คำนวณก่อนหน้าเป็น input ให้ชั้นนี้
+  - อ้างอิง: src/geopixel_session_feed.h, src/geopixel_v21.c
+
+  สรุปสั้น: geometry ของคุณถูกใช้ “ตอนรันจริงทุก packet/address” ตั้งแต่ encode → route → topology decision → output
+  ไม่ได้เป็นแค่คอนเซปต์หรือ test-only.
+
+=== TGWDispatchV2 Merge Verification ===
+Profile: ROADMAP_1440
+P4 context + P6 Hilbert sort
+
+V01: GROUND path → cardioid reroute to ROUTE (express)
+  PASS  ground_fn NOT called (rerouted)
+  PASS  pending accumulated 1 express pkt
+  PASS  d.ground_count=0
+  PASS  d.route_count=1 (rerouted)
+
+V02: ROUTE (no blueprint) → pending accumulated
+  PASS  pending_n=1
+  PASS  no_blueprint counter
+  PASS  no flush yet
+
+V03: auto-flush at 64 ROUTE pkts
+  PASS  1 auto-flush at 64
+  PASS  pending=0 after flush
+  PASS  64 pkts in flush_fn
+
+V04: flushed batch sorted by hilbert_lane (linear fallback)
+  PASS  flushed batch size preserved at 64
+  PASS  flush callback fired
+
+V05: manual flush drains remainder
+  PASS  no auto-flush at 10
+  PASS  manual flush fired
+  PASS  10 pkts drained
+  PASS  pending=0
+
+V06: ground+route = total_dispatched (profile-aware)
+  PASS  ground+route=total
+  PASS  route dominates or equals in roadmap profile
+  PASS  express_count bounded by route_count
+
+V07: verdict=false/ground path behavior (profile-aware)
+  PASS  5 pending before GROUND
+  PASS  pending not lost in roadmap profile
+  PASS  GROUND or express path consumed pkt
+
+V08: stats valid after mixed dispatch
+  INFO  avg_swaps=63.6  efficiency=0.968  flushes=18
+  PASS  sort_efficiency in [0,1]
+  PASS  avg_swaps < max
+  PASS  total_dispatched correct
+
+=== RESULT: 25 PASS  0 FAIL ===
+Running build/integration/test_ground_lcgw.exe
+=== TGW GROUND → LC-GCFS Hook Verification ===
+
+G01: GROUND writes reach correct spoke lane
+  INFO  enc=60: spoke=0 polarity=1
+  PASS  write_count=1 on correct spoke
+  PASS  total_writes=1
+
+G02: all 6 spokes populated after 720-cycle
+  INFO  spoke[0] writes=60 ghosted=0
+  INFO  spoke[1] writes=60 ghosted=0
+  INFO  spoke[2] writes=60 ghosted=0
+  INFO  spoke[3] writes=60 ghosted=0
+  INFO  spoke[4] writes=60 ghosted=0
+  INFO  spoke[5] writes=60 ghosted=0
+  PASS  all 6 spokes have writes
+  PASS  total=360 (50% of 720)
+
+G03: write counts match dispatch ground_count
+  INFO  dispatch.ground=125  lcgw.total=125
+  INFO  express=449 cusp_block=251 skew=1.67
+  PASS  dispatch.ground == lcgw.total
+  PASS  ground + route == total
+  PASS  at most 360 GROUND writes (cardioid may reduce)
+  PASS  bucket skew < 2.0
+
+G04: ghost delete → subsequent writes ignored
+  PASS  1 write before ghost
+  PASS  lane ghosted
+  PASS  write_count unchanged after ghost
+
+G05: ghosted lane → lcgw_read_payload returns NULL
+  PASS  chunk valid before ghost
+  PASS  read_payload=NULL after ghost (unreachable)
+
+G06: non-ghosted spokes readable after deleting spoke 0
+  INFO  active spokes after deleting spoke 0: 5
+  PASS  5 spokes still active
+  PASS  spoke 0 ghosted
+
+G07: full pipeline stats consistent
+  INFO  total=1440 route=1190 ground=250 lcgw_total=250
+  INFO  express=934(65%) cusp_block=502 skew=1.67
+  PASS  dispatch invariant: ground+route=total
+  PASS  lcgw writes == dispatch ground_count
+  PASS  at most 720 GROUND writes across 2 cycles (cardioid may reduce)
+  PASS  express ratio < 70% (GEO_MIN floor active)
+  PASS  cusp_block > 0 (Gate 1 noise rejection working)
+  PASS  bucket skew < 2.0
+
+=== RESULT: 21 PASS  0 FAIL ===
+
+✓ GROUND path wired — ghost delete = present but unreachable
+Running build/integration/test_rewind_lcgw.exe
+╔══════════════════════════════════════════════════════╗
+║  test_rewind_lcgw.c — LC-GCFS Rewind Verification   ║
+╚══════════════════════════════════════════════════════╝
+
+R01: seeds stored in lane after write
+  INFO  spoke=0  seed[0]=0x9e3779b9a19937ab  expected=0x9e3779b9a19937ab
+  PASS  seed stored matches f(addr,val)
+  PASS  write_count=1 after first write
+
+R02: raw chunk matches build_from_seed exactly
+  INFO  spoke=1  ci=0  seed=0x9e3779b97e22b659  wc=0  raw_match=1
+  PASS  stored raw == lcgw_build_from_seed(seed, write_count)
+
+R03: ghost delete → lane.ghosted=1 but seeds[] intact
+  INFO  spoke=2  ghosted=1  seeds_intact=1
+  PASS  lane.ghosted=1 after delete
+  PASS  seeds[] intact after ghost delete
+  PASS  write_count preserved after delete
+
+R04: reconstruct from seeds after ghost → byte-exact match
+  INFO  spoke=2  seed=0x9e3779b97d1283d3  wc=0  reconstruct_match=1
+  PASS  reconstruct(seed, wc) == original raw (byte-exact)
+  PASS  chunk.ghosted=1 (path severed)
+  PASS  chunk.valid=1  (data still present)
+
+R05: delete updates ghost state and totals
+  INFO  delete.status=0  chunks_ghosted=16  total_ghosted=1
+  PASS  delete status OK
+  PASS  delete ghosted one or more chunks
+  PASS  ground total_ghosted incremented
+
+R06: multiple writes → each chunk has distinct seed
+  PASS  4 writes → 4 distinct seeds (no collision)
+  PASS  write_count == 4
+
+R07: reconstruct all 6 spokes after full ghost cycle
+  INFO  spoke[0] reconstruct=OK  seed=0x9e3779b97f327c82
+  INFO  spoke[1] reconstruct=OK  seed=0x9e3779b97e227d0a
+  INFO  spoke[2] reconstruct=OK  seed=0x9e3779b97d127f92
+  INFO  spoke[3] reconstruct=OK  seed=0x9e3779b97c027e1a
+  INFO  spoke[4] reconstruct=OK  seed=0x9e3779b97b727aa2
+  INFO  spoke[5] reconstruct=OK  seed=0x9e3779b97a627b2a
+  PASS  all 6 spokes reconstruct byte-exact after full ghost
+
+R08: write_count fed into seed-mix → verify via direct build_from_seed
+  INFO  seed=0x9e3779b97c0227e9  build(wc=0)!=build(wc=1): YES
+  PASS  build_from_seed(seed,0) != build_from_seed(seed,1)
+  INFO  stored raw matches build(seed, wc=0): YES
+  PASS  stored chunk raw == build_from_seed(seed, write_count=0)
+
+R09: chunk_cursor wraps at LCGW_GROUND_SLOTS (16)
+  INFO  write_count=18  chunk_cursor=2  (expect 2)
+  PASS  write_count == total writes
+  PASS  chunk_cursor wraps correctly (ring)
+  PASS  last seed correct after ring wrap
+
+R10: delete clears read path, not write state
+  INFO  payload=NULL(ok)  write_count_preserved=1
+  PASS  read_payload=NULL after ghost (path severed)
+  PASS  write_count preserved after delete
+  PASS  seeds[0] non-zero (data intact)
+
+══════════════════════════════════════════════════════
+=== RESULT: 23 PASS  0 FAIL ===
+
+✓ LC-GCFS rewind verified — seed reconstruct = deterministic
+  ghost delete: path severed, content reconstructable
+Running build/integration/test_metatron_route.exe
+=== geo_metatron_route.h Verification ===
+
+M01: constants sanity
+  PASS  12×60=720
+  PASS  HALF=360
+  PASS  COND_MOD=36
+  PASS  COND_HALF=18
+  PASS  36=2^2*3^2 sacred family
+
+M02: geo_metatron_verify()
+  PASS  verify passes: CROSS self-inverse + CPAIR + cond range
+
+M03: orbital (same face wrap)
+  PASS  orbital stays in same face
+  PASS  orbital wraps to slot 0
+  PASS  orbital mid-face: same face
+  PASS  orbital mid-face: slot+1
+
+M04: chiral CPAIR (face+6)
+  PASS  cpair self-inverse: cpair(cpair(e))==e for all 720
+  PASS  cpair: face(cpair(e)) == (face(e)+6)%12 for all
+  PASS  cpair: slot preserved across chiral pair
+
+M05: cross (METATRON_CROSS inter-ring)
+  PASS  CROSS bijective (each face appears exactly once)
+  PASS  cross self-inverse: cross(cross(e))==e for all 720
+  PASS  cross: slot preserved
+  PASS  cross != cpair (non-chiral inter-ring)
+
+M06: hub routing (any face)
+  PASS  hub: reaches target face
+  PASS  hub: reaches target face
+  PASS  hub: reaches target face
+  PASS  hub: unreachable face returns hub sentinel
+
+M07: meta_route() dispatch priority
+  PASS  route: no target → orbital
+  PASS  route: face+6 → chiral
+  PASS  route: chiral enc correct
+  PASS  route: cross partner → cross
+  PASS  route: cross enc correct
+  PASS  route: arbitrary face → hub
+
+M08: circuit switch condition (36=2²×3²)
+  PASS  cond and key always in 0..35
+  PASS  key == (cond + 18) % 36 for all enc (chiral in cond space)
+
+M09: circuit_arm + circuit_resolve
+  PASS  circuit: correct complement key trips relay
+  PASS  circuit: orbital neighbor blocked (open circuit)
+  PASS  circuit: cross partner result consistent with cond math
+  PASS  circuit: META_OPEN dest → always blocked
+
+M10: geoface_enc TETRA→OCTA translation
+  PASS  geoface: enc=0 → 0
+  PASS  geoface: face 1 entry maps to octa face 1 entry
+  PASS  geoface: face_id preserved for all face entry points
+  PASS  geoface: OCTA→TETRA face preserved
+
+=== RESULT: 37 PASS  0 FAIL ===
+
+✓ Metatron route layer verified — geometry is the key
+Running build/integration/test_frustum_wire.exe
+╔══════════════════════════════════════════════════╗
+║  tgw_frustum_wire — frustum parallel + Option B ║
+╚══════════════════════════════════════════════════╝
+
+▶ FRUSTUM_PARALLEL_HOOK — full Lv1 sweep
+  ✓ 3456 writes recorded
+  ✓ no silenced (no mask set)
+  ✓ 27 of 54 slots occupied (trit space = 27 reachable)
+
+▶ _frustum_merkle_of — deterministic
+  ✓ same inputs → same merkle
+  ✓ diff val → diff merkle
+
+▶ metatron_target_face_b — tetra zone [0..3455]
+  ✓ all tetra addrs → face 0..11
+  ✓ addr=0  → TRING_COMP(GEO_WALK[0])
+  ✓ addr=60 → TRING_COMP(GEO_WALK[60])
+
+▶ metatron_target_face_b — octa zone [3456..6911]
+  ✓ all octa addrs → face 0..11
+  ✓ octa addr=3456 → CROSS[src_face] ✓
+  ✓ octa face is ring-flipped from tetra
+
+▶ metatron_target_face_b — above junction wraps
+  ✓ addr=6912 wraps to 0 → same face
+  ✓ addr=6912+60 wraps to 60 → same face
+
+▶ metatron_b_decide — all zones
+  ✓ all test addrs: target_face 0..11, route valid
+
+▶ TGW_FULL_HOOK — combined frustum + metatron
+  ✓ frustum write fired
+  ✓ metatron target_face valid
+  ✓ metatron route valid
+
+▶ Sacred numbers
+  ✓ TETRA_CEILING=3456=GEO_FULL_N
+  ✓ JUNCTION=6912=2⁸×3³
+  ✓ 6912=3456×2 ✓
+
+══════════════════════════════════════════════════
+  PASS: 20   FAIL: 0
+✅ All PASS
+Running build/integration/test_geopixel_session_feed.exe
+=== Geopixel Session Feed Integration ===
+
+T01: scan file metrics
+  PASS  scan_file returns 0
+  PASS  file_bytes > 0
+  PASS  total_chunks > 0
+  PASS  emitted == total
+
+T02: emit meta gpx4
+  PASS  scan_file before emit
+  PASS  write_meta_gpx4 returns 0
+  PASS  output file exists
+  PASS  header magic is GPX4
+  PASS  n_layers = 1
+
+T03: sequence -> timeline layers
+  PASS  create frame file
+  PASS  create frame file
+  PASS  create frame file
+  PASS  timeline writer returns 0
+  PASS  timeline output exists
+  PASS  timeline header magic is GPX4
+  PASS  n_layers = 4 (AHDR + 3 frames)
+
+T04: sequence AUTO -> anim codec path
+  PASS  create rgb frame file
+  PASS  create rgb frame file
+  PASS  AUTO writer returns 0
+  PASS  AUTO output exists
+  PASS  AUTO header magic is GPX4
+  PASS  AUTO fallback layers = 3 (AHDR + 2 frames)
+
+=== RESULT: 22 PASS  0 FAIL ===
+Running build/integration/test_startup_trace_payload.exe
+startup: geo_addr_net_init done, begin trace+bench
+
+=== TRACE: raw-binary ===
+startup: bytes=16 chunks=1 passthru=0 tail=1 seed_xor=0x047eb12db7a99911
+first 12 events:
+  i=00 addr=  0 spoke=0 pol=0 hilbert=0 val=0x0010
+  i=01 addr= 37 spoke=0 pol=0 hilbert=6 val=0x0122
+  i=02 addr= 74 spoke=0 pol=1 hilbert=12 val=0x0234
+  i=03 addr=111 spoke=0 pol=1 hilbert=18 val=0x0348
+  i=04 addr=148 spoke=1 pol=0 hilbert=24 val=0x0455
+  i=05 addr=185 spoke=1 pol=1 hilbert=30 val=0x0560
+  i=06 addr=222 spoke=1 pol=1 hilbert=37 val=0x0677
+  i=07 addr=259 spoke=2 pol=0 hilbert=43 val=0x0788
+  i=08 addr=296 spoke=2 pol=0 hilbert=49 val=0x0890
+  i=09 addr=333 spoke=2 pol=1 hilbert=55 val=0x09a5
+  i=10 addr=370 spoke=3 pol=0 hilbert=61 val=0x0abe
+  i=11 addr=407 spoke=3 pol=0 hilbert=67 val=0x0bcf
+bench: loops=20000 pkts=20000 14.80 ns/pkt 67.57 Mpkts/s
+stats: route=20012 ground=0 flushes=20001 avg_swaps=12.0 sort_eff=0.994
+sinks: flushed=20012 ground_cb=0
+
+=== TRACE: apng-like ===
+startup: bytes=24 chunks=1 passthru=1 tail=1 seed_xor=0xb086a58b184e6a81
+first 12 events:
+  i=00 addr=  0 spoke=0 pol=0 hilbert=0 val=0x0089
+  i=01 addr= 37 spoke=0 pol=0 hilbert=6 val=0x0150
+  i=02 addr= 74 spoke=0 pol=1 hilbert=12 val=0x024e
+  i=03 addr=111 spoke=0 pol=1 hilbert=18 val=0x0347
+  i=04 addr=148 spoke=1 pol=0 hilbert=24 val=0x040d
+  i=05 addr=185 spoke=1 pol=1 hilbert=30 val=0x050a
+  i=06 addr=222 spoke=1 pol=1 hilbert=37 val=0x061a
+  i=07 addr=259 spoke=2 pol=0 hilbert=43 val=0x070a
+  i=08 addr=296 spoke=2 pol=0 hilbert=49 val=0x0866
+  i=09 addr=333 spoke=2 pol=1 hilbert=55 val=0x0963
+  i=10 addr=370 spoke=3 pol=0 hilbert=61 val=0x0a54
+  i=11 addr=407 spoke=3 pol=0 hilbert=67 val=0x0b4c
+bench: loops=20000 pkts=20000 14.85 ns/pkt 67.34 Mpkts/s
+stats: route=20012 ground=0 flushes=20001 avg_swaps=12.0 sort_eff=0.994
+sinks: flushed=20012 ground_cb=0
+
+=== TRACE: sequence-like ===
+startup: bytes=32 chunks=1 passthru=0 tail=1 seed_xor=0x0000000000000000
+first 12 events:
+  i=00 addr=  0 spoke=0 pol=0 hilbert=0 val=0x0046
+  i=01 addr= 37 spoke=0 pol=0 hilbert=6 val=0x0130
+  i=02 addr= 74 spoke=0 pol=1 hilbert=12 val=0x0230
+  i=03 addr=111 spoke=0 pol=1 hilbert=18 val=0x0330
+  i=04 addr=148 spoke=1 pol=0 hilbert=24 val=0x0452
+  i=05 addr=185 spoke=1 pol=1 hilbert=30 val=0x0547
+  i=06 addr=222 spoke=1 pol=1 hilbert=37 val=0x0642
+  i=07 addr=259 spoke=2 pol=0 hilbert=43 val=0x0700
+  i=08 addr=296 spoke=2 pol=0 hilbert=49 val=0x0846
+  i=09 addr=333 spoke=2 pol=1 hilbert=55 val=0x0930
+  i=10 addr=370 spoke=3 pol=0 hilbert=61 val=0x0a30
+  i=11 addr=407 spoke=3 pol=0 hilbert=67 val=0x0b31
+bench: loops=20000 pkts=20000 16.18 ns/pkt 61.80 Mpkts/s
+stats: route=20012 ground=0 flushes=20001 avg_swaps=12.0 sort_eff=0.994
+sinks: flushed=20012 ground_cb=0
+
+=== TRACE: ground-stress ===
+startup: bytes=16 chunks=1 passthru=0 tail=1 seed_xor=0x047eb12db7a99911
+first 12 events:
+  i=00 addr=  0 spoke=0 pol=0 hilbert=0 val=0x00ff
+  i=01 addr= 37 spoke=0 pol=0 hilbert=6 val=0x00ff
+  i=02 addr= 74 spoke=0 pol=1 hilbert=12 val=0x00ff
+  i=03 addr=111 spoke=0 pol=1 hilbert=18 val=0x00ff
+  i=04 addr=148 spoke=1 pol=0 hilbert=24 val=0x00ff
+  i=05 addr=185 spoke=1 pol=1 hilbert=30 val=0x00ff
+  i=06 addr=222 spoke=1 pol=1 hilbert=37 val=0x00ff
+  i=07 addr=259 spoke=2 pol=0 hilbert=43 val=0x00ff
+  i=08 addr=296 spoke=2 pol=0 hilbert=49 val=0x00ff
+  i=09 addr=333 spoke=2 pol=1 hilbert=55 val=0x00ff
+  i=10 addr=370 spoke=3 pol=0 hilbert=61 val=0x00ff
+  i=11 addr=407 spoke=3 pol=0 hilbert=67 val=0x00ff
+bench: loops=20000 pkts=20000 7.16 ns/pkt 139.66 Mpkts/s
+stats: route=20012 ground=0 flushes=20001 avg_swaps=12.0 sort_eff=0.994
+sinks: flushed=20012 ground_cb=0

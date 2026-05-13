@@ -27,15 +27,8 @@
 
 #include <stdint.h>
 #include <string.h>
-
-/*
- * These headers live in the repo-root core/ tree, not beside this file.
- * Keep the include paths relative so the bridge can be built from
- * core/pogls_engine without modifying the global include setup.
- */
-#include "../core/geo_giant_array.h"
-#include "../core/geo_cube_file_store.h"
-#include "../core/geo_dodeca.h"
+/* geo_giant_array.h, geo_cube_file_store.h, geo_dodeca.h
+   included by the translation unit before this header     */
 
 /* ════════════════════════════════════════
    MAPPING CONSTANTS
@@ -60,7 +53,7 @@ typedef struct {
     uint32_t      reserved_mask;  /* bitmask: deleted cosets         */
     uint32_t      write_count;
     uint32_t      delete_count;
-    uint32_t      overflow_count;  /* coset masked → bypassed         */
+    uint32_t      overflow_count; /* coset masked → bypassed         */
 } FtsTwinStore;
 
 /* ════════════════════════════════════════
@@ -88,6 +81,18 @@ static inline FtsTritAddr fts_trit_addr(uint64_t addr, uint64_t value) {
 /* ════════════════════════════════════════
    WRITE: DodecaEntry → FrustumSlot64
    ════════════════════════════════════════ */
+/*
+ * Map one DodecaEntry into the correct FrustumSlot64 inside GiantArray.
+ *
+ * DodecaEntry fields → FrustumSlot64:
+ *   merkle_root  → core[level]          (geometry fingerprint)
+ *   sha256_hi    → core[(level+1)%4]    (integrity word)
+ *   offset       → addr[level]          (semantic distance)
+ *   hop_count    → addr[(level+1)%4]    (path depth)
+ *   segment      → world[level]         (scroll position, 0..255 → 0/1)
+ *
+ * Returns: 0=ok  -1=coset reserved (deleted)  -2=null entry
+ */
 static inline int fts_write(FtsTwinStore      *s,
                               uint64_t           addr,
                               uint64_t           value,
@@ -115,7 +120,7 @@ static inline int fts_write(FtsTwinStore      *s,
     slot->addr[lv1] = (uint32_t)e->hop_count;
     slot->world[lv] = (uint8_t)(e->segment & 1u);
     slot->coset     = ta.coset;
-    slot->frustum_id = ta.face;
+    slot->frustum_id= ta.face;
     slot->axis      = (uint8_t)(ta.face / 2u);
     slot->dir       = ta.face;
 
@@ -140,12 +145,22 @@ static inline int fts_write(FtsTwinStore      *s,
 /* ════════════════════════════════════════
    DELETE: structural silence on coset
    ════════════════════════════════════════ */
+/*
+ * Set reserved_mask bit → coset silenced
+ * Future writes to same trit range → fts_write returns -1
+ * Payload zero-filled on next gcfs_serialize
+ * Data reconstructible from seed (not destroyed, just inaccessible)
+ */
 static inline void fts_delete_coset(FtsTwinStore *s, uint8_t coset) {
     if (coset >= 12u) return;
     s->reserved_mask |= (1u << coset);
     s->delete_count++;
 }
 
+/*
+ * Convenience: delete by addr+value
+ * Silences the entire coset that addr maps to
+ */
 static inline void fts_delete(FtsTwinStore *s,
                                 uint64_t      addr,
                                 uint64_t      value)

@@ -1,0 +1,58 @@
+===============================
+SUMMARY #1 - 10/5/2569 01:35:38
+===============================
+
+# การวิเคราะห์สถาปัตยกรรม TurboQuant, POGLS และนวัตกรรม Image Codec เชิงเรขาคณิต
+
+## 1. การเปรียบเทียบเชิงเทคนิค: TurboQuant vs. POGLS
+
+การวิเคราะห์ความแตกต่างระหว่าง **TurboQuant** (อัลกอริทึมการบีบอัด) และ **POGLS** (สถาปัตยกรรม Storage) มีรายละเอียดดังนี้:
+
+| มิติการเปรียบเทียบ | TurboQuant | POGLS |
+| :--- | :--- | :--- |
+| **เป้าหมายหลัก** | KV Cache ใน LLM Inference | Storage Middleware + Weight Streaming |
+| **กลไกการบีบอัด** | Vector Quantization (Math-based) | Geometry Addressing (Structure-based) |
+| **เทคนิคเฉพาะ** | PolarQuant (Cartesian → Polar), QJL (1-bit sign) | Geometric Mapping (Metatron/Goldberg) |
+| **Overhead** | Zero Quantization Overhead | Zero Heap, Deterministic Pipeline |
+| **ระดับการทำงาน** | Compression Algorithm (บน GPU H100) | Storage Architecture (บน NVMe/RAM) |
+
+**จุดเชื่อมโยง:** TurboQuant ทำงานในระดับ Math Layer ขณะที่ POGLS ทำงานในระดับ Storage Layer ซึ่งในทางปฏิบัติ POGLS สามารถทำหน้าที่เป็น Substrate ให้ TurboQuant วิ่งอยู่ด้านบนได้
+
+## 2. สถาปัตยกรรม Tree Ring Model สำหรับ Image Codec
+
+แนวคิดการจัดเก็บไฟล์ภาพในรูปแบบหน้าตัดของต้นไม้ (Tree Ring) เพื่อเพิ่มประสิทธิภาพการบีบอัดและ Random Access:
+
+*   **Frame 1 (Dashboard/Bark):** ทำหน้าที่เป็น Look-Up Table (LUT) บรรจุ Color-letter pair และ Hilbert wire เพื่อบอกวิธีอ่าน Layer ภายในทั้งหมด
+*   **Frame 2..N (Timeline Layers):** 
+    *   **Core Area:** ส่วนแกนกลางที่เหมือนกันทุก Layer (Shared Identity) ช่วยให้บีบอัดข้อมูลที่ซ้ำซ้อนได้ทันที
+    *   **Boundary (เปลือก):** เก็บเฉพาะส่วนต่าง (Delta/Diff) หรือวิธีการแกะสลัก (Transformation Descriptor) ในแต่ละชั้น
+*   **Key Insight:** การใช้ 1 Seed + Fixed Encoder ต่อสี (R/G/B) โดยไม่ข้ามชั้น ทำให้การ Decode คือการวิ่งออกจากศูนย์กลางแล้วใส่เปลือกกลับเข้าไป
+
+## 3. กลไก Hilbert Space และ RGB Hamburger Model
+
+การแก้ปัญหาการบีบอัดภาพที่มีความซับซ้อนของสีสูง (High Texture) ด้วยการใช้ Hilbert Curve:
+
+*   **Hilbert Negative Space:** บน Grid 16x16 (256 positions) หากภาพมีโทนสีใกล้เคียงกัน Curve จะ "ไม่เดิน" (Delta ≈ 0) ทำให้สามารถเก็บข้อมูลเฉพาะส่วนที่เคลื่อนไหวได้ในอัตรา 1:3
+*   **RGB Hamburger (3D Hilbert):** 
+    *   แทนที่จะแยก Layer R, G, B ออกจากกัน ให้มองเป็น Cube ที่ซ้อนกันแบบแฮมเบอร์เกอร์
+    *   ใช้ **3D Hilbert Curve** เส้นเดียววิ่ง Traverse ทั้ง RGB Cube เพื่อรักษา Color Locality
+    *   สีที่ใกล้กันใน RGB Space จะอยู่ใกล้กันใน Curve Index ทำให้บีบอัด Delta ข้าม Channel ได้โดยตรง
+
+## 4. ระบบ Invert Line และ Passive Timeline Recorder
+
+การจัดการข้อมูลโดยไม่ต้องใช้ Indexing Table แต่ใช้ลำดับเวลา (Timeline):
+
+*   **Invert Line:** ทำหน้าที่เป็น Passive Recorder จดบันทึก State การเปลี่ยนแปลงของแต่ละ Tile (เช่น Tile 1: R, Tile 2: R+G) 
+*   **Timeline Chain:** เก็บเฉพาะความเปลี่ยนแปลง (Delta) ระหว่างชั้น ทำให้ Decoder สามารถเล่น Timeline ย้อนกลับเพื่อคืนค่าภาพได้โดยไม่มี Overhead ของ Lookup Table
+
+## 5. Self-healing Geometry และ Visual Metadata
+
+คุณสมบัติการซ่อมแซมข้อมูลตัวเอง (Self-healing) ผ่านโครงสร้างเรขาคณิต:
+
+*   **Geometric Redundancy:** หาก Channel ใดพัง (เช่น R พัง) ระบบสามารถ Reconstruct ข้อมูลกลับมาได้จาก G + B + Invert Timeline เนื่องจากทุกชั้นถูก Derive มาจาก Seed เดียวกัน
+*   **Icon-based Dashboard:** การใช้ Icon วงกลม 1 อันเพื่อ Encode ข้อมูล POGLS Address ทั้งหมด:
+    *   **Spoke (Angle):** Lane Group (3 bits)
+    *   **World (Color):** Layer Family (2 bits)
+    *   **Slot (Ring):** Trit Position (5 bits)
+    *   **Layer (Pattern):** Depth
+*   **GeoPixel Integration:** Dashboard ที่เป็น Grid ของ Icons จะทำหน้าที่เป็น LUT ที่ GeoPixel สามารถอ่านและเข้าถึงข้อมูลแบบ Random Access ได้ทันทีโดยไม่ต้อง Decode ทั้งไฟล์

@@ -1,0 +1,33 @@
+Minimal Linux/Colab bundle for GeoPixel session + trace tests
+
+Keep the same relative paths when copying into Colab:
+
+src/geo_addr_net.h
+src/geo_tring_walk.h
+src/geo_tring_goldberg_wire.h
+src/geo_payload_store.h
+src/fgls_twin_store.h
+src/lc_hdr.h
+src/lc_twin_gate.h
+src/tgw_cardioid_express.h
+src/tgw_dispatch_v2.h
+src/tgw_lc_bridge_p6.h
+src/geopixel_session_feed.h
+src/geo_temporal_lut.h
+
+core/core/geo_temporal_ring.h
+core/core/geo_tring_stream.h
+core/core/pogls_platform.h
+core/core/geo_temporal_lut.h
+core/geo_headers/pogls_sdk_so.h
+
+geopixel/geopixel/geo_gpx_anim_o23.h
+geopixel/geopixel/gpx4_container_o22.h
+
+tests/integration/test_geopixel_session_feed.c
+tests/integration/test_startup_trace_payload.c
+invention.txt
+
+Notes:
+- If your active GeoPixel headers live under a different path, adjust the include roots in `build_linux.sh`.
+- For Colab testing, you do not need `build/`, `.exe`, or Windows-only scripts.
