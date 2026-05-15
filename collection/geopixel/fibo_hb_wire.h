@@ -1,5 +1,5 @@
 /*
- * fibo_hb_wire.h — FiboTile → Hamburger pipeline wire (fixed)
+ * fibo_hb_wire.h — FiboTile → Hamburger pipeline wire (fixed v2)
  * ══════════════════════════════════════════════════════════════════════
  *
  *  Connects fibo_tile_dispatch output (GpxTileInput) to hamburger
@@ -15,13 +15,15 @@
  *        ↓ hb_codec_apply()         → enc_buf
  *    FiboHbResult
  *
+ *  YCgCo: uses JFIF-standard lossless lifting (not >>1 form).
+ *    Forward and inverse are exact inverses for all 8-bit RGB inputs.
+ *
  *  HbTileIn note:
  *    hamburger_encode.h HbTileIn uses (data ptr + sz + tile_id + ttype).
- *    This file does NOT use HbTileIn directly — calls hb_codec_apply()
- *    directly to avoid struct incompatibility with bridge code.
+ *    This file calls hb_codec_apply() directly — no HbTileIn needed.
  *
  *  Frozen rules:
- *    - integer only (YCgCo fixed-point)
+ *    - integer only (YCgCo lossless lifting)
  *    - no heap in hot path
  *    - tile_id = face*60 + edge*12 + (z%12) → 0..719 (sacred 720)
  * ══════════════════════════════════════════════════════════════════════
@@ -59,59 +61,57 @@ static inline uint16_t fhw_tile_id(uint8_t face, uint8_t edge, uint8_t z) {
 }
 
 /* ── seed_local from route_id + tile_id ─────────────────────────────── */
-/*  mix route_id (64b) into 32b seed for hb_codec_apply/hb_codec_invert */
 static inline uint32_t fhw_seed_local(uint64_t route_id, uint16_t tile_id) {
     uint32_t lo = (uint32_t)(route_id & 0xFFFFFFFFu);
     uint32_t hi = (uint32_t)(route_id >> 32u);
     return (lo ^ hi ^ (uint32_t)tile_id) * 0x9e3779b9u;
 }
 
-/* ── RGB → YCgCo (integer, lossless for 8-bit) ───────────────────────── */
+/* ── RGB → YCgCo (JFIF lossless lifting — exact roundtrip for 8-bit) ── */
 /*
- * Forward (must match inverse exactly):
- *   Y  = (R + 2G + B) >> 1     range 0..255
- *   Cg = 2G - R - B            range -255..255
- *   Co = R - B                 range -127..127
+ * Forward lifting:
+ *   Co  = R - B
+ *   tmp = B + (Co >> 1)
+ *   Cg  = G - tmp
+ *   Y   = tmp + (Cg >> 1)
  *
- * Stored as int16_le for hb_codec_apply (FREQ expects 6B/pixel).
+ * This is the integer lossless YCgCo from JFIF/JPEG-LS.
+ * Paired with fhw_ycgco_to_rgb → exact roundtrip, no clamping needed.
  */
 static inline void fhw_rgb_to_ycgco(
     const uint8_t *rgb,   /* 64 pixels × 3B = 192B                     */
     int *Y, int *Cg, int *Co)
 {
-    for (int p = 0; p < FHW_TILE_PX; p++) {
+    for (uint32_t p = 0u; p < FHW_TILE_PX; p++) {
         int r = rgb[p * 3 + 0];
         int g = rgb[p * 3 + 1];
         int b = rgb[p * 3 + 2];
-        Y [p] = (r + 2*g + b) >> 1;
-        Cg[p] = 2*g - r - b;
-        Co[p] = r - b;
+        int co  = r - b;
+        int tmp = b + (co >> 1);
+        int cg  = g - tmp;
+        Y [p]   = tmp + (cg >> 1);
+        Cg[p]   = cg;
+        Co[p]   = co;
     }
 }
 
 /* ── YCgCo → RGB (exact inverse of fhw_rgb_to_ycgco) ───────────────── */
 /*
- * From: Y=(R+2G+B)/2, Cg=2G-R-B, Co=R-B
- *   2Y = R + 2G + B
- *   Cg = 2G - R - B   →  Cg + 2Y = 4G  →  G = (2Y + Cg) / 4
- *   Co = R - B         →  R = Co + B
- *   2Y = Co+B + 2G + B = Co + 2B + 2G  →  B = (2Y - Co - 2G) / 2
- *
- * Integer path (all ×2 to avoid /4):
- *   Y2 = 2Y (already in range 0..510 but stored as 0..255 after >>1 above)
- *   G  = (2*Y + Cg) / 4  — integer divide, rounding error ≤1 LSB
- *   B  = Y - (Cg>>1) - (Co>>1) ... use standard YCgCo JFIF inverse:
- *   tmp = Y - (Cg >> 1)
+ * Inverse lifting:
+ *   tmp = Y  - (Cg >> 1)
  *   G   = Cg + tmp
  *   B   = tmp - (Co >> 1)
- *   R   = B + Co
+ *   R   = B  + Co
+ *
+ * No clamping required — values stay in 0..255 for valid 8-bit input.
+ * Clamp guard kept for safety against corrupted enc_buf.
  */
 static inline void fhw_ycgco_to_rgb(
     const int *Y, const int *Cg, const int *Co,
     uint8_t *rgb)   /* 64 pixels × 3B = 192B */
 {
-    for (int p = 0; p < FHW_TILE_PX; p++) {
-        int tmp = Y[p] - (Cg[p] >> 1);
+    for (uint32_t p = 0u; p < FHW_TILE_PX; p++) {
+        int tmp = Y[p]  - (Cg[p] >> 1);
         int g   = Cg[p] + tmp;
         int b   = tmp   - (Co[p] >> 1);
         int r   = b     +  Co[p];
@@ -129,7 +129,7 @@ static inline void fhw_pack_raw(
     const int *Y, const int *Cg, const int *Co,
     uint8_t *raw)   /* FHW_RAW_SZ = 384B */
 {
-    for (int p = 0; p < FHW_TILE_PX; p++) {
+    for (uint32_t p = 0u; p < FHW_TILE_PX; p++) {
         int16_t y  = (int16_t)Y [p];
         int16_t cg = (int16_t)Cg[p];
         int16_t co = (int16_t)Co[p];
@@ -144,7 +144,7 @@ static inline void fhw_unpack_raw(
     const uint8_t *raw,   /* FHW_RAW_SZ = 384B */
     int *Y, int *Cg, int *Co)
 {
-    for (int p = 0; p < FHW_TILE_PX; p++) {
+    for (uint32_t p = 0u; p < FHW_TILE_PX; p++) {
         int16_t y, cg, co;
         memcpy(&y,  raw + p*6 + 0, 2);
         memcpy(&cg, raw + p*6 + 2, 2);
@@ -155,10 +155,32 @@ static inline void fhw_unpack_raw(
     }
 }
 
+/* ── fhw_is_perfect_flat ─────────────────────────────────────────────── */
+/*
+ * Returns 1 only if ALL 64 YCgCo values are identical to pixel 0.
+ * CODEC_SEED FLAT stores a single 6B sample and repeats it on decode —
+ * so lossless guarantee requires every pixel to be bit-exact equal.
+ * Anything else must fall back to GRAD (CODEC_FREQ) for full storage.
+ */
+static inline int fhw_is_perfect_flat(
+    const int *Y, const int *Cg, const int *Co)
+{
+    int y0 = Y[0], cg0 = Cg[0], co0 = Co[0];
+    for (uint32_t p = 1u; p < FHW_TILE_PX; p++) {
+        if (Y[p] != y0 || Cg[p] != cg0 || Co[p] != co0) return 0;
+    }
+    return 1;
+}
+
 /* ── fibo_hb_encode_tile ─────────────────────────────────────────────── */
 /*
  * Main encode: GpxTileInput → FiboHbResult
- * Calls hb_codec_apply() directly (no HbTileIn — avoids struct conflict).
+ *
+ * FLAT guard: hb_classify_tile may call "nearly flat" tiles FLAT, but
+ * CODEC_SEED only reconstructs perfectly — if classify returns FLAT and
+ * pixels are not all identical, ttype is downgraded to GRADIENT so
+ * CODEC_FREQ stores the full tile losslessly.
+ *
  * Returns 1 on success, 0 on error.
  */
 static inline int fibo_hb_encode_tile(
@@ -173,15 +195,21 @@ static inline int fibo_hb_encode_tile(
     out->verified = (tile->flags & FTD_FLAG_VERIFIED) ? 1u : 0u;
     out->tile_id  = fhw_tile_id(tile->face, tile->edge, tile->z);
 
-    /* step 1: RGB → YCgCo */
+    /* step 1: RGB → YCgCo (lossless lifting) */
     fhw_rgb_to_ycgco(tile->tile_rgb, Y, Cg, Co);
 
-    /* step 2: classify — hb_classify_tile uses int arrays directly */
+    /* step 2: classify */
     out->ttype = hb_classify_tile(
         Y, Cg, Co,
         0, 0,
         (int)FTD_TILE_W, (int)FTD_TILE_H,
         (int)FTD_TILE_W);
+
+    /* step 2b: FLAT guard — CODEC_SEED repeats 1 sample across all pixels.
+     * Only safe when every pixel is bit-exact equal. Downgrade to GRADIENT
+     * for "nearly flat" tiles so CODEC_FREQ handles them losslessly. */
+    if (out->ttype == GPX5_TTYPE_FLAT && !fhw_is_perfect_flat(Y, Cg, Co))
+        out->ttype = GPX5_TTYPE_GRADIENT;
 
     /* step 3: codec select */
     out->codec = hb_ttype_to_codec(out->ttype);
@@ -189,7 +217,7 @@ static inline int fibo_hb_encode_tile(
     /* step 4: pack int16_le for hb_codec_apply */
     fhw_pack_raw(Y, Cg, Co, raw);
 
-    /* step 5: encode — seed_local mixed from route_id + tile_id */
+    /* step 5: encode */
     uint32_t seed_local = fhw_seed_local(tile->route_id, out->tile_id);
     out->enc_sz = hb_codec_apply(
         out->codec, out->ttype,
@@ -203,10 +231,8 @@ static inline int fibo_hb_encode_tile(
 /* ── fibo_hb_decode_tile ─────────────────────────────────────────────── */
 /*
  * Decode: FiboHbResult → original RGB tile (192B)
+ * route_id + tile_id taken directly from res (stored at encode time).
  * Returns 1 on success, 0 on error.
- *
- * Caller must supply same route_id + tile_id as encode
- * (both are stored in FiboHbResult).
  */
 static inline int fibo_hb_decode_tile(
     const FiboHbResult *res,
@@ -245,8 +271,11 @@ static inline const char *fibo_hb_ttype_name(uint8_t ttype) {
  * W01: encode+decode roundtrip → out_rgb == original tile_rgb (lossless)
  * W02: FLAT tile → enc_sz == 8 (CODEC_SEED: 2B sz + 6B sample)
  * W03: seed_local reproducible — same route_id+tile_id → same result
- * W04: fhw_rgb_to_ycgco + fhw_ycgco_to_rgb roundtrip → lossless for 8-bit
+ * W04: fhw_rgb_to_ycgco + fhw_ycgco_to_rgb roundtrip → lossless for ALL 8-bit
+ *      (verified: full 256^3 grid passes with JFIF lifting form)
  * W05: ttype varies with tile content: uniform→FLAT, gradient→GRAD, etc.
+ * W06: hb_classify_tile called with x1=FTD_TILE_W, y1=FTD_TILE_H (exclusive)
+ *      img_w=FTD_TILE_W — matches hamburger_classify.h contract
  */
 
 #endif /* FIBO_HB_WIRE_H */

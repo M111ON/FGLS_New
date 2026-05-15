@@ -1,0 +1,192 @@
+#pragma once
+/*
+ * hb_tile_stream.h — single-tile random-access decode
+ *
+ * Flow:
+ *   QR → tick → hb_fibo_lut_seek() → HbFiboLutEntry
+ *              → hb_tile_stream()   → raw tile bytes
+ *              → display / AR
+ *
+ * NO full-file decode. NO network. O(1) seek via LUT.
+ *
+ * Include order:
+ *   gpx5_container.h
+ *   → hamburger_pipe.h
+ *   → hamburger_encode.h   (provides hb_codec_invert, HbFiboLutEntry)
+ *   → hb_tile_stream.h     ← this file
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+/* ──────────────────────────────────────────────────────────────
+ * Error codes (additive to HB_ERR_* from hamburger_encode.h)
+ * ────────────────────────────────────────────────────────────── */
+#define HBT_OK               0
+#define HBT_ERR_IO          -1   /* file open / seek / read fail  */
+#define HBT_ERR_NO_LUT      -2   /* file not warm (LUT missing)   */
+#define HBT_ERR_ENTRY       -3   /* invert_off == 0xFFFFFFFF (clear) */
+#define HBT_ERR_CORRUPT     -4   /* header / size mismatch        */
+#define HBT_ERR_BUF         -5   /* out_ycgco too small           */
+#define HBT_ERR_ALLOC       -6
+
+/* ──────────────────────────────────────────────────────────────
+ * hb_tile_stream — seek → read invert entry → codec_invert → out
+ *
+ * gpx5_path  : path to .gpx5 cycle file
+ * entry      : from hb_fibo_lut_seek()  (carries invert_off + codec_id)
+ * out_ycgco  : caller-alloc, minimum HB_TILE_SZ_MAX bytes
+ * out_sz     : capacity of out_ycgco
+ * out_bytes  : [optional] actual decoded byte count
+ *
+ * On HBT_ERR_ENTRY (clear tile) the tile was predicted perfectly by
+ * the codec; caller may treat out_ycgco as all-prediction or zero.
+ * ────────────────────────────────────────────────────────────── */
+static inline int hb_tile_stream(
+        const char           *gpx5_path,
+        const HbFiboLutEntry *entry,
+        uint8_t              *out_ycgco,
+        uint32_t              out_sz,
+        uint32_t             *out_bytes)   /* may be NULL */
+{
+    if (!gpx5_path || !entry || !out_ycgco) return HBT_ERR_BUF;
+    if (out_sz < HB_TILE_SZ_MAX)            return HBT_ERR_BUF;
+
+    if (out_bytes) *out_bytes = 0u;
+
+    /* ── clear tile shortcut ── */
+    if (entry->invert_off == 0xFFFFFFFFu) {
+        memset(out_ycgco, 0, out_sz);
+        return HBT_ERR_ENTRY;
+    }
+
+    /* ── open file (small: header + LUT only, no full raw load) ── */
+    Gpx5File gf;
+    if (gpx5_open(gpx5_path, &gf) != 0)        return HBT_ERR_IO;
+    if (!(gf.hdr.flags & GPX5_LUT_WARM)) { gpx5_close(&gf); return HBT_ERR_NO_LUT; }
+
+    /* ── derive seed + dispatch (match encode: local tile_id only) ── */
+    uint32_t  seed_local  = gpx5_seed_local(gf.hdr.global_seed,
+                                             (uint32_t)entry->tile_id);
+    uint16_t  hilbert_pos = gpx5_hilbert_entry(seed_local, entry->tile_id);
+    HbDispatch disp       = hb_dispatch(hilbert_pos, gf.pipes);
+
+    /* ── seek directly to invert entry ── */
+    /* invert_off is absolute byte offset within the raw file blob */
+    if (entry->invert_off >= gf.raw_sz) { gpx5_close(&gf); return HBT_ERR_CORRUPT; }
+
+    const uint8_t *inv_ptr = gf.raw + entry->invert_off;
+    uint32_t       remain  = gf.raw_sz - entry->invert_off;
+
+    /* v6 invert entry layout: [tile_id 2B][ttype 1B][res_sz 2B][enc_buf...] */
+    if (remain < HB_INV_HDR_SZ) { gpx5_close(&gf); return HBT_ERR_CORRUPT; }
+
+    uint8_t  ttype  = inv_ptr[2];
+    uint16_t res_sz = (uint16_t)((inv_ptr[3] << 8) | inv_ptr[4]);
+
+    if ((uint32_t)HB_INV_HDR_SZ + res_sz > remain) {
+        gpx5_close(&gf);
+        return HBT_ERR_CORRUPT;
+    }
+
+    const uint8_t *enc_stored = inv_ptr + HB_INV_HDR_SZ;
+
+    /* ── darkroom: codec_invert → original tile bytes ── */
+    memset(out_ycgco, 0, out_sz);
+    uint32_t decoded = hb_codec_invert(
+            disp.codec, ttype,
+            enc_stored, res_sz,
+            out_ycgco, out_sz,
+            seed_local);
+
+    gpx5_close(&gf);
+
+    if (decoded == 0u) return HBT_ERR_CORRUPT;
+    if (out_bytes) *out_bytes = decoded;
+    return HBT_OK;
+}
+
+/* ──────────────────────────────────────────────────────────────
+ * hb_tile_stream_clear — reconstruct a clear tile (codec predicted perfectly).
+ *
+ * Used when hb_tile_stream() returns HBT_ERR_ENTRY.
+ * Reproduces the codec's "free" prediction so the caller gets real pixels.
+ * ────────────────────────────────────────────────────────────── */
+static inline int hb_tile_stream_clear(
+        const char           *gpx5_path,
+        const HbFiboLutEntry *entry,
+        uint8_t              *out_ycgco,
+        uint32_t              out_sz,
+        uint32_t             *out_bytes)
+{
+    if (!gpx5_path || !entry || !out_ycgco) return HBT_ERR_BUF;
+    if (out_sz < HB_TILE_SZ_MAX)            return HBT_ERR_BUF;
+
+    if (out_bytes) *out_bytes = 0u;
+
+    Gpx5File gf;
+    if (gpx5_open(gpx5_path, &gf) != 0)        return HBT_ERR_IO;
+    if (!(gf.hdr.flags & GPX5_LUT_WARM)) { gpx5_close(&gf); return HBT_ERR_NO_LUT; }
+
+    uint32_t  seed_local  = gpx5_seed_local(gf.hdr.global_seed,
+                                             (uint32_t)entry->tile_id);
+    uint16_t  hilbert_pos = gpx5_hilbert_entry(seed_local, entry->tile_id);
+    HbDispatch disp       = hb_dispatch(hilbert_pos, gf.pipes);
+
+    /* get set data for this tile (the codec's "recipe") */
+    uint32_t set_sz = 0u;
+    const uint8_t *set_data = gpx5_tile_set_data(&gf, entry->tile_id, &set_sz);
+
+    memset(out_ycgco, 0, out_sz);
+    uint32_t decoded = 0u;
+
+    if (set_data && set_sz > 0u) {
+        decoded = hb_codec_invert(disp.codec, 0u,
+                                  set_data, set_sz,
+                                  out_ycgco, out_sz,
+                                  seed_local);
+    }
+
+    gpx5_close(&gf);
+    if (out_bytes) *out_bytes = decoded;
+    return (decoded > 0u) ? HBT_OK : HBT_ERR_CORRUPT;
+}
+
+/* ──────────────────────────────────────────────────────────────
+ * hb_tile_stream_mc — multi-cycle tile stream
+ *
+ * Resolves the gpx5 file path from manifest via entry->cycle_id,
+ * then delegates to hb_tile_stream() (or hb_tile_stream_clear()).
+ *
+ * manifest   : HbManifest mapping cycle_id → file path
+ * entry      : from hb_fibo_lut_seek() (may belong to any cycle)
+ * out_ycgco  : caller-alloc ≥ HB_TILE_SZ_MAX bytes
+ * out_sz     : capacity
+ * out_bytes  : [optional] decoded byte count
+ *
+ * Returns HBT_OK on success.
+ * Returns HBT_ERR_NO_LUT if cycle_id not found in manifest.
+ * ────────────────────────────────────────────────────────────── */
+#include "hb_manifest.h"
+
+static inline int hb_tile_stream_mc(
+        const HbManifest     *manifest,
+        const HbFiboLutEntry *entry,
+        uint8_t              *out_ycgco,
+        uint32_t              out_sz,
+        uint32_t             *out_bytes)
+{
+    if (!manifest || !entry || !out_ycgco) return HBT_ERR_BUF;
+
+    const char *path = hb_manifest_path(manifest, entry->cycle_id);
+    if (!path) return HBT_ERR_NO_LUT;   /* cycle_id not registered */
+
+    int rc = hb_tile_stream(path, entry, out_ycgco, out_sz, out_bytes);
+
+    /* clear tile → reconstruct via prediction path */
+    if (rc == HBT_ERR_ENTRY)
+        rc = hb_tile_stream_clear(path, entry, out_ycgco, out_sz, out_bytes);
+
+    return rc;
+}

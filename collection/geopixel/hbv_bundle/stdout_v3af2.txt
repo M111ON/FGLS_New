@@ -1,0 +1,18 @@
+╔══════════════════════════════════════════════════╗
+║   V3 Pipeline Benchmark — Real Files             ║
+║   Gate: isect popcnt (G=4 S=8)  Anti-fake=16 ║
+╚══════════════════════════════════════════════════╝
+
+C source     N=  479  ratio=4.311x  geom= 93%  seed= 71%  exact=100.0%  resets=3  fake=0
+  └─ shuffled               ratio=4.311x  drop=+0.0%  resets=3  fake=0
+C header     N=  182  ratio=3.865x  geom= 90%  seed= 65%  exact=100.0%  resets=1  fake=0
+  └─ shuffled               ratio=3.865x  drop=+0.0%  resets=1  fake=0
+BMP image    (cannot open)
+Binary EXE   N= 1138  ratio=1.345x  geom= 33%  seed= 20%  exact=100.0%  resets=111  fake=0
+  └─ shuffled               ratio=1.345x  drop=+0.0%  resets=236  fake=0
+Compressed   N=  667  ratio=1.589x  geom= 49%  seed= 17%  exact=100.0%  resets=46  fake=0
+  └─ shuffled               ratio=1.589x  drop=+0.0%  resets=65  fake=0
+Fold header  N=  324  ratio=3.342x  geom= 85%  seed= 66%  exact=100.0%  resets=6  fake=0
+  └─ shuffled               ratio=3.342x  drop=+0.0%  resets=7  fake=0
+Diamond fd   N=  462  ratio=3.708x  geom= 89%  seed= 63%  exact=100.0%  resets=4  fake=0
+  └─ shuffled               ratio=3.708x  drop=+0.0%  resets=5  fake=0
