@@ -1,0 +1,1069 @@
+/*
+ * hamburger_encode.h — H4: hamburger_encode() + H5: hamburger_decode()
+ *
+ * Single-call encode/decode for the Hamburger Architecture.
+ * Wraps H1 (pipe dispatch) + H2 (invert recorder) + LUT build.
+ *
+ * Encode output = seed + invert chain (not raw pixels)
+ * Decode input  = seed + invert chain → reconstruct original
+ *
+ * Tile classify comes directly from geopixel_v21_o25.c (TTYPE_FLAT/GRAD/EDGE/NOISE).
+ * Codec per carrier is selected from pipe table — not hardcoded here.
+ *
+ * After encode: LUT is frozen → O(1) random access on decode side.
+ *
+ * Wire order:
+ *   encode: input → classify → dispatch(H1) → process → invert_record(H2)
+ *           → warm-up 1440 ticks → freeze → build LUT → write gpx5 file
+ *   decode: read gpx5 → check LUT_FROZEN → tile_id → invert_ptr (O1)
+ *           → reconstruct via carrier codec → output
+ *
+ * No float in hot path. No malloc inside tick loop.
+ * Depends on: gpx5_container.h, hamburger_pipe.h
+ */
+
+#pragma once
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+#if defined(__has_include)
+#  if __has_include(<zstd.h>)
+#    include <zstd.h>
+#    define HB_HAS_ZSTD 1
+#  else
+#    define HB_HAS_ZSTD 0
+#  endif
+#else
+#  define HB_HAS_ZSTD 0
+#endif
+#include "gpx5_container.h"
+#include "hamburger_pipe.h"
+#include "hamburger_classify.h"
+
+/* ── encode result ───────────────────────────────────── */
+#define HB_OK              0
+#define HB_ERR_ALLOC      -1
+#define HB_ERR_IO         -2
+#define HB_ERR_TILES      -3
+#define HB_ERR_NO_LUT     -4
+#define HB_ERR_CODEC      -5
+
+/* max tiles this encoder handles (stack budget) */
+#define HB_MAX_TILES       4096u
+#define HB_TILE_SZ_MAX     4896u   /* = GPX5_BLOCK_SZ, one block per tile */
+
+/* ══════════════════════════════════════════════════════
+ * TILE INPUT — caller fills this before calling encode
+ * ══════════════════════════════════════════════════════ */
+
+/*
+ * HbTileIn — one tile's input data.
+ * data     : raw tile bytes (caller owns, must outlive encode call)
+ * sz       : byte count (≤ HB_TILE_SZ_MAX)
+ * tile_id  : index in grid
+ * ttype    : GPX5_TTYPE_* — from classify (geopixel_v21 output)
+ *            caller runs classify_tile() and passes result here
+ *            encoder does not re-classify — trust the caller
+ */
+typedef struct {
+    const uint8_t *data;
+    uint32_t       sz;
+    uint16_t       tile_id;
+    uint8_t        ttype;
+    uint8_t        _pad;
+} HbTileIn;
+
+/* ══════════════════════════════════════════════════════
+ * ENCODE CONTEXT — lives on heap, one per encode session
+ * ══════════════════════════════════════════════════════ */
+
+typedef struct {
+    /* config (set by caller before hb_encode_init) */
+    uint32_t       global_seed;
+    uint16_t       tw;             /* tile columns                        */
+    uint16_t       th;             /* tile rows                           */
+    Gpx5PipeEntry  pipes[3];       /* carrier config                      */
+    uint8_t        use_2carrier;   /* 1 = attempt 2-carrier mode          */
+
+    /* runtime (filled by hb_encode_run) */
+    HbInvertRecorder rec;
+    Gpx5LutEntry    *lut;          /* [n_tiles], allocated on freeze       */
+    uint32_t         n_tiles;
+    uint32_t         n_active;     /* non-zero invert entries              */
+    uint8_t         *inv_stream;   /* serialised invert stream             */
+    uint32_t         inv_stream_sz;
+    uint8_t          frozen;
+} HbEncodeCtx;
+
+/* ── init ──────────────────────────────────────────── */
+
+static inline void hb_encode_init(
+        HbEncodeCtx *ctx,
+        uint32_t global_seed,
+        uint16_t tw, uint16_t th,
+        const Gpx5PipeEntry pipes[3],
+        uint8_t use_2carrier)
+{
+    memset(ctx, 0, sizeof(*ctx));
+    ctx->global_seed  = global_seed;
+    ctx->tw           = tw;
+    ctx->th           = th;
+    ctx->n_tiles      = (uint32_t)tw * th;
+    ctx->use_2carrier = use_2carrier;
+    memcpy(ctx->pipes, pipes, sizeof(ctx->pipes));
+    hb_invert_init(&ctx->rec);
+}
+
+static inline void hb_encode_free(HbEncodeCtx *ctx) {
+    free(ctx->lut);
+    free(ctx->inv_stream);
+    ctx->lut        = NULL;
+    ctx->inv_stream = NULL;
+}
+
+/* ══════════════════════════════════════════════════════
+ * CODEC DISPATCH — apply carrier codec to tile bytes
+ *
+ * "Process" in hamburger = run tile through its carrier codec.
+ * For most codecs: state_before and state_after differ only if
+ * tile content changed. The invert recorder picks this up passively.
+ *
+ * Each codec writes its output to out_buf, returns bytes written.
+ * out_buf must be ≥ tile_sz + 8 bytes (small header overhead).
+ *
+ * Current codecs:
+ *   NONE    : copy verbatim (passthrough)
+ *   SEED    : if ttype==FLAT, store seed only (4B). Skip tile data.
+ *   DELTA   : XOR vs seed-derived prediction. Store residual only.
+ *   RICE3   : Rice(k=3) on delta values (count stream)
+ *   HILBERT : walk/no-walk bit stream (1 bit per hilbert position)
+ *   RAW     : copy verbatim (same as NONE, explicit fallback)
+ *
+ * FREQ uses a block-average + residual split.
+ * ZSTD19 is optional: when zstd is available it compresses; otherwise
+ * the codec falls back to raw passthrough with a mode tag.
+ * ══════════════════════════════════════════════════════ */
+
+/* seed-derived prediction byte for position i in tile */
+static inline uint8_t hb_predict(uint32_t seed_local, uint32_t i) {
+    uint32_t s = seed_local ^ (i * 0x9e3779b9u);
+    s ^= s >> 16; s *= 0x85ebca6bu; s ^= s >> 13;
+    return (uint8_t)(s & 0xFFu);
+}
+
+/* Rice(k=3) encode one value into bit buffer — returns bits written */
+static inline uint32_t hb_rice3_encode_val(uint32_t val, uint8_t *buf, uint32_t bit_pos) {
+    uint32_t k    = 3u;
+    uint32_t q    = val >> k;           /* quotient  */
+    uint32_t r    = val & ((1u<<k)-1u); /* remainder */
+    /* unary quotient: q ones then a zero */
+    for (uint32_t i = 0; i <= q; i++) {
+        uint32_t byte_i = bit_pos >> 3;
+        uint32_t bit_i  = 7u - (bit_pos & 7u);
+        if (i < q) buf[byte_i] |= (1u << bit_i);
+        else       buf[byte_i] &= (uint8_t)~(1u << bit_i); /* stop bit = 0 */
+        bit_pos++;
+    }
+    /* binary remainder: k bits MSB first */
+    for (int b = (int)k - 1; b >= 0; b--) {
+        uint32_t byte_i = bit_pos >> 3;
+        uint32_t bit_i  = 7u - (bit_pos & 7u);
+        if ((r >> (uint32_t)b) & 1u) buf[byte_i] |= (1u << bit_i);
+        else                          buf[byte_i] &= (uint8_t)~(1u << bit_i);
+        bit_pos++;
+    }
+    return bit_pos;
+}
+
+static inline uint32_t hb_zstd19_apply(
+        const uint8_t *in, uint32_t in_sz,
+        uint8_t *out, uint32_t out_cap)
+{
+    if (!in || !out || in_sz > 0xFFFFu || out_cap < 3u) return 0u;
+    g5w2(out, (uint16_t)in_sz);
+    out[2] = 0u; /* mode: raw fallback */
+    if (in_sz == 0u) return 3u;
+
+#if HB_HAS_ZSTD
+    size_t bound = ZSTD_compressBound((size_t)in_sz);
+    if (bound + 3u <= out_cap) {
+        size_t comp = ZSTD_compress(out + 3u, (size_t)(out_cap - 3u),
+                                    in, (size_t)in_sz, 19);
+        if (!ZSTD_isError(comp) && comp + 3u < (size_t)in_sz + 3u) {
+            out[2] = 1u; /* mode: compressed */
+            return (uint32_t)(3u + comp);
+        }
+    }
+#endif
+
+    if (in_sz + 3u > out_cap) return 0u;
+    memcpy(out + 3u, in, in_sz);
+    return in_sz + 3u;
+}
+
+static inline uint32_t hb_zstd19_invert(
+        const uint8_t *enc, uint32_t enc_sz,
+        uint8_t *out, uint32_t out_cap)
+{
+    if (!enc || !out || enc_sz < 3u) return 0u;
+    uint32_t orig_sz = (uint32_t)g5r2(enc);
+    uint8_t mode = enc[2];
+    const uint8_t *payload = enc + 3u;
+    uint32_t payload_sz = enc_sz - 3u;
+    if (orig_sz > out_cap) return 0u;
+
+    if (mode == 0u) {
+        if (payload_sz < orig_sz) return 0u;
+        memcpy(out, payload, orig_sz);
+        return orig_sz;
+    }
+
+#if HB_HAS_ZSTD
+    if (mode == 1u) {
+        size_t dec = ZSTD_decompress(out, (size_t)out_cap, payload, (size_t)payload_sz);
+        if (ZSTD_isError(dec) || dec != (size_t)orig_sz) return 0u;
+        return orig_sz;
+    }
+#endif
+
+    return 0u;
+}
+
+static inline void hb_store_i16le(uint8_t *dst, int16_t v) {
+    uint16_t u = (uint16_t)v;
+    dst[0] = (uint8_t)(u & 0xFFu);
+    dst[1] = (uint8_t)(u >> 8);
+}
+
+static inline int16_t hb_load_i16le(const uint8_t *src) {
+    return (int16_t)((uint16_t)src[0] | ((uint16_t)src[1] << 8));
+}
+
+static inline uint32_t hb_zz32(int32_t v) {
+    return (uint32_t)((v << 1) ^ (v >> 31));
+}
+
+static inline int32_t hb_unzz32(uint32_t v) {
+    return (int32_t)((v >> 1) ^ (uint32_t)-(int32_t)(v & 1u));
+}
+
+static inline uint32_t hb_put_leb128(uint8_t *out, uint32_t out_cap, uint32_t w, uint32_t v) {
+    do {
+        if (w >= out_cap) return 0u;
+        uint8_t b = (uint8_t)(v & 0x7Fu);
+        v >>= 7;
+        if (v) b |= 0x80u;
+        out[w++] = b;
+    } while (v);
+    return w;
+}
+
+static inline uint32_t hb_get_leb128(const uint8_t *in, uint32_t enc_sz, uint32_t *r, uint32_t *v) {
+    uint32_t shift = 0u;
+    uint32_t val = 0u;
+    while (*r < enc_sz) {
+        uint8_t b = in[(*r)++];
+        val |= ((uint32_t)(b & 0x7Fu) << shift);
+        if (!(b & 0x80u)) {
+            *v = val;
+            return 1u;
+        }
+        shift += 7u;
+        if (shift > 28u) break;
+    }
+    return 0u;
+}
+
+/*
+ * hb_codec_apply — apply carrier codec to one tile.
+ * Returns bytes written to out_buf, or 0 on error.
+ * out_buf must be pre-zeroed if Rice/Hilbert is used (bit manipulation).
+ */
+static inline uint32_t hb_codec_apply(
+        uint8_t codec,
+        uint8_t ttype,
+        const uint8_t *in,
+        uint32_t in_sz,
+        uint8_t *out,
+        uint32_t out_cap,
+        uint32_t seed_local)
+{
+    if (!in || !out || out_cap < 8u) return 0u;
+
+    switch (codec) {
+
+    case GPX5_CODEC_NONE:
+    case GPX5_CODEC_RAW:
+        if (in_sz > out_cap) return 0u;
+        memcpy(out, in, in_sz);
+        return in_sz;
+
+    case GPX5_CODEC_SEED:
+        /* FLAT tiles: store exact size + one 6-byte sample (Y/Cg/Co as int16). */
+        if (ttype == GPX5_TTYPE_FLAT) {
+            if (in_sz < 6u || in_sz > 0xFFFFu || out_cap < 8u) return 0u;
+            g5w2(out, (uint16_t)in_sz);
+            memcpy(out + 2u, in, 6u);
+            return 8u;
+        }
+        /* non-flat: fall through to delta */
+        /* fall through */
+
+    case GPX5_CODEC_DELTA: {
+        /* XOR each byte vs seed-derived prediction, store residual */
+        if (in_sz + 2u > out_cap || in_sz > 0xFFFFu) return 0u;
+        g5w2(out, (uint16_t)in_sz);          /* length */
+        for (uint32_t i = 0; i < in_sz; i++)
+            out[2u + i] = in[i] ^ hb_predict(seed_local, i);
+        return in_sz + 2u;
+    }
+
+    case GPX5_CODEC_RICE3: {
+        /* Rice(k=3) encode delta values
+         * byte[0..1] = orig_sz; bitstream starts at bit 16 (mirrors decode) */
+        if (in_sz + 6u > out_cap || in_sz > 0xFFFFu) return 0u;
+        memset(out, 0, out_cap);
+        g5w2(out, (uint16_t)in_sz);          /* orig_sz */
+        uint32_t bit_pos = 16u;               /* skip orig_sz (2B) */
+        for (uint32_t i = 0; i < in_sz; i++) {
+            uint32_t delta = (uint32_t)(in[i] ^ hb_predict(seed_local, i));
+            /* zigzag: map signed to unsigned (0→0, -1→1, 1→2, -2→3 ...) */
+            int32_t  sv    = (int32_t)delta - 128;
+            uint32_t zz    = (sv < 0) ? (uint32_t)((-sv)*2 - 1) : (uint32_t)(sv*2);
+            bit_pos = hb_rice3_encode_val(zz, out, bit_pos);
+            if ((bit_pos >> 3) >= out_cap - 4u) {
+                /* overflow: fall back to raw */
+                memcpy(out, in, in_sz);
+                return in_sz;
+            }
+        }
+        return (bit_pos + 7u) >> 3u;   /* round up to bytes */
+    }
+
+    case GPX5_CODEC_HILBERT: {
+        /* Lossless walk encoding:
+         * byte[0..1]     = orig_sz
+         * byte[2..M+1]   = walk bitmask, M = ceil(orig_sz/8)
+         * byte[M+2..]    = original bytes at walk=1 positions (compact)
+         * walk=1 → differs from prediction → store original
+         * walk=0 → matches prediction → free (not stored) */
+        uint32_t bit_bytes = (in_sz + 7u) >> 3u;
+        /* worst case: 2 + bit_bytes + in_sz (all bytes differ) */
+        if (2u + bit_bytes + in_sz > out_cap || in_sz > 0xFFFFu) return 0u;
+        g5w2(out, (uint16_t)in_sz);
+        memset(out + 2u, 0, bit_bytes);
+        uint32_t aux_off = 2u + bit_bytes;   /* where original bytes go */
+        for (uint32_t i = 0; i < in_sz; i++) {
+            uint8_t pred = hb_predict(seed_local, i);
+            if (in[i] != pred) {
+                out[2u + (i >> 3)] |= (uint8_t)(1u << (7u - (i & 7u)));
+                out[aux_off++] = in[i];      /* store original */
+            }
+        }
+        return aux_off;
+    }
+
+    case GPX5_CODEC_FREQ: {
+        /*
+         * Frequency codec v2:
+         * - If tile is packed exact YCgCo (6 bytes / pixel), delta each channel
+         *   against the previous pixel's same channel.
+         * - Encode residuals as signed LEB128 after zigzag.
+         * - Fallback to raw when the stream is not pixel-aligned or does not
+         *   compress smaller than the input.
+         */
+        if (in_sz == 0u || in_sz > 0xFFFFu || out_cap < 3u) return 0u;
+        g5w2(out, (uint16_t)in_sz);
+        out[2] = 0u; /* raw fallback by default */
+
+        if (in_sz % 6u != 0u) {
+            if (in_sz + 3u > out_cap) return 0u;
+            memcpy(out + 3u, in, in_sz);
+            return in_sz + 3u;
+        }
+
+        uint32_t w = 3u;
+        int32_t prev_y = 0, prev_cg = 0, prev_co = 0;
+        uint32_t pixels = in_sz / 6u;
+        for (uint32_t p = 0; p < pixels; p++) {
+            uint32_t base = p * 6u;
+            int32_t cur_y  = (int32_t)hb_load_i16le(in + base + 0u);
+            int32_t cur_cg = (int32_t)hb_load_i16le(in + base + 2u);
+            int32_t cur_co = (int32_t)hb_load_i16le(in + base + 4u);
+
+            int32_t dy  = cur_y  - prev_y;
+            int32_t dcg = cur_cg - prev_cg;
+            int32_t dco = cur_co - prev_co;
+
+            uint32_t zz = hb_zz32(dy);
+            w = hb_put_leb128(out, out_cap, w, zz);
+            if (!w) goto freq_raw;
+            zz = hb_zz32(dcg);
+            w = hb_put_leb128(out, out_cap, w, zz);
+            if (!w) goto freq_raw;
+            zz = hb_zz32(dco);
+            w = hb_put_leb128(out, out_cap, w, zz);
+            if (!w) goto freq_raw;
+
+            prev_y = cur_y;
+            prev_cg = cur_cg;
+            prev_co = cur_co;
+
+            /* No win if we're already at or beyond raw payload size. */
+            if (w >= in_sz + 3u) goto freq_raw;
+        }
+
+        if (w >= in_sz + 3u) goto freq_raw;
+        out[2] = 1u;
+        return w;
+
+freq_raw:
+        if (in_sz + 3u > out_cap) return 0u;
+        out[2] = 0u;
+        memcpy(out + 3u, in, in_sz);
+        return in_sz + 3u;
+    }
+
+    case GPX5_CODEC_ZSTD19:
+        return hb_zstd19_apply(in, in_sz, out, out_cap);
+
+    default:
+        /* unknown codec: raw passthrough */
+        if (in_sz > out_cap) return 0u;
+        memcpy(out, in, in_sz);
+        return in_sz;
+    }
+}
+
+/* ══════════════════════════════════════════════════════
+ * H4: hamburger_encode_run
+ *
+ * Process all tiles through 1440-tick warm-up.
+ * For each tile:
+ *   1. derive seed_local from global_seed + tile_id
+ *   2. compute hilbert_entry from seed_local
+ *   3. dispatch to carrier (H1)
+ *   4. apply carrier codec → encoded bytes
+ *   5. record invert state (H2)
+ *
+ * After all tiles: freeze invert recorder, build LUT.
+ *
+ * tiles[]  : array of HbTileIn, n_tiles entries
+ * Returns HB_OK or HB_ERR_*
+ * ══════════════════════════════════════════════════════ */
+
+static inline int hb_encode_run(
+        HbEncodeCtx *ctx,
+        const HbTileIn *tiles,
+        uint32_t n_tiles)
+{
+    if (n_tiles == 0 || n_tiles > HB_MAX_TILES) return HB_ERR_TILES;
+    if (ctx->frozen) return HB_ERR_TILES;
+
+    /* per-tile encoded output buffer (reused each tile) */
+    uint8_t *enc_buf = (uint8_t *)calloc(1, HB_TILE_SZ_MAX + 16u);
+    if (!enc_buf) return HB_ERR_ALLOC;
+
+    /* run at least one full pass over all tiles; keep 1440-tick warm-up semantics */
+    uint32_t total_ticks = (n_tiles > GPX5_TICK_PERIOD) ? n_tiles : GPX5_TICK_PERIOD;
+    uint8_t *seen = (uint8_t *)calloc(n_tiles, 1u);
+    if (!seen) {
+        free(enc_buf);
+        return HB_ERR_ALLOC;
+    }
+
+    for (uint32_t tick = 0; tick < total_ticks; tick++) {
+        uint32_t ti = tick % n_tiles;
+        const HbTileIn *tile = &tiles[ti];
+        if (seen[ti]) continue;
+        seen[ti] = 1u;
+
+        /* derive per-tile seed */
+        uint32_t seed_local  = gpx5_seed_local(ctx->global_seed, tile->tile_id);
+        uint16_t hilbert_pos = gpx5_hilbert_entry(seed_local, tile->tile_id);
+
+        /* H1: dispatch — 2-carrier or 3-carrier */
+        HbDispatch disp;
+        if (ctx->use_2carrier) {
+            disp = hb_dispatch_2carrier(hilbert_pos, ctx->pipes);
+            if (disp.carrier_id == 2u) {
+                /* band collision: fall back to 3-carrier for this tile */
+                disp = hb_dispatch(hilbert_pos, ctx->pipes);
+            }
+        } else {
+            disp = hb_dispatch(hilbert_pos, ctx->pipes);
+        }
+
+        /* apply codec */
+        memset(enc_buf, 0, HB_TILE_SZ_MAX + 16u);
+        uint32_t enc_sz = hb_codec_apply(
+            disp.codec, tile->ttype,
+            tile->data, tile->sz,
+            enc_buf, HB_TILE_SZ_MAX + 16u,
+            seed_local);
+
+        /* H2: record analog negative — enc_buf is the "light absorbed by film"
+         * decode: codec_invert(enc_buf) = original  (enc_buf stored verbatim) */
+        hb_invert_record_enc(&ctx->rec, tile->tile_id,
+            tile->data, enc_buf,
+            (uint16_t)tile->sz, (uint16_t)enc_sz, tile->ttype, disp.codec);
+
+        /* drain tick: fence boundary (not stored, just skip) */
+        if (gpx5_is_drain_tick(tick)) { /* no-op by design */ }
+    }
+
+    free(seen);
+    free(enc_buf);
+
+    /* freeze invert recorder */
+    ctx->n_active = hb_invert_freeze(&ctx->rec);
+
+    /* build invert byte stream */
+    /* variable-size: worst case = every tile active at max tile size */
+    ctx->inv_stream_sz = (uint32_t)ctx->rec.n_tiles *
+                         (HB_INV_HDR_SZ + HB_TILE_SZ_MAX);
+    ctx->inv_stream    = (uint8_t *)calloc(1, ctx->inv_stream_sz + 1u);
+    if (!ctx->inv_stream) return HB_ERR_ALLOC;
+    ctx->inv_stream_sz = hb_invert_write_stream(&ctx->rec, ctx->inv_stream);
+
+    /* build LUT */
+    ctx->lut = (Gpx5LutEntry *)calloc(n_tiles, sizeof(Gpx5LutEntry));
+    if (!ctx->lut) return HB_ERR_ALLOC;
+
+    /* invert stream starts at: file_hdr + pipe_table + set_table + lut_table
+     * estimate: use 0 as base offset here; gpx5_write adjusts real offsets */
+    uint32_t inv_base = GPX5_FILE_HDR_SZ
+                      + 3u * GPX5_PIPE_ENTRY_SZ
+                      + 1u * GPX5_SET_ENTRY_SZ      /* 1 set for this encode */
+                      + n_tiles * GPX5_LUT_ENTRY_SZ;
+
+    hb_build_lut(&ctx->rec, ctx->lut, 0u /* set_id=0 */, inv_base);
+    ctx->frozen = 1u;
+    return HB_OK;
+}
+
+/* ══════════════════════════════════════════════════════
+ * H4: hamburger_encode — write gpx5 file
+ *
+ * Combines encode_run + gpx5 file write.
+ * path     : output file path
+ * Returns HB_OK or HB_ERR_*
+ * ══════════════════════════════════════════════════════ */
+
+static inline int hamburger_encode(
+        const char *path,
+        HbEncodeCtx *ctx,
+        const HbTileIn *tiles,
+        uint32_t n_tiles)
+{
+    int r = hb_encode_run(ctx, tiles, n_tiles);
+    if (r != HB_OK) return r;
+
+    FILE *f = fopen(path, "wb");
+    if (!f) return HB_ERR_IO;
+
+    /* ── file header ── */
+    Gpx5FileHdr hdr;
+    memset(&hdr, 0, sizeof(hdr));
+    hdr.magic       = GPX5_MAGIC;
+    hdr.version     = GPX5_VERSION;
+    hdr.flags       = GPX5_LUT_WARM | GPX5_LUT_FROZEN;
+    hdr.n_sets      = 1u;
+    hdr.tw          = ctx->tw;
+    hdr.th          = ctx->th;
+    hdr.n_tiles     = n_tiles;
+    hdr.global_seed = ctx->global_seed;
+    hdr.tick_max    = (uint16_t)GPX5_TICK_PERIOD;
+    uint8_t hbuf[GPX5_FILE_HDR_SZ];
+    gpx5_hdr_write(hbuf, &hdr);
+    fwrite(hbuf, 1, GPX5_FILE_HDR_SZ, f);
+
+    /* ── pipe table ── */
+    uint8_t pbuf[GPX5_PIPE_ENTRY_SZ];
+    for (int i = 0; i < 3; i++) {
+        gpx5_pipe_write(pbuf, &ctx->pipes[i]);
+        fwrite(pbuf, 1, GPX5_PIPE_ENTRY_SZ, f);
+    }
+
+    /* ── set table (1 set) ── */
+    uint32_t set_data_offset = GPX5_FILE_HDR_SZ
+                             + 3u * GPX5_PIPE_ENTRY_SZ
+                             + 1u * GPX5_SET_ENTRY_SZ
+                             + n_tiles * GPX5_LUT_ENTRY_SZ;
+    Gpx5SetEntry se;
+    se.set_id      = 0u;
+    se.level       = 0u;
+    se.tick_start  = 0u;
+    se.tick_end    = (uint16_t)GPX5_TICK_PERIOD;
+    se.data_offset = set_data_offset;
+    se.data_size   = ctx->inv_stream_sz;
+    uint8_t sbuf[GPX5_SET_ENTRY_SZ];
+    gpx5_set_write(sbuf, &se);
+    fwrite(sbuf, 1, GPX5_SET_ENTRY_SZ, f);
+
+    /* ── LUT table ── */
+    uint8_t lbuf[GPX5_LUT_ENTRY_SZ];
+    for (uint32_t i = 0; i < n_tiles; i++) {
+        gpx5_lut_write(lbuf, &ctx->lut[i]);
+        fwrite(lbuf, 1, GPX5_LUT_ENTRY_SZ, f);
+    }
+
+    /* ── invert stream (set data) ── */
+    if (ctx->inv_stream && ctx->inv_stream_sz > 0)
+        fwrite(ctx->inv_stream, 1, ctx->inv_stream_sz, f);
+
+    fclose(f);
+    return HB_OK;
+}
+
+/* ══════════════════════════════════════════════════════
+ * H5: hamburger_decode
+ *
+ * Read gpx5 file → reconstruct tiles via invert chain.
+ * For each tile_id:
+ *   1. LUT lookup → invert_offset (O1, no traversal)
+ *   2. Read invert value at offset
+ *   3. Derive seed_local → dispatch → get codec
+ *   4. Reconstruct tile bytes via codec inverse
+ *
+ * out_tiles : caller-allocated array, n_tiles entries
+ *             each entry: uint8_t[HB_TILE_SZ_MAX]
+ * Returns HB_OK or HB_ERR_*
+ * ══════════════════════════════════════════════════════ */
+
+/* codec inverse: recover original bytes from encoded bytes */
+static inline uint32_t hb_codec_invert(
+        uint8_t codec,
+        uint8_t ttype,
+        const uint8_t *enc,
+        uint32_t enc_sz,
+        uint8_t *out,
+        uint32_t out_cap,
+        uint32_t seed_local)
+{
+    if (!enc || !out || out_cap == 0u) return 0u;
+
+    switch (codec) {
+
+    case GPX5_CODEC_NONE:
+    case GPX5_CODEC_RAW:
+        if (enc_sz > out_cap) return 0u;
+        memcpy(out, enc, enc_sz);
+        return enc_sz;
+
+    case GPX5_CODEC_SEED:
+        if (ttype == GPX5_TTYPE_FLAT) {
+            if (enc_sz < 8u) return 0u;
+            uint32_t orig_sz = (uint32_t)g5r2(enc);
+            if (orig_sz > out_cap) return 0u;
+            /* FLAT exact path: repeat the 6-byte signed sample across the tile. */
+            for (uint32_t i = 0; i < orig_sz; i += 6u) {
+                uint32_t n = orig_sz - i;
+                if (n > 6u) n = 6u;
+                for (uint32_t j = 0; j < n; j++)
+                    out[i + j] = enc[2u + j];
+            }
+            return orig_sz;
+        }
+#if defined(__GNUC__)
+        __attribute__((fallthrough));
+#endif
+
+    case GPX5_CODEC_DELTA: {
+        if (enc_sz < 2u) return 0u;
+        uint32_t orig_sz = (uint32_t)g5r2(enc);
+        if (orig_sz > out_cap || orig_sz + 2u > enc_sz) return 0u;
+        for (uint32_t i = 0; i < orig_sz; i++)
+            out[i] = enc[2u + i] ^ hb_predict(seed_local, i);
+        return orig_sz;
+    }
+
+    case GPX5_CODEC_HILBERT: {
+        /* byte[0..1]=orig_sz; byte[2..M+1]=bitmask; byte[M+2..]=aux original bytes */
+        if (enc_sz < 2u) return 0u;
+        uint32_t orig_sz   = (uint32_t)g5r2(enc);
+        if (orig_sz > out_cap) return 0u;
+        uint32_t bit_bytes = (orig_sz + 7u) >> 3u;
+        if (2u + bit_bytes > enc_sz) return 0u;
+        uint32_t aux_off   = 2u + bit_bytes;
+        for (uint32_t i = 0; i < orig_sz; i++) {
+            uint8_t bit = (enc[2u + (i >> 3)] >> (7u - (i & 7u))) & 1u;
+            if (bit) {
+                if (aux_off >= enc_sz) return 0u;   /* corrupt */
+                out[i] = enc[aux_off++];             /* restore original */
+            } else {
+                out[i] = hb_predict(seed_local, i); /* free: use prediction */
+            }
+        }
+        return orig_sz;
+    }
+
+    case GPX5_CODEC_RICE3: {
+        /* Rice(k=3) decode: reverse of hb_rice3_encode_val
+         * Encoded as: byte[0..1]=orig_sz, remaining=bitstream */
+        if (enc_sz < 2u) return 0u;
+        uint32_t orig_sz = (uint32_t)g5r2(enc);
+        if (orig_sz > out_cap) return 0u;
+        const uint32_t k = 3u;
+        const uint32_t k_mask = (1u << k) - 1u;
+        uint32_t bit_pos = 0u;
+        /* skip orig_sz (2B) — bits start at bit 16 */
+        bit_pos = 16u;
+        for (uint32_t i = 0; i < orig_sz; i++) {
+            /* read unary quotient: count 1-bits until stop-bit 0 */
+            uint32_t q = 0u;
+            while (1) {
+                uint32_t byte_i = bit_pos >> 3;
+                uint32_t bit_i  = 7u - (bit_pos & 7u);
+                if (byte_i >= enc_sz) goto rice_done;
+                uint8_t b = (enc[byte_i] >> bit_i) & 1u;
+                bit_pos++;
+                if (!b) break;   /* stop bit */
+                q++;
+                if (q > 512u) goto rice_done; /* safety */
+            }
+            /* read k remainder bits MSB first */
+            uint32_t r = 0u;
+            for (uint32_t rb = 0; rb < k; rb++) {
+                uint32_t byte_i = bit_pos >> 3;
+                uint32_t bit_i  = 7u - (bit_pos & 7u);
+                if (byte_i >= enc_sz) goto rice_done;
+                r = (r << 1u) | ((enc[byte_i] >> bit_i) & 1u);
+                bit_pos++;
+            }
+            uint32_t zz = (q << k) | (r & k_mask);
+            /* reverse zigzag */
+            int32_t sv = (zz & 1u) ? -(int32_t)((zz + 1u) >> 1u)
+                                    :  (int32_t)(zz >> 1u);
+            int32_t delta = sv + 128;
+            /* XOR with prediction to recover original */
+            out[i] = (uint8_t)((uint32_t)delta ^ (uint32_t)hb_predict(seed_local, i));
+        }
+        rice_done:
+        return orig_sz;
+    }
+
+    case GPX5_CODEC_FREQ: {
+        if (enc_sz < 3u) return 0u;
+        uint32_t orig_sz = (uint32_t)g5r2(enc);
+        if (orig_sz > out_cap) return 0u;
+        if (enc[2] == 0u) {
+            if (3u + orig_sz > enc_sz) return 0u;
+            memcpy(out, enc + 3u, orig_sz);
+            return orig_sz;
+        }
+
+        if (orig_sz % 6u != 0u) return 0u;
+        uint32_t r = 3u;
+        uint32_t pixels = orig_sz / 6u;
+        int32_t prev_y = 0, prev_cg = 0, prev_co = 0;
+        for (uint32_t p = 0; p < pixels; p++) {
+            uint32_t zz;
+            if (!hb_get_leb128(enc, enc_sz, &r, &zz)) return 0u;
+            int32_t dy = hb_unzz32(zz);
+            if (!hb_get_leb128(enc, enc_sz, &r, &zz)) return 0u;
+            int32_t dcg = hb_unzz32(zz);
+            if (!hb_get_leb128(enc, enc_sz, &r, &zz)) return 0u;
+            int32_t dco = hb_unzz32(zz);
+
+            int32_t cur_y  = prev_y  + dy;
+            int32_t cur_cg = prev_cg + dcg;
+            int32_t cur_co = prev_co + dco;
+            hb_store_i16le(out + p * 6u + 0u, (int16_t)cur_y);
+            hb_store_i16le(out + p * 6u + 2u, (int16_t)cur_cg);
+            hb_store_i16le(out + p * 6u + 4u, (int16_t)cur_co);
+            prev_y = cur_y;
+            prev_cg = cur_cg;
+            prev_co = cur_co;
+        }
+        return orig_sz;
+    }
+
+    case GPX5_CODEC_ZSTD19:
+        return hb_zstd19_invert(enc, enc_sz, out, out_cap);
+
+    default:
+        if (enc_sz > out_cap) return 0u;
+        memcpy(out, enc, enc_sz);
+        return enc_sz;
+    }
+}
+
+static inline int hamburger_decode(
+        const char *path,
+        uint8_t **out_tiles,     /* caller alloc: [n_tiles][HB_TILE_SZ_MAX] */
+        uint32_t *out_n_tiles,
+        uint32_t *out_tile_sz)
+{
+    Gpx5File gf;
+    if (gpx5_open(path, &gf) != 0) return HB_ERR_IO;
+
+    if (!(gf.hdr.flags & GPX5_LUT_WARM)) {
+        gpx5_close(&gf);
+        return HB_ERR_NO_LUT;
+    }
+
+    uint32_t n_tiles = gf.hdr.n_tiles;
+    *out_n_tiles     = n_tiles;
+    *out_tile_sz     = HB_TILE_SZ_MAX;
+
+    uint8_t *tile_buf = (uint8_t *)calloc(1, HB_TILE_SZ_MAX + 16u);
+    if (!tile_buf) { gpx5_close(&gf); return HB_ERR_ALLOC; }
+
+    for (uint32_t ti = 0; ti < n_tiles; ti++) {
+        uint8_t *dst = out_tiles[ti];
+        if (!dst) continue;
+
+        /* O(1) LUT lookup */
+        const uint8_t *inv_ptr = gpx5_tile_invert_ptr(&gf, (uint16_t)ti);
+
+        /* derive seed + hilbert + dispatch */
+        uint32_t seed_local  = gpx5_seed_local(gf.hdr.global_seed, (uint32_t)ti);
+        uint16_t hilbert_pos = gpx5_hilbert_entry(seed_local, (uint16_t)ti);
+        HbDispatch disp      = hb_dispatch(hilbert_pos, gf.pipes);
+
+        if (!inv_ptr || inv_ptr[0] == 0xFF) {
+            /* clear tile = codec predicted perfectly, reconstruct from seed */
+            uint32_t set_sz = 0u;
+            const uint8_t *set_data = gpx5_tile_set_data(&gf, (uint16_t)ti, &set_sz);
+            if (!set_data || set_sz == 0u) { memset(dst, 0, HB_TILE_SZ_MAX); continue; }
+            memset(tile_buf, 0, HB_TILE_SZ_MAX + 16u);
+            hb_codec_invert(disp.codec, 0u, set_data, set_sz,
+                            tile_buf, HB_TILE_SZ_MAX, seed_local);
+            memcpy(dst, tile_buf, HB_TILE_SZ_MAX);
+            continue;
+        }
+
+        /* read v6 invert entry: [tile_id 2B][ttype 1B][res_sz 2B][enc_buf res_sz B]
+         * enc_buf stored verbatim (NOT XOR'd) — feed directly to codec_invert */
+        uint8_t  tile_ttype = inv_ptr[2];
+        uint16_t res_sz     = (uint16_t)((inv_ptr[3] << 8) | inv_ptr[4]);
+        const uint8_t *enc_stored = inv_ptr + HB_INV_HDR_SZ;
+
+        /* darkroom: codec_invert(enc_stored) → original */
+        memset(tile_buf, 0, HB_TILE_SZ_MAX + 16u);
+        hb_codec_invert(disp.codec, tile_ttype,
+                        enc_stored, res_sz,
+                        tile_buf, HB_TILE_SZ_MAX,
+                        seed_local);
+        memcpy(dst, tile_buf, HB_TILE_SZ_MAX);
+    }
+
+    free(tile_buf);
+    gpx5_close(&gf);
+    return HB_OK;
+}
+
+/* ══════════════════════════════════════════════════════════
+ * hamburger_encode_image — all-in-one: classify → pipe → encode → write
+ *
+ * HbImageIn  : raw YCgCo int planes + dimensions
+ * Internally: classify_batch → auto_pipes → build HbTileIn[] → encode_run → write
+ * Caller needs NOTHING pre-classified.
+ *
+ * img_Y/Cg/Co : int arrays, stride = img_w pixels
+ * img_w/h     : full image dimensions
+ * tile_w/h    : tile size (recommend 16x16, same as v21 calibration)
+ * path        : output .gpx5 file
+ * global_seed : root seed
+ * use_2carrier: 1 = attempt 2-carrier mode
+ *
+ * Returns HB_OK or HB_ERR_*
+ * ══════════════════════════════════════════════════════════ */
+
+typedef struct {
+    const int *Y;     /* luma plane,   stride = w pixels */
+    const int *Cg;    /* chroma-green, stride = w pixels */
+    const int *Co;    /* chroma-orange,stride = w pixels */
+    int        w;     /* image width  in pixels          */
+    int        h;     /* image height in pixels          */
+    int        tw;    /* tile width   in pixels          */
+    int        th;    /* tile height  in pixels          */
+} HbImageIn;
+
+static inline int hamburger_encode_image(
+        const char   *path,
+        const HbImageIn *img,
+        uint32_t      global_seed,
+        uint8_t       use_2carrier)
+{
+    if (!img || !img->Y || !img->Cg || !img->Co) return HB_ERR_TILES;
+    if (img->tw <= 0 || img->th <= 0)            return HB_ERR_TILES;
+
+    int tiles_x = img->w / img->tw;
+    int tiles_y = img->h / img->th;
+    uint32_t n_tiles = (uint32_t)(tiles_x * tiles_y);
+    if (n_tiles == 0 || n_tiles > HB_MAX_TILES)  return HB_ERR_TILES;
+
+    /* ── Step 1: classify all tiles ── */
+    uint8_t *ttypes = (uint8_t *)calloc(n_tiles, 1u);
+    if (!ttypes) return HB_ERR_ALLOC;
+
+    hb_classify_batch(
+        img->Y, img->Cg, img->Co, img->w,
+        img->tw, img->th,
+        tiles_x, tiles_y,
+        ttypes);
+
+    /* ── Step 2: auto-build pipe table from ttype histogram ── */
+    Gpx5PipeEntry pipes[3];
+    hb_auto_pipes(ttypes, n_tiles, pipes);
+
+    /* ── Step 3: build HbTileIn[] — point directly into img planes ── */
+    /* tile data: pack exact Y/Cg/Co as signed 16-bit little-endian. */
+    uint32_t tile_bytes = (uint32_t)(img->tw * img->th * 6u);
+    if (tile_bytes > HB_TILE_SZ_MAX) { free(ttypes); return HB_ERR_TILES; }
+
+    uint8_t *tile_pool = (uint8_t *)calloc(n_tiles, HB_TILE_SZ_MAX);
+    HbTileIn *tiles    = (HbTileIn *)calloc(n_tiles, sizeof(HbTileIn));
+    if (!tile_pool || !tiles) {
+        free(ttypes); free(tile_pool); free(tiles);
+        return HB_ERR_ALLOC;
+    }
+
+    for (uint32_t ti = 0; ti < n_tiles; ti++) {
+        int tx = (int)(ti % (uint32_t)tiles_x);
+        int ty = (int)(ti / (uint32_t)tiles_x);
+        int x0 = tx * img->tw;
+        int y0 = ty * img->th;
+        uint8_t *dst = tile_pool + ti * HB_TILE_SZ_MAX;
+        uint32_t off = 0u;
+
+        /* pack Y, Cg, Co rows into flat uint8 buffer (lossless 16-bit) */
+        for (int y = y0; y < y0 + img->th && y < img->h; y++) {
+            for (int x = x0; x < x0 + img->tw && x < img->w; x++) {
+                int idx = y * img->w + x;
+                hb_store_i16le(dst + off + 0u, (int16_t)img->Y[idx]);
+                hb_store_i16le(dst + off + 2u, (int16_t)img->Cg[idx]);
+                hb_store_i16le(dst + off + 4u, (int16_t)img->Co[idx]);
+                off += 6u;
+            }
+        }
+
+        tiles[ti].data    = dst;
+        tiles[ti].sz      = off;
+        tiles[ti].tile_id = (uint16_t)ti;
+        tiles[ti].ttype   = ttypes[ti];
+    }
+
+    /* ── Step 4: init ctx + encode + write ── */
+    HbEncodeCtx ctx;
+    hb_encode_init(&ctx, global_seed,
+        (uint16_t)tiles_x, (uint16_t)tiles_y,
+        pipes, use_2carrier);
+
+    int r = hamburger_encode(path, &ctx, tiles, n_tiles);
+
+    hb_encode_free(&ctx);
+    free(ttypes);
+    free(tile_pool);
+    free(tiles);
+    return r;
+}
+
+/* ══════════════════════════════════════════════════════════
+ * hamburger_decode_image — inverse of encode_image
+ *
+ * Reads a .gpx5 file → reconstructs YCgCo int planes.
+ * Caller must free out->Y / out->Cg / out->Co after use.
+ *
+ * Returns HB_OK or HB_ERR_*
+ * ══════════════════════════════════════════════════════════ */
+
+typedef struct {
+    int      *Y;    /* luma plane,    caller must free */
+    int      *Cg;   /* chroma-green,  caller must free */
+    int      *Co;   /* chroma-orange, caller must free */
+    int       w;    /* image width  in pixels          */
+    int       h;    /* image height in pixels          */
+    int       tw;   /* tile width   used during encode */
+    int       th;   /* tile height  used during encode */
+} HbImageOut;
+
+static inline int hamburger_decode_image(
+        const char  *path,
+        HbImageOut  *out,   /* caller alloc struct; func fills w/h and mallocs planes */
+        int          img_w,
+        int          img_h,
+        int          tile_w,
+        int          tile_h)
+{
+    if (!path || !out) return HB_ERR_IO;
+    if (tile_w <= 0 || tile_h <= 0 || img_w <= 0 || img_h <= 0)
+        return HB_ERR_TILES;
+
+    int tiles_x  = img_w  / tile_w;
+    int tiles_y  = img_h  / tile_h;
+    uint32_t n_tiles = (uint32_t)(tiles_x * tiles_y);
+    if (n_tiles == 0 || n_tiles > HB_MAX_TILES) return HB_ERR_TILES;
+
+    /* ── alloc output tile buffers ── */
+    uint8_t **tile_ptrs = (uint8_t **)calloc(n_tiles, sizeof(uint8_t *));
+    if (!tile_ptrs) return HB_ERR_ALLOC;
+    for (uint32_t i = 0; i < n_tiles; i++) {
+        tile_ptrs[i] = (uint8_t *)calloc(1, HB_TILE_SZ_MAX);
+        if (!tile_ptrs[i]) {
+            for (uint32_t j = 0; j < i; j++) free(tile_ptrs[j]);
+            free(tile_ptrs);
+            return HB_ERR_ALLOC;
+        }
+    }
+
+    uint32_t out_n = 0u, out_tsz = 0u;
+    int r = hamburger_decode(path, tile_ptrs, &out_n, &out_tsz);
+    if (r != HB_OK) {
+        for (uint32_t i = 0; i < n_tiles; i++) free(tile_ptrs[i]);
+        free(tile_ptrs);
+        return r;
+    }
+
+    /* ── alloc YCgCo planes ── */
+    int npx = img_w * img_h;
+    out->Y  = (int *)calloc((size_t)npx, sizeof(int));
+    out->Cg = (int *)calloc((size_t)npx, sizeof(int));
+    out->Co = (int *)calloc((size_t)npx, sizeof(int));
+    if (!out->Y || !out->Cg || !out->Co) {
+        free(out->Y); free(out->Cg); free(out->Co);
+        for (uint32_t i = 0; i < n_tiles; i++) free(tile_ptrs[i]);
+        free(tile_ptrs);
+        return HB_ERR_ALLOC;
+    }
+    out->w = img_w;  out->h = img_h;
+    out->tw = tile_w; out->th = tile_h;
+
+    /* ── unpack each tile → YCgCo planes ── */
+    uint32_t tile_bytes = (uint32_t)(tile_w * tile_h * 6u);
+    for (uint32_t ti = 0; ti < n_tiles && ti < out_n; ti++) {
+        int tx = (int)(ti % (uint32_t)tiles_x);
+        int ty = (int)(ti / (uint32_t)tiles_x);
+        int x0 = tx * tile_w;
+        int y0 = ty * tile_h;
+        const uint8_t *src = tile_ptrs[ti];
+        uint32_t off = 0u;
+
+        for (int y = y0; y < y0 + tile_h && y < img_h; y++) {
+            for (int x = x0; x < x0 + tile_w && x < img_w; x++) {
+                if (off + 5u >= tile_bytes) goto tile_done;
+                int idx = y * img_w + x;
+                out->Y [idx] = (int)hb_load_i16le(src + off + 0u);
+                out->Cg[idx] = (int)hb_load_i16le(src + off + 2u);
+                out->Co[idx] = (int)hb_load_i16le(src + off + 4u);
+                off += 6u;
+            }
+        }
+        tile_done:;
+    }
+
+    for (uint32_t i = 0; i < n_tiles; i++) free(tile_ptrs[i]);
+    free(tile_ptrs);
+    return HB_OK;
+}
+
+/* convenience: free HbImageOut planes */
+static inline void hb_image_out_free(HbImageOut *img) {
+    if (!img) return;
+    free(img->Y);  img->Y  = NULL;
+    free(img->Cg); img->Cg = NULL;
+    free(img->Co); img->Co = NULL;
+}
