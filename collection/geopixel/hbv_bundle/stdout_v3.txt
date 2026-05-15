@@ -1,0 +1,67 @@
+D4 roundtrip: OK  (rid=0)
+sizeof(Encoded)=88  GEOM_THRESHOLD=4  SEED_POPCNT_MIN=8  ANTI_FAKE_BITS=16
+
+
+═══ PROBE: isect popcnt distribution ═══
+  popcnt : count  (threshold marks: G=4 S=8)
+  [ 0]   : 7
+  [ 1]   : 22
+  [ 2]   : 72
+  [ 3]   : 45
+  [ 4]G  : 52
+  [ 5]   : 89
+  [ 6]   : 45
+  [ 7]   : 12
+  [ 8]S  : 480
+  [ 9]   : 45
+  [10]   : 75
+  [11]   : 40
+  [12]   : 12
+  [13]   : 96
+  [14]   : 14
+  [15]   : 6
+  [16]   : 104
+  [17]   : 41
+  [18]   : 14
+  [19]   : 21
+  [21]   : 71
+  [24]   : 136
+  [25]   : 26
+  [27]   : 6
+  [29]   : 35
+  [32]   : 99
+  [33]   : 7
+  [37]   : 6
+  [40]   : 37
+  [48]   : 6
+
+── binary search ──
+  N= 200: OK  pass=200/200
+  N= 400: OK  pass=400/400
+  N= 600: OK  pass=600/600
+  N= 800: OK  pass=800/800
+  N=1000: OK  pass=1000/1000
+  N=1200: OK  pass=1200/1200
+  N=1400: OK  pass=1400/1400
+  N=1600: OK  pass=1600/1600
+
+═══ TEST 1: Byte-level exactness  N=1721 ═══
+[v3 geometry pipeline]
+  chunks   : 1721  geom=91.5%  anti_fake_rejects=0
+  breakdown: seed=1377 dna=0 delta=198 lossless=146
+  flow_resets: 6 (content-driven)
+  ratio    : 4.362x  (raw=110144 enc=25249)
+  byte-exact: 1721/1721 (100.00%)
+  enc: 2.38ms  dec: 0.16ms
+  ✅ PASS: 100% byte-exact
+
+═══ TEST 2: Shuffle stability ═══
+  ordered  : ratio=4.362x  byte-exact=1721/1721  flow_resets=6  anti_fake=0
+  shuffled : ratio=4.362x  byte-exact=1721/1721  flow_resets=7  anti_fake=0
+  ratio delta: +0.0%  byte-exact: both ✅
+
+═══ TEST 3: Cross-file ═══
+  A index: 153 entries
+  B/A index: ratio=4.422x  byte-exact=861/861
+  B/self  : ratio=4.422x  byte-exact=861/861
+  ✅ PASS: both byte-exact
