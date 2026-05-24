@@ -66,7 +66,7 @@ static void backend_model_name_from_path(const char *path, char *out, size_t out
     if (dot) *dot = '\0';
 }
 
-static int backend_count_tensor_window(const ModelIndex *mi,
+static __attribute__((unused)) int backend_count_tensor_window(const ModelIndex *mi,
                                       uint32_t layer_start,
                                       uint32_t layer_end,
                                       uint64_t *out_required_bytes,

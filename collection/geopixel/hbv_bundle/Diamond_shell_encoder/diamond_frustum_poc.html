@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Diamond Field — Frustum Shell POC</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #050508;
+    color: #c8cdd8;
+    font-family: 'Courier New', monospace;
+    overflow: hidden;
+    user-select: none;
+  }
+  canvas { display: block; }
+  #ui {
+    position: fixed;
+    top: 16px; left: 16px;
+    display: flex; flex-direction: column; gap: 8px;
+    z-index: 10;
+  }
+  .panel {
+    background: rgba(10,12,20,0.85);
+    border: 1px solid #1e2a3a;
+    padding: 10px 14px;
+    font-size: 11px;
+    line-height: 1.7;
+  }
+  .title { color: #4af; font-size: 13px; letter-spacing: 2px; margin-bottom: 6px; }
+  .val { color: #7ef; }
+  .dim { color: #445; }
+
+  #controls {
+    position: fixed;
+    bottom: 16px; left: 16px;
+    display: flex; gap: 8px;
+    z-index: 10;
+  }
+  button {
+    background: rgba(10,12,20,0.9);
+    border: 1px solid #1e3a5a;
+    color: #4af;
+    padding: 6px 12px;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    letter-spacing: 1px;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  button:hover { border-color: #4af; color: #8cf; }
+  button.active { border-color: #4af; background: rgba(0,80,180,0.25); }
+
+  #legend {
+    position: fixed;
+    top: 16px; right: 16px;
+    background: rgba(10,12,20,0.85);
+    border: 1px solid #1e2a3a;
+    padding: 10px 14px;
+    font-size: 11px;
+    line-height: 1.9;
+    z-index: 10;
+  }
+  .face-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="ui">
+  <div class="panel">
+    <div class="title">◆ DIAMOND FIELD</div>
+    <div>Base: <span class="val">16³</span> <span class="dim">= 4096 cells</span></div>
+    <div>Shell: <span class="val" id="shellLbl">Layer 0</span></div>
+    <div>Addr: <span class="val" id="addrLbl">4,096</span></div>
+    <div>Scale: <span class="val" id="scaleLbl">×1</span></div>
+  </div>
+  <div class="panel">
+    <div class="dim">drag = rotate</div>
+    <div class="dim">scroll = zoom</div>
+    <div class="dim">click face = toggle</div>
+  </div>
+</div>
+
+<div id="legend">
+  <div style="color:#4af;letter-spacing:2px;margin-bottom:6px">FRUSTUM FACES</div>
+  <div><span class="face-dot" style="background:#ff4466"></span>+X <span class="dim">right</span></div>
+  <div><span class="face-dot" style="background:#ff7722"></span>−X <span class="dim">left</span></div>
+  <div><span class="face-dot" style="background:#44ff88"></span>+Y <span class="dim">top</span></div>
+  <div><span class="face-dot" style="background:#22aaff"></span>−Y <span class="dim">bottom</span></div>
+  <div><span class="face-dot" style="background:#cc44ff"></span>+Z <span class="dim">front</span></div>
+  <div><span class="face-dot" style="background:#ffee22"></span>−Z <span class="dim">back</span></div>
+</div>
+
+<div id="controls">
+  <button id="btnL0" class="active" onclick="setLayer(0)">L0 BASE</button>
+  <button id="btnL1" onclick="setLayer(1)">L1 ×8</button>
+  <button id="btnL2" onclick="setLayer(2)">L2 ×64</button>
+  <button id="btnL3" onclick="setLayer(3)">L3 ×512</button>
+  <button onclick="toggleAnim()">⟳ ROTATE</button>
+  <button onclick="toggleWire()">WIRE</button>
+  <button onclick="toggleImprint()">IMPRINT</button>
+</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+// — State —
+let W, H, cx, cy;
+let rot = { x: 0.45, y: 0.65 };
+let drag = false, lastMx, lastMy;
+let zoom = 1;
+let layer = 0;
+let animOn = true;
+let wireMode = false;
+let imprintMode = false;
+let faceActive = [true,true,true,true,true,true]; // +X-X+Y-Y+Z-Z
+let imprintBits = new Uint8Array(64); // sparse XOR snapshot
+
+// — Geometry —
+// Base 16^3 represented as frustum shell cube + 6 directional frustum expansions
+const BASE = 16;
+// Shell sizes: 8^n expansion per layer
+const SHELL_SCALE = [1, 8, 64, 512];
+const LAYER_ADDR  = [4096, 4096*8, 4096*64, 4096*512];
+
+// Face colors (6 directions)
+const FACE_COLORS = [
+  '#ff4466', '#ff7722', '#44ff88', '#22aaff', '#cc44ff', '#ffee22'
+];
+const FACE_ALPHA = 0.18;
+
+// Frustum: each face = trapezoid pointing outward
+// We'll draw as 3D projected wireframe + filled faces
+
+function resize() {
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  cx = W/2; cy = H/2;
+}
+
+// — 3D math —
+function rotVec(v, rx, ry) {
+  // rotate Y first, then X
+  let [x,y,z] = v;
+  // Y rotation
+  let x1 = x*Math.cos(ry) + z*Math.sin(ry);
+  let z1 = -x*Math.sin(ry) + z*Math.cos(ry);
+  // X rotation
+  let y2 = y*Math.cos(rx) - z1*Math.sin(rx);
+  let z2 = y*Math.sin(rx) + z1*Math.cos(rx);
+  return [x1, y2, z2];
+}
+
+function project(v) {
+  const fov = 600 * zoom;
+  const [x,y,z] = v;
+  const zd = z + 4;
+  return [cx + (x/zd)*fov, cy - (y/zd)*fov, z];
+}
+
+// Build frustum shell: inner cube + 6 frustum extrusions
+// Layer l: inner = s, outer = s * frustumRatio
+function buildFrustumShell(layerIdx) {
+  const s = 1.0; // normalized inner half-size
+  const s2 = s * (1 + 0.5 * (layerIdx + 1)); // outer face expansion
+
+  // 8 inner corners
+  const inn = [
+    [-s,-s,-s],[s,-s,-s],[s,s,-s],[-s,s,-s],
+    [-s,-s, s],[s,-s, s],[s,s, s],[-s,s, s]
+  ];
+
+  // 6 faces × 4 outer corners each (frustum = pyramid frustum per face)
+  // Each face pushes one axis outward by s2, others expand by s2
+  const faces = [];
+
+  // +X face
+  faces.push({
+    idx: 0,
+    inner: [inn[1],inn[2],inn[6],inn[5]], // right face inner quad
+    outer: [[s2,  -s2,-s2],[s2, s2,-s2],[s2, s2, s2],[s2,-s2, s2]]
+  });
+  // -X face
+  faces.push({
+    idx: 1,
+    inner: [inn[0],inn[3],inn[7],inn[4]],
+    outer: [[-s2,-s2,-s2],[-s2,s2,-s2],[-s2,s2,s2],[-s2,-s2,s2]]
+  });
+  // +Y face
+  faces.push({
+    idx: 2,
+    inner: [inn[2],inn[3],inn[7],inn[6]],
+    outer: [[-s2,s2,-s2],[s2,s2,-s2],[s2,s2,s2],[-s2,s2,s2]]
+  });
+  // -Y face
+  faces.push({
+    idx: 3,
+    inner: [inn[0],inn[1],inn[5],inn[4]],
+    outer: [[-s2,-s2,-s2],[s2,-s2,-s2],[s2,-s2,s2],[-s2,-s2,s2]]
+  });
+  // +Z face
+  faces.push({
+    idx: 4,
+    inner: [inn[4],inn[5],inn[6],inn[7]],
+    outer: [[-s2,-s2,s2],[s2,-s2,s2],[s2,s2,s2],[-s2,s2,s2]]
+  });
+  // -Z face
+  faces.push({
+    idx: 5,
+    inner: [inn[0],inn[1],inn[2],inn[3]],
+    outer: [[-s2,-s2,-s2],[s2,-s2,-s2],[s2,s2,-s2],[-s2,s2,-s2]]
+  });
+
+  return { inn, faces };
+}
+
+// Draw a polygon from projected 3D points
+function drawPoly(pts3, color, alpha, wire) {
+  if (pts3.length < 2) return;
+  const pts = pts3.map(p => {
+    const rv = rotVec(p, rot.x, rot.y);
+    return project(rv);
+  });
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.closePath();
+  if (!wire) {
+    ctx.fillStyle = color + Math.round(alpha*255).toString(16).padStart(2,'0');
+    ctx.fill();
+  }
+  ctx.strokeStyle = color + 'cc';
+  ctx.lineWidth = wire ? 1 : 0.5;
+  ctx.stroke();
+}
+
+// Imprint dots (sparse XOR fingerprint visualization)
+function generateImprint() {
+  for (let i = 0; i < 64; i++)
+    imprintBits[i] = Math.random() < 0.3 ? 1 : 0;
+}
+
+function drawImprintDots(layerIdx) {
+  const s = 1.0 + 0.5 * (layerIdx + 1);
+  const count = 6 * 12; // dots per face band
+  imprintBits.forEach((bit, i) => {
+    if (!bit) return;
+    const fi = i % 6;
+    if (!faceActive[fi]) return;
+    const t = (i / 64) * Math.PI * 2;
+    // place on outer shell surface
+    const dirs = [
+      [s, (i%7-3)*0.3, (i%5-2)*0.3],
+      [-s,(i%7-3)*0.3,(i%5-2)*0.3],
+      [(i%7-3)*0.3, s, (i%5-2)*0.3],
+      [(i%7-3)*0.3,-s,(i%5-2)*0.3],
+      [(i%7-3)*0.3,(i%5-2)*0.3, s],
+      [(i%7-3)*0.3,(i%5-2)*0.3,-s],
+    ];
+    const pt = rotVec(dirs[fi], rot.x, rot.y);
+    const [px, py] = project(pt);
+    ctx.beginPath();
+    ctx.arc(px, py, 3, 0, Math.PI*2);
+    ctx.fillStyle = FACE_COLORS[fi] + 'dd';
+    ctx.fill();
+    // XOR line to center
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(px, py);
+    ctx.strokeStyle = FACE_COLORS[fi] + '33';
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+  });
+}
+
+// Core draw
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+
+  // Grid bg
+  ctx.strokeStyle = '#0d1520';
+  ctx.lineWidth = 1;
+  const gs = 60;
+  for (let x = cx%gs; x < W; x += gs) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+  for (let y = cy%gs; y < H; y += gs) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+
+  const { inn, faces } = buildFrustumShell(layer);
+
+  // Sort faces by Z depth (painter's algo)
+  const facesWithZ = faces.map(f => {
+    const avgZ = f.outer.reduce((s, p) => s + rotVec(p, rot.x, rot.y)[2], 0) / 4;
+    return { ...f, avgZ };
+  }).sort((a, b) => b.avgZ - a.avgZ);
+
+  // Draw frustum faces (back to front)
+  facesWithZ.forEach(face => {
+    if (!faceActive[face.idx]) return;
+    const col = FACE_COLORS[face.idx];
+    const alpha = wireMode ? 0 : FACE_ALPHA;
+
+    // Frustum side quads (inner→outer trapezoid per edge)
+    for (let e = 0; e < 4; e++) {
+      const ne = (e+1) % 4;
+      const quad = [face.inner[e], face.inner[ne], face.outer[ne], face.outer[e]];
+      drawPoly(quad, col, alpha * 0.6, wireMode);
+    }
+    // Outer face cap
+    drawPoly(face.outer, col, alpha, wireMode);
+  });
+
+  // Base cube (always drawn)
+  const cubeEdges = [
+    [0,1],[1,2],[2,3],[3,0], // back face
+    [4,5],[5,6],[6,7],[7,4], // front face
+    [0,4],[1,5],[2,6],[3,7]  // connections
+  ];
+  ctx.strokeStyle = '#3a5a8a';
+  ctx.lineWidth = 1.5;
+  cubeEdges.forEach(([a,b]) => {
+    const pa = project(rotVec(inn[a], rot.x, rot.y));
+    const pb = project(rotVec(inn[b], rot.x, rot.y));
+    ctx.beginPath(); ctx.moveTo(pa[0],pa[1]); ctx.lineTo(pb[0],pb[1]); ctx.stroke();
+  });
+
+  // Center diamond marker
+  ctx.beginPath();
+  ctx.arc(cx, cy, 4, 0, Math.PI*2);
+  ctx.fillStyle = '#4af';
+  ctx.fill();
+
+  // Imprint mode
+  if (imprintMode) drawImprintDots(layer);
+
+  // Layer ring label
+  if (layer > 0) {
+    ctx.strokeStyle = '#1a3050';
+    ctx.lineWidth = 0.5;
+    for (let l = 1; l <= layer; l++) {
+      const r = 80 + l * 60 * zoom;
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.stroke();
+    }
+  }
+
+  // HUD axis labels
+  const axes = [
+    [[1.7,0,0],'+X'],[[  -1.7,0,0],'-X'],
+    [[0,1.6,0],'+Y'],[[0,-1.6,0],'-Y'],
+    [[0,0,1.7],'+Z'],[[0,0,-1.7],'-Z'],
+  ];
+  axes.forEach(([v,lbl], i) => {
+    const [px,py] = project(rotVec(v, rot.x, rot.y));
+    ctx.fillStyle = FACE_COLORS[i] + 'bb';
+    ctx.font = '11px Courier New';
+    ctx.fillText(lbl, px-8, py+4);
+  });
+}
+
+// — Layer switching —
+function setLayer(l) {
+  layer = l;
+  zoom = [1, 0.4, 0.18, 0.08][l];
+  document.querySelectorAll('[id^=btnL]').forEach(b => b.classList.remove('active'));
+  document.getElementById('btnL'+l).classList.add('active');
+  const scale = SHELL_SCALE[l];
+  const addr  = LAYER_ADDR[l];
+  document.getElementById('shellLbl').textContent = `Layer ${l}`;
+  document.getElementById('addrLbl').textContent  = addr.toLocaleString();
+  document.getElementById('scaleLbl').textContent = `×${scale}`;
+}
+
+let animId;
+function loop() {
+  if (animOn) rot.y += 0.005;
+  draw();
+  animId = requestAnimationFrame(loop);
+}
+
+function toggleAnim() { animOn = !animOn; }
+function toggleWire()  { wireMode = !wireMode; }
+function toggleImprint() {
+  imprintMode = !imprintMode;
+  if (imprintMode) generateImprint();
+}
+
+// — Input —
+canvas.addEventListener('mousedown', e => { drag=true; lastMx=e.clientX; lastMy=e.clientY; });
+canvas.addEventListener('mousemove', e => {
+  if (!drag) return;
+  rot.y += (e.clientX - lastMx) * 0.006;
+  rot.x += (e.clientY - lastMy) * 0.006;
+  lastMx=e.clientX; lastMy=e.clientY;
+});
+canvas.addEventListener('mouseup', () => drag=false);
+canvas.addEventListener('wheel', e => {
+  zoom *= e.deltaY > 0 ? 0.9 : 1.1;
+  zoom = Math.max(0.05, Math.min(5, zoom));
+});
+
+// Click face toggle (simple quadrant detect)
+canvas.addEventListener('click', e => {
+  const dx = e.clientX - cx, dy = e.clientY - cy;
+  const dist = Math.sqrt(dx*dx+dy*dy);
+  if (dist < 40) return;
+  // Map click region to face (crude angle mapping)
+  const ang = Math.atan2(dy, dx);
+  const fi = Math.floor(((ang + Math.PI) / (Math.PI*2)) * 6) % 6;
+  faceActive[fi] = !faceActive[fi];
+});
+
+// Touch
+canvas.addEventListener('touchstart', e => {
+  drag=true; lastMx=e.touches[0].clientX; lastMy=e.touches[0].clientY;
+});
+canvas.addEventListener('touchmove', e => {
+  if(!drag) return;
+  e.preventDefault();
+  rot.y += (e.touches[0].clientX - lastMx)*0.006;
+  rot.x += (e.touches[0].clientY - lastMy)*0.006;
+  lastMx=e.touches[0].clientX; lastMy=e.touches[0].clientY;
+}, {passive:false});
+canvas.addEventListener('touchend', () => drag=false);
+
+window.addEventListener('resize', resize);
+resize();
+loop();
+</script>
+</body>
+</html>

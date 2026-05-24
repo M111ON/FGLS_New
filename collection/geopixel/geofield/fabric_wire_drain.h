@@ -1,0 +1,237 @@
+/*
+ * fabric_wire_drain.h — Task #1 complete
+ * Wire drain_gap = (trit^slope)&1  →  FrustumBlock.meta.drain_state[]
+ * ═══════════════════════════════════════════════════════════════════════
+ *
+ *  Depends on:
+ *    fabric_wire.h          (FabricWireState, fabric_wire_state, fence)
+ *    fgls_block_layout.h    (FrustumBlock, FrustumMeta offsets)
+ *
+ *  drain_state[id] bit layout (from fgls_block_layout.h):
+ *    bit0 = active         (1 = drain open)
+ *    bit1 = flush_pending
+ *    bit2 = merkle_dirty
+ *    bit3 = confirmed_delete  (tombstone committed)
+ *    bit4-7 = reserved
+ *
+ *  shadow_state[id] bit layout:
+ *    bit0 = occupied
+ *    bit1 = heptagon_fence  (once set: read→flush only, irreversible)
+ *    bit2-7 = reserved
+ *
+ *  Switch Gate → drain mapping:
+ *    bit6 = 0 → STORE  → drain stays closed (bit0=0)
+ *    bit6 = 1 → DRAIN  → drain opens        (bit0=1), flush_pending set
+ *
+ *  Drain ID selection:
+ *    drain_id = trit % FGLS_DRAIN_COUNT   (0..11 — 12 pentagon drains)
+ *    trit 0..26 distributes across 12 drains with natural entropy spread
+ *
+ * ═══════════════════════════════════════════════════════════════════════
+ */
+
+#ifndef FABRIC_WIRE_DRAIN_H
+#define FABRIC_WIRE_DRAIN_H
+
+#include <stdint.h>
+#include <stdbool.h>
+#include "fabric_wire.h"
+#include "frustum_layout_v2.h"
+
+/* ── drain_state bit masks ─────────────────────────────────────────── */
+
+#define DRAIN_BIT_ACTIVE    (1u << 0)   /* drain open                  */
+#define DRAIN_BIT_FLUSH     (1u << 1)   /* flush_pending               */
+#define DRAIN_BIT_MERKLE    (1u << 2)   /* merkle root needs recompute */
+#define DRAIN_BIT_TOMBSTONE (1u << 3)   /* confirmed delete committed  */
+
+/* ── shadow_state bit masks ────────────────────────────────────────── */
+
+#define SHADOW_BIT_OCCUPIED (1u << 0)   /* data written, not flushed   */
+#define SHADOW_BIT_FENCE    (1u << 1)   /* heptagon fence locked       */
+
+/* ── result codes ──────────────────────────────────────────────────── */
+
+typedef enum {
+    WIRE_OK           =  0,   /* transaction committed               */
+    WIRE_STORE        =  1,   /* bit6=0, stored to core, no drain    */
+    WIRE_DRAIN_OPEN   =  2,   /* bit6=1, drain opened + flush queued */
+    WIRE_FENCE_DENY   = -1,   /* heptagon fence blocked              */
+    WIRE_DRAIN_FULL   = -2,   /* drain already has tombstone         */
+    WIRE_SHADOW_DENY  = -3,   /* shadow write denied (fence locked)  */
+} WireResult;
+
+/* ══════════════════════════════════════════════════════════════════════
+ *  fabric_wire_commit
+ *
+ *  Core operation: compute Switch Gate → update drain_state[] in block.
+ *
+ *  Flow:
+ *    1. compute FabricWireState from (trit, slope)
+ *    2. select drain_id = trit % 12
+ *    3. if STORE (bit6=0): write to shadow_state[drain_id % 28]
+ *                          check heptagon fence before write
+ *    4. if DRAIN (bit6=1): open drain_state[drain_id]
+ *                          set flush_pending + merkle_dirty
+ *                          lock shadow fence for this slot
+ *
+ *  @param block      FrustumBlock to update (in-place)
+ *  @param trit       ternary index 0..26
+ *  @param slope      entropy value from caller
+ *  @param src_layer  layer classification of source address
+ *  @return           WireResult
+ * ══════════════════════════════════════════════════════════════════════ */
+static inline WireResult fabric_wire_commit(FrustumBlock *block,
+                                             uint8_t       trit,
+                                             uint8_t       slope,
+                                             PoglsLayer    src_layer)
+{
+    /* ── step 1: Switch Gate ──────────────────────────────────────── */
+    const FabricWireState ws = fabric_wire_state(trit, slope);
+
+    /* ── step 2: select drain (trit → 0..11) ─────────────────────── */
+    const uint8_t drain_id  = trit % FGLS_DRAIN_COUNT;          /* 0..11 */
+    const uint8_t shadow_id = drain_id % FGLS_SHADOW_COUNT;     /* 0..27 */
+
+    FrustumMeta *m = &block->meta;
+
+    /* ── step 3: STORE path (bit6 = 0) ───────────────────────────── */
+    if (ws.is_store) {
+        /* heptagon fence check: only CORE/GEAR may write to shadow   */
+        if (!pogls_fence_write_ok(src_layer))
+            return WIRE_FENCE_DENY;
+
+        /* fence already locked on this shadow slot? → deny           */
+        if (m->shadow_state[shadow_id] & SHADOW_BIT_FENCE)
+            return WIRE_SHADOW_DENY;
+
+        /* mark shadow slot occupied                                   */
+        m->shadow_state[shadow_id] |= SHADOW_BIT_OCCUPIED;
+
+        /* drain stays closed (bit0=0), no flush queued               */
+        m->drain_state[drain_id] &= ~DRAIN_BIT_ACTIVE;
+
+        return WIRE_STORE;
+    }
+
+    /* ── step 4: DRAIN path (bit6 = 1) ───────────────────────────── */
+    /* tombstone already committed? → this drain is done              */
+    if (m->drain_state[drain_id] & DRAIN_BIT_TOMBSTONE)
+        return WIRE_DRAIN_FULL;
+
+    /* fence check: DRAIN is a shadow→flush path                      */
+    if (!pogls_fence_check(src_layer, POGLS_LAYER_SECURITY, true))
+        return WIRE_FENCE_DENY;
+
+    /* open drain: set active + flush_pending + merkle_dirty          */
+    m->drain_state[drain_id] |= (DRAIN_BIT_ACTIVE |
+                                  DRAIN_BIT_FLUSH  |
+                                  DRAIN_BIT_MERKLE);
+
+    /* lock heptagon fence + mark occupied on this shadow slot */
+     m->shadow_state[shadow_id] |= (SHADOW_BIT_FENCE | SHADOW_BIT_OCCUPIED);
+
+    /* update world_flags in header: bit0 = WorldB(3^n) drain active  */
+    FrustumHeader *hdr = frustum_header(block);
+    hdr->world_flags |= (uint8_t)(ws.bit6);   /* bit0 = Switch Gate   */
+
+    return WIRE_DRAIN_OPEN;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+ *  fabric_drain_flush
+ *
+ *  Commit a drain: set tombstone, clear active + flush_pending.
+ *  Call after actual data flush is complete (caller responsibility).
+ *
+ *  Analogy: like closing a valve after water has passed through —
+ *  tombstone = valve seal, irreversible until Atomic Reshape.
+ *
+ *  @param block     FrustumBlock to update
+ *  @param drain_id  0..11
+ *  @return          true if flush committed, false if already sealed
+ * ══════════════════════════════════════════════════════════════════════ */
+static inline bool fabric_drain_flush(FrustumBlock *block, uint8_t drain_id)
+{
+    drain_id %= FGLS_DRAIN_COUNT;
+    FrustumMeta *m = &block->meta;
+
+    /* already tombstoned — nothing to do                             */
+    if (m->drain_state[drain_id] & DRAIN_BIT_TOMBSTONE)
+        return false;
+
+    /* must have been opened first                                     */
+    if (!(m->drain_state[drain_id] & DRAIN_BIT_FLUSH))
+        return false;
+
+    /* commit: seal drain, clear operational bits                     */
+    m->drain_state[drain_id] &= ~(DRAIN_BIT_ACTIVE | DRAIN_BIT_FLUSH);
+    m->drain_state[drain_id] |=   DRAIN_BIT_TOMBSTONE;
+
+    /* merkle_dirty stays set — root recompute deferred to caller     */
+    return true;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+ *  fabric_shadow_flush_pending
+ *
+ *  Count shadow slots that are occupied but fence-locked
+ *  (waiting for pentagon drain flush).
+ *  Used by pogls_reshape_ready() threshold check.
+ *
+ *  @param block   FrustumBlock to inspect
+ *  @return        count of pending shadow slots (0..28)
+ * ══════════════════════════════════════════════════════════════════════ */
+static inline uint8_t fabric_shadow_flush_pending(const FrustumBlock *block)
+{
+    uint8_t count = 0u;
+    const FrustumMeta *m = &block->meta;
+
+    for (uint8_t i = 0u; i < FGLS_SHADOW_COUNT; ++i) {
+        /* occupied + fence locked = waiting for drain               */
+        if ((m->shadow_state[i] & (SHADOW_BIT_OCCUPIED | SHADOW_BIT_FENCE))
+                == (SHADOW_BIT_OCCUPIED | SHADOW_BIT_FENCE)) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+ *  fabric_atomic_reshape_check
+ *
+ *  Combines shadow_flush_pending with pogls_reshape_ready threshold.
+ *  Single call — caller checks return value to trigger reshape sequence.
+ *
+ *  Atomic Reshape sequence (caller executes):
+ *    1. collect(shadow)       ← fabric_shadow_flush_pending() >= 54
+ *    2. stage(new_layout)     ← build new lane_group in staging
+ *    3. flip(rotation_state)  ← 1-byte write (atomic boundary = 17)
+ *    4. drain(pentagon)       ← fabric_drain_flush() × 12
+ *
+ *  @param block   FrustumBlock to inspect
+ *  @return        true → trigger Atomic Reshape now
+ * ══════════════════════════════════════════════════════════════════════ */
+static inline bool fabric_atomic_reshape_check(const FrustumBlock *block)
+{
+    return pogls_reshape_ready(fabric_shadow_flush_pending(block));
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+ *  fabric_rotation_advance
+ *
+ *  Flip rotation_state in header after Atomic Reshape completes.
+ *  rotation_state wraps at POGLS_LANE_GROUPS (6) — Rubik face cycle.
+ *  This is the "1-byte write = atomic moment" (step 3 of reshape).
+ *
+ *  @param block   FrustumBlock to update
+ *  @return        new rotation_state (0..5)
+ * ══════════════════════════════════════════════════════════════════════ */
+static inline uint8_t fabric_rotation_advance(FrustumBlock *block)
+{
+    FrustumHeader *hdr = frustum_header(block);
+    hdr->rotation_state = (hdr->rotation_state + 1u) % (uint8_t)POGLS_LANE_GROUPS;
+    return hdr->rotation_state;
+}
+
+#endif /* FABRIC_WIRE_DRAIN_H */

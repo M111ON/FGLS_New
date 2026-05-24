@@ -13,6 +13,7 @@
  */
 
 #include "llama_pogls_backend.h"
+#include "../geopixel/geofield/geometry_store_reader.h"
 
 #include "llama.h"
 #include "ggml.h"
@@ -38,7 +39,7 @@ static uint64_t now_ms(void)
 }
 #endif
 
-#define RUNNER_CTX_SIZE      2048u
+#define RUNNER_CTX_SIZE      1024u
 #define RUNNER_N_GPU_LAYERS  99
 #define RUNNER_THREADS       4
 #define RUNNER_PROMPT_TOKENS  4096
@@ -87,6 +88,17 @@ typedef struct {
     struct llama_model *model;
     const struct llama_vocab *vocab;
 } LlamaSession;
+
+static int g_force_cpu = 0;
+static GeometryStoreReader g_coord_store;
+static int g_coord_store_ready = 0;
+
+typedef struct {
+    char model_key[64];
+    char gguf_path[1024];
+    char store_path[1024];
+    int force_cpu;
+} CoordSelection;
 
 static void trim_newline(char *s)
 {
@@ -173,6 +185,358 @@ static void shell_quote_path(const char *src, char *dst, size_t dst_sz)
     dst[j < dst_sz ? j : dst_sz - 1] = '\0';
 }
 
+static const char *json_skip_ws(const char *p)
+{
+    while (p && *p && isspace((unsigned char)*p))
+        ++p;
+    return p;
+}
+
+static int read_text_file(const char *path, char **out_text, size_t *out_len)
+{
+    FILE *f = NULL;
+    long sz;
+    char *buf;
+
+    if (!path || !*path || !out_text)
+        return 0;
+
+    *out_text = NULL;
+    if (out_len)
+        *out_len = 0;
+
+    f = fopen(path, "rb");
+    if (!f)
+        return 0;
+
+    if (fseek(f, 0, SEEK_END) != 0) {
+        fclose(f);
+        return 0;
+    }
+    sz = ftell(f);
+    if (sz < 0) {
+        fclose(f);
+        return 0;
+    }
+    if (fseek(f, 0, SEEK_SET) != 0) {
+        fclose(f);
+        return 0;
+    }
+
+    buf = (char *)malloc((size_t)sz + 1u);
+    if (!buf) {
+        fclose(f);
+        return 0;
+    }
+
+    if (sz > 0 && fread(buf, 1, (size_t)sz, f) != (size_t)sz) {
+        free(buf);
+        fclose(f);
+        return 0;
+    }
+
+    buf[(size_t)sz] = '\0';
+    fclose(f);
+    *out_text = buf;
+    if (out_len)
+        *out_len = (size_t)sz;
+    return 1;
+}
+
+static const char *json_find_matching_pair(const char *open_p, char open_ch, char close_ch)
+{
+    int depth = 0;
+    int in_string = 0;
+
+    if (!open_p || *open_p != open_ch)
+        return NULL;
+
+    for (const char *p = open_p; *p; ++p) {
+        if (in_string) {
+            if (*p == '\\' && p[1]) {
+                ++p;
+                continue;
+            }
+            if (*p == '"')
+                in_string = 0;
+            continue;
+        }
+
+        if (*p == '"') {
+            in_string = 1;
+            continue;
+        }
+        if (*p == open_ch) {
+            ++depth;
+        } else if (*p == close_ch) {
+            --depth;
+            if (depth == 0)
+                return p;
+        }
+    }
+
+    return NULL;
+}
+
+static const char *json_find_key_value(const char *obj, const char *key)
+{
+    char needle[96];
+    const char *p;
+
+    if (!obj || !key)
+        return NULL;
+
+    snprintf(needle, sizeof(needle), "\"%s\"", key);
+    p = strstr(obj, needle);
+    if (!p)
+        return NULL;
+
+    p += strlen(needle);
+    p = json_skip_ws(p);
+    if (*p != ':')
+        return NULL;
+    return json_skip_ws(p + 1);
+}
+
+static int json_read_string_value(const char *p, char *out, size_t out_sz)
+{
+    size_t j = 0;
+
+    if (!p || *p != '"' || !out || out_sz == 0)
+        return 0;
+
+    ++p;
+    while (*p && *p != '"') {
+        if (*p == '\\' && p[1])
+            ++p;
+        if (j + 1 < out_sz)
+            out[j++] = *p;
+        ++p;
+    }
+    if (*p != '"')
+        return 0;
+
+    out[j] = '\0';
+    return 1;
+}
+
+static int json_read_string_or_null(const char *p, char *out, size_t out_sz)
+{
+    if (!p || !out || out_sz == 0)
+        return 0;
+    if (strncmp(p, "null", 4) == 0) {
+        out[0] = '\0';
+        return 1;
+    }
+    return json_read_string_value(p, out, out_sz);
+}
+
+static int json_read_int_value(const char *p, int *out)
+{
+    char *end = NULL;
+    long v;
+
+    if (!p || !out)
+        return 0;
+
+    v = strtol(p, &end, 10);
+    if (end == p)
+        return 0;
+    *out = (int)v;
+    return 1;
+}
+
+static int json_read_bool_or_int_value(const char *p, int *out)
+{
+    if (!p || !out)
+        return 0;
+    if (strncmp(p, "true", 4) == 0) {
+        *out = 1;
+        return 1;
+    }
+    if (strncmp(p, "false", 5) == 0) {
+        *out = 0;
+        return 1;
+    }
+    return json_read_int_value(p, out);
+}
+
+static int registry_model_key_for_coord(const char *text,
+                                        int zone,
+                                        const char *shape,
+                                        const char *ns,
+                                        char *out_model_key,
+                                        size_t out_model_key_sz)
+{
+    const char *coords_key;
+    const char *coords_open;
+    const char *coords_close;
+    const char *p;
+    const char *norm_ns = (ns && *ns) ? ns : "";
+
+    if (!text || !shape || !out_model_key || out_model_key_sz == 0)
+        return 0;
+
+    coords_key = strstr(text, "\"coords\"");
+    if (!coords_key)
+        return 0;
+
+    coords_open = strchr(coords_key, '[');
+    if (!coords_open)
+        return 0;
+
+    coords_close = json_find_matching_pair(coords_open, '[', ']');
+    if (!coords_close)
+        return 0;
+
+    for (p = coords_open + 1; p && p < coords_close; ) {
+        const char *obj_open = strchr(p, '{');
+        const char *obj_close;
+        char coord_shape[8];
+        char coord_ns[16];
+        char coord_model_key[64];
+        int coord_zone = -1;
+
+        if (!obj_open || obj_open >= coords_close)
+            break;
+        obj_close = json_find_matching_pair(obj_open, '{', '}');
+        if (!obj_close || obj_close > coords_close)
+            break;
+
+        memset(coord_shape, 0, sizeof(coord_shape));
+        memset(coord_ns, 0, sizeof(coord_ns));
+        memset(coord_model_key, 0, sizeof(coord_model_key));
+
+        if (!json_read_int_value(json_find_key_value(obj_open, "zone"), &coord_zone))
+            goto next_coord;
+        if (!json_read_string_value(json_find_key_value(obj_open, "shape"), coord_shape, sizeof(coord_shape)))
+            goto next_coord;
+        if (!json_read_string_or_null(json_find_key_value(obj_open, "ns"), coord_ns, sizeof(coord_ns)))
+            goto next_coord;
+        if (!json_read_string_value(json_find_key_value(obj_open, "model_key"), coord_model_key, sizeof(coord_model_key)))
+            goto next_coord;
+
+        if (coord_zone == zone && coord_shape[0] == shape[0] && strcmp(coord_ns, norm_ns) == 0) {
+            snprintf(out_model_key, out_model_key_sz, "%s", coord_model_key);
+            return 1;
+        }
+
+    next_coord:
+        p = obj_close + 1;
+    }
+
+    return 0;
+}
+
+static int registry_default_coord(const char *text, int *zone, char *shape, size_t shape_sz, char *ns, size_t ns_sz)
+{
+    const char *key;
+    const char *obj_open;
+    const char *obj_close;
+
+    if (!text || !zone || !shape || shape_sz == 0 || !ns || ns_sz == 0)
+        return 0;
+
+    key = strstr(text, "\"default_coord\"");
+    if (!key)
+        return 0;
+
+    obj_open = strchr(key, '{');
+    if (!obj_open)
+        return 0;
+
+    obj_close = json_find_matching_pair(obj_open, '{', '}');
+    if (!obj_close)
+        return 0;
+    (void)obj_close;
+
+    if (!json_read_int_value(json_find_key_value(obj_open, "zone"), zone))
+        return 0;
+    if (!json_read_string_value(json_find_key_value(obj_open, "shape"), shape, shape_sz))
+        return 0;
+    if (!json_read_string_or_null(json_find_key_value(obj_open, "ns"), ns, ns_sz))
+        return 0;
+    return 1;
+}
+
+static int registry_model_spec(const char *text, const char *model_key, CoordSelection *out)
+{
+    const char *models_key;
+    const char *models_open;
+    const char *models_close;
+    const char *p;
+
+    if (!text || !model_key || !*model_key || !out)
+        return 0;
+
+    models_key = strstr(text, "\"models\"");
+    if (!models_key)
+        return 0;
+
+    models_open = strchr(models_key, '{');
+    if (!models_open)
+        return 0;
+
+    models_close = json_find_matching_pair(models_open, '{', '}');
+    if (!models_close)
+        return 0;
+
+    for (p = models_open + 1; p && p < models_close; ) {
+        const char *key_open = strchr(p, '"');
+        const char *key_close;
+        const char *colon;
+        const char *obj_open;
+        const char *obj_close;
+        size_t key_len;
+        char key_buf[64];
+
+        if (!key_open || key_open >= models_close)
+            break;
+        key_close = strchr(key_open + 1, '"');
+        if (!key_close || key_close > models_close)
+            break;
+
+        key_len = (size_t)(key_close - (key_open + 1));
+        if (key_len >= sizeof(key_buf))
+            key_len = sizeof(key_buf) - 1;
+        memcpy(key_buf, key_open + 1, key_len);
+        key_buf[key_len] = '\0';
+
+        colon = strchr(key_close + 1, ':');
+        if (!colon || colon > models_close) {
+            p = key_close + 1;
+            continue;
+        }
+
+        obj_open = strchr(colon, '{');
+        if (!obj_open || obj_open > models_close)
+            break;
+        obj_close = json_find_matching_pair(obj_open, '{', '}');
+        if (!obj_close || obj_close > models_close)
+            break;
+
+        if (strcmp(key_buf, model_key) == 0) {
+            memset(out->gguf_path, 0, sizeof(out->gguf_path));
+            memset(out->store_path, 0, sizeof(out->store_path));
+            out->force_cpu = 0;
+
+            if (!json_read_string_or_null(json_find_key_value(obj_open, "gguf_path"), out->gguf_path, sizeof(out->gguf_path)))
+                return 0;
+            if (!json_read_string_value(json_find_key_value(obj_open, "store_path"), out->store_path, sizeof(out->store_path)))
+                return 0;
+            if (!json_read_bool_or_int_value(json_find_key_value(obj_open, "force_cpu"), &out->force_cpu))
+                out->force_cpu = 0;
+            strncpy(out->model_key, model_key, sizeof(out->model_key) - 1);
+            out->model_key[sizeof(out->model_key) - 1] = '\0';
+            return 1;
+        }
+
+        p = obj_close + 1;
+    }
+
+    return 0;
+}
+
 static int run_memory_search(const char *query, char *out, size_t out_sz)
 {
     if (!query || !*query || !out || out_sz == 0)
@@ -233,6 +597,74 @@ static int run_memory_search(const char *query, char *out, size_t out_sz)
     return used > 0;
 }
 
+static int is_decimal_string(const char *s)
+{
+    if (!s || !*s) return 0;
+    for (; *s; ++s) {
+        if (!isdigit((unsigned char)*s)) return 0;
+    }
+    return 1;
+}
+
+static int is_coord_shape(const char *s)
+{
+    return s && strlen(s) == 1 && strchr("IOTSZL", s[0]) != NULL;
+}
+
+static void shell_quote_path(const char *src, char *dst, size_t dst_sz);
+
+static int resolve_coord_selection(const char *registry_path,
+                                   int zone,
+                                   const char *shape,
+                                   const char *ns,
+                                   CoordSelection *out)
+{
+    char *registry_text = NULL;
+    size_t registry_len = 0;
+    char model_key[64];
+    int sel_zone = zone;
+    char sel_shape[8];
+    char sel_ns[16];
+
+    (void)registry_len;
+
+    if (!registry_path || !out)
+        return 0;
+
+    memset(out, 0, sizeof(*out));
+    if (!read_text_file(registry_path, &registry_text, &registry_len))
+        return 0;
+
+    if (zone >= 0 && shape && *shape) {
+        strncpy(sel_shape, shape, sizeof(sel_shape) - 1);
+        sel_shape[sizeof(sel_shape) - 1] = '\0';
+        if (!registry_model_key_for_coord(registry_text, zone, sel_shape, ns, model_key, sizeof(model_key))) {
+            free(registry_text);
+            return 0;
+        }
+    } else {
+        if (!registry_default_coord(registry_text, &sel_zone, sel_shape, sizeof(sel_shape), sel_ns, sizeof(sel_ns))) {
+            free(registry_text);
+            return 0;
+        }
+        if (!registry_model_key_for_coord(registry_text, sel_zone, sel_shape, sel_ns, model_key, sizeof(model_key))) {
+            free(registry_text);
+            return 0;
+        }
+        zone = sel_zone;
+        shape = sel_shape;
+        ns = sel_ns;
+    }
+
+    if (!registry_model_spec(registry_text, model_key, out)) {
+        free(registry_text);
+        return 0;
+    }
+
+    free(registry_text);
+    return out->gguf_path[0] != '\0';
+}
+
 static int load_llama_api(LlamaApi *api);
 
 static void llama_session_free(LlamaSession *session)
@@ -270,8 +702,8 @@ static int llama_session_init(LlamaSession *session, const char *gguf_path)
     session->api.backend_init();
 
     struct llama_model_params mparams = session->api.model_default_params();
-    mparams.n_gpu_layers = RUNNER_N_GPU_LAYERS;
-    mparams.use_mmap = false;
+    mparams.n_gpu_layers = g_force_cpu ? 0 : RUNNER_N_GPU_LAYERS;
+    mparams.use_mmap = true;
 
     session->model = session->api.model_load_from_file(gguf_path, mparams);
     if (!session->model) {
@@ -352,6 +784,8 @@ static int run_streamed_turn(LlamaSession *session,
 
     struct llama_context_params cparams = session->api.context_default_params();
     cparams.n_ctx = RUNNER_CTX_SIZE;
+    cparams.n_batch = 512;
+    cparams.n_ubatch = 128;
     cparams.n_threads = RUNNER_THREADS;
 
     ctx = session->api.init_from_model(session->model, cparams);
@@ -688,7 +1122,7 @@ static int run_browser_chat_mode(const char *gguf_path)
         if (n_tokens <= 0)
             n_tokens = 128;
         if (prompt_len == 0 || prompt_len > RUNNER_BROWSER_PROMPT_MAX) {
-            fprintf(stderr, "[browser-chat] invalid prompt length: %llu\n", prompt_len);
+            fprintf(stderr, "[browser-chat] invalid prompt length: %" PRIu64 "\n", (uint64_t)prompt_len);
             fprintf(stdout, "[[[TURN_ERROR]]]\n");
             fflush(stdout);
             continue;
@@ -723,6 +1157,125 @@ static int run_browser_chat_mode(const char *gguf_path)
     }
 
     llama_session_free(&session);
+    return rc;
+}
+
+int pogls_runner_main(const char *gguf_path, int n_stream_tokens, const char *prompt_override);
+
+static int run_coord_mode(const char *registry_path,
+                          int zone,
+                          const char *shape,
+                          const char *ns,
+                          int n_stream_tokens,
+                          const char *prompt_override)
+{
+    CoordSelection sel;
+    int prev_force_cpu = g_force_cpu;
+
+    if (!resolve_coord_selection(registry_path, zone, shape, ns, &sel)) {
+        fprintf(stderr, "[coord] resolve failed: registry=%s zone=%d shape=%s\n",
+                registry_path ? registry_path : "(null)", zone, shape ? shape : "(null)");
+        return 1;
+    }
+
+    fprintf(stderr, "[coord] model=%s\n", sel.model_key[0] ? sel.model_key : "(unknown)");
+    fprintf(stderr, "[coord] gguf=%s\n", sel.gguf_path);
+    fprintf(stderr, "[coord] store=%s\n", sel.store_path);
+    if (sel.force_cpu)
+        fprintf(stderr, "[coord] force_cpu=1\n");
+
+    if (g_coord_store_ready) {
+        geometry_store_close(&g_coord_store);
+        g_coord_store_ready = 0;
+    }
+    if (sel.store_path[0] && geometry_store_open(&g_coord_store, sel.store_path) == 0) {
+        g_coord_store_ready = 1;
+        fprintf(stderr, "[coord] store_ready=1 entries=%u\n", geometry_store_count(&g_coord_store));
+    } else {
+        fprintf(stderr, "[coord] store_open_failed\n");
+    }
+
+    g_force_cpu = sel.force_cpu;
+    int rc = pogls_runner_main(sel.gguf_path, n_stream_tokens, prompt_override);
+    g_force_cpu = prev_force_cpu;
+    if (g_coord_store_ready) {
+        geometry_store_close(&g_coord_store);
+        g_coord_store_ready = 0;
+    }
+    return rc;
+}
+
+static int run_ask_mode(const char *registry_path,
+                        int argc,
+                        char **argv)
+{
+    int prev_force_cpu = g_force_cpu;
+    const char *ns = NULL;
+    int idx = 0;
+    int zone = -1;
+    const char *shape = NULL;
+    char prompt_buf[RUNNER_PROMPT_MAX];
+    int n_stream_tokens = 32;
+
+    if (argc <= 0) {
+        fprintf(stderr, "[ask] missing prompt\n");
+        return 1;
+    }
+
+    if (argc >= 2 && is_decimal_string(argv[0]) && is_coord_shape(argv[1])) {
+        zone = atoi(argv[0]);
+        shape = argv[1];
+        idx = 2;
+        if (argc > idx && !is_decimal_string(argv[idx]) && strcmp(argv[idx], "-") != 0) {
+            ns = argv[idx];
+            idx++;
+        }
+    }
+
+    int end = argc;
+    if (argc > idx && is_decimal_string(argv[argc - 1])) {
+        n_stream_tokens = atoi(argv[argc - 1]);
+        end = argc - 1;
+    }
+
+    prompt_buf[0] = '\0';
+    for (int i = idx; i < end; ++i) {
+        if (i > idx) append_text(prompt_buf, sizeof(prompt_buf), " ");
+        append_text(prompt_buf, sizeof(prompt_buf), argv[i]);
+    }
+
+    if (!prompt_buf[0]) {
+        fprintf(stderr, "[ask] prompt required\n");
+        return 1;
+    }
+
+    if (zone >= 0 && shape) {
+        return run_coord_mode(registry_path, zone, shape, ns, n_stream_tokens, prompt_buf);
+    }
+
+    CoordSelection sel;
+
+    if (!resolve_coord_selection(registry_path, -1, NULL, NULL, &sel)) {
+        fprintf(stderr, "[ask] failed to resolve default coord\n");
+        return 1;
+    }
+
+    if (g_coord_store_ready) {
+        geometry_store_close(&g_coord_store);
+        g_coord_store_ready = 0;
+    }
+    if (sel.store_path[0] && geometry_store_open(&g_coord_store, sel.store_path) == 0) {
+        g_coord_store_ready = 1;
+        fprintf(stderr, "[ask] store_ready=1 entries=%u\n", geometry_store_count(&g_coord_store));
+    }
+
+    g_force_cpu = sel.force_cpu;
+    int rc = pogls_runner_main(sel.gguf_path, n_stream_tokens, prompt_buf);
+    g_force_cpu = prev_force_cpu;
+    if (g_coord_store_ready) {
+        geometry_store_close(&g_coord_store);
+        g_coord_store_ready = 0;
+    }
     return rc;
 }
 
@@ -791,9 +1344,52 @@ int main(int argc, char **argv)
 {
     if (argc < 2) {
         fprintf(stderr, "usage: %s <model.gguf> [stream_tokens=32] [prompt]\n", argv[0]);
+        fprintf(stderr, "       %s --coord <registry.json> <zone> <shape> [ns] [stream_tokens=32] [prompt]\n", argv[0]);
+        fprintf(stderr, "       %s --ask <registry.json> [zone shape [ns]] <prompt> [stream_tokens=32]\n", argv[0]);
+        fprintf(stderr, "       %s --coord-resolve <registry.json> <zone> <shape> [ns]\n", argv[0]);
         fprintf(stderr, "       %s <model.gguf> --chat\n", argv[0]);
         fprintf(stderr, "       %s <model.gguf> --browser-chat\n", argv[0]);
         return 1;
+    }
+
+    if (argc >= 3 && strcmp(argv[1], "--ask") == 0) {
+        return run_ask_mode(argv[2], argc - 3, &argv[3]);
+    }
+
+    if (argc >= 5 && strcmp(argv[1], "--coord-resolve") == 0) {
+        const char *registry = argv[2];
+        int zone = atoi(argv[3]);
+        const char *shape = argv[4];
+        const char *ns = NULL;
+        if (argc > 5 && !is_decimal_string(argv[5])) ns = argv[5];
+
+        CoordSelection sel;
+        if (!resolve_coord_selection(registry, zone, shape, ns, &sel)) {
+            fprintf(stderr, "[coord] resolve failed\n");
+            return 1;
+        }
+        printf("model_key=%s\n", sel.model_key[0] ? sel.model_key : "");
+        printf("gguf_path=%s\n", sel.gguf_path);
+        printf("store_path=%s\n", sel.store_path);
+        printf("force_cpu=%d\n", sel.force_cpu);
+        return 0;
+    }
+
+    if (argc >= 5 && strcmp(argv[1], "--coord") == 0) {
+        const char *registry = argv[2];
+        int zone = atoi(argv[3]);
+        const char *shape = argv[4];
+        const char *ns = NULL;
+        int idx = 5;
+
+        if (argc > idx && !is_decimal_string(argv[idx])) {
+            ns = argv[idx];
+            idx++;
+        }
+
+        int stream_tokens = (argc > idx) ? atoi(argv[idx]) : 32;
+        const char *prompt = (argc > idx + 1) ? argv[idx + 1] : NULL;
+        return run_coord_mode(registry, zone, shape, ns, stream_tokens, prompt);
     }
 
     if (argc >= 3 && (strcmp(argv[2], "--chat") == 0 || strcmp(argv[2], "-c") == 0))
