@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UV Sphere Map Test — Checkerboard Distortion</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #1a1a2e;
+    color: #e0e0e0;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 20px;
+  }
+  h1 { font-size: 1.4rem; margin-bottom: 4px; color: #a0c4ff; }
+  .subtitle { font-size: 0.85rem; color: #888; margin-bottom: 16px; }
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    width: 100%;
+    max-width: 1100px;
+  }
+  .panel {
+    background: #16213e;
+    border-radius: 12px;
+    padding: 16px;
+    border: 1px solid #2a2a4a;
+  }
+  .panel h2 {
+    font-size: 1rem;
+    margin-bottom: 8px;
+    color: #7ec8e3;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel h2 .badge {
+    font-size: 0.7rem;
+    background: #0f3460;
+    padding: 2px 8px;
+    border-radius: 4px;
+    color: #a0c4ff;
+  }
+  canvas { border-radius: 8px; display: block; }
+  .canvas-wrap { position: relative; }
+  .info {
+    font-size: 0.75rem;
+    color: #666;
+    margin-top: 8px;
+    line-height: 1.5;
+  }
+  .info code {
+    background: #0f3460;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 0.72rem;
+  }
+  .legend {
+    margin-top: 16px;
+    background: #16213e;
+    border-radius: 12px;
+    padding: 16px;
+    border: 1px solid #2a2a4a;
+    max-width: 1100px;
+    width: 100%;
+  }
+  .legend h3 { font-size: 0.95rem; color: #7ec8e3; margin-bottom: 8px; }
+  .legend p { font-size: 0.8rem; color: #999; line-height: 1.6; }
+  .legend ul { margin: 8px 0 0 18px; }
+  .legend li { font-size: 0.8rem; color: #999; line-height: 1.6; }
+  .uv-preview {
+    width: 100%;
+    image-rendering: pixelated;
+    border-radius: 6px;
+    margin-bottom: 8px;
+    border: 1px solid #2a2a4a;
+  }
+</style>
+</head>
+<body>
+
+<h1>UV Sphere Mapping Test</h1>
+<p class="subtitle">Checkerboard on UV sphere — pole distortion is inherent to equirectangular projection</p>
+
+<div class="grid">
+  <!-- Left: Standard UV Sphere -->
+  <div class="panel">
+    <h2>Standard UV Sphere <span class="badge">stacks=16 slices=16</span></h2>
+    <div class="canvas-wrap">
+      <canvas id="canvas-standard" width="500" height="500"></canvas>
+    </div>
+    <div class="info">
+      <code>phi</code> = latitude (0..π), <code>theta</code> = longitude (0..2π)<br>
+      UV: u = theta/2π, v = phi/π — same as Blender / Three.js default
+    </div>
+  </div>
+
+  <!-- Right: Our System UV Sphere -->
+  <div class="panel">
+    <h2>Our System <span class="badge">same mapping</span></h2>
+    <div class="canvas-wrap">
+      <canvas id="canvas-ours" width="500" height="500"></canvas>
+    </div>
+    <div class="info">
+      Same math: <code>x = sin(phi)*cos(theta)</code>, <code>y = cos(phi)</code>, <code>z = sin(phi)*sin(theta)</code><br>
+      UV coords identical — should render identically
+    </div>
+  </div>
+</div>
+
+<div class="legend">
+  <h3>What to Look For</h3>
+  <ul>
+    <li><strong>Equator:</strong> Checkerboard squares should be roughly equal size — no stretching</li>
+    <li><strong>Poles:</strong> Squares naturally converge to a point — this is <em>expected</em> for UV spheres (equirectangular projection)</li>
+    <li><strong>Seam:</strong> A vertical line at the back (theta=0=2π) where UV wraps — normal</li>
+    <li>If both spheres look identical → our UV mapping matches 3D software standard</li>
+  </ul>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// --- Create checkerboard texture ---
+const texCanvas = document.createElement('canvas');
+texCanvas.width = 512;
+texCanvas.height = 256;
+const ctx = texCanvas.getContext('2d');
+const sq = 32;
+for (let y = 0; y < 256; y += sq) {
+  for (let x = 0; x < 512; x += sq) {
+    ctx.fillStyle = ((x/sq + y/sq) % 2 === 0) ? '#f0f0f0' : '#282828';
+    ctx.fillRect(x, y, sq, sq);
+  }
+}
+const texture = new THREE.CanvasTexture(texCanvas);
+texture.colorSpace = THREE.SRGBColorSpace;
+
+// --- Build UV sphere geometry manually (our system) ---
+function createUVSphereGeometry(stacks, slices, radius) {
+  const positions = [];
+  const uvs = [];
+  const indices = [];
+
+  for (let i = 0; i <= stacks; i++) {
+    const phi = Math.PI * i / stacks;
+    const sinPhi = Math.sin(phi);
+    const cosPhi = Math.cos(phi);
+    for (let j = 0; j <= slices; j++) {
+      const theta = 2 * Math.PI * j / slices;
+      const sinTheta = Math.sin(theta);
+      const cosTheta = Math.cos(theta);
+
+      const x = radius * sinPhi * cosTheta;
+      const y = radius * cosPhi;
+      const z = radius * sinPhi * sinTheta;
+
+      positions.push(x, y, z);
+      uvs.push(j / slices, i / stacks);
+    }
+  }
+
+  for (let i = 0; i < stacks; i++) {
+    for (let j = 0; j < slices; j++) {
+      const a = i * (slices + 1) + j;
+      const b = a + slices + 1;
+      indices.push(a, b, a + 1);
+      indices.push(b, b + 1, a + 1);
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+// --- Scene setup ---
+function makeScene(canvas) {
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setSize(500, 500);
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0a0a1a);
+
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+  camera.position.set(0, 0.5, 3);
+
+  const controls = new OrbitControls(camera, canvas);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.autoRotate = true;
+  controls.autoRotateSpeed = 1.0;
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+  const dir = new THREE.DirectionalLight(0xffffff, 1.2);
+  dir.position.set(3, 4, 5);
+  scene.add(dir);
+
+  return { renderer, scene, camera, controls };
+}
+
+// Standard Three.js sphere
+const geo1 = new THREE.SphereGeometry(1, 32, 32, 0, Math.PI * 2, 0, Math.PI);
+// Our manual sphere
+const geo2 = createUVSphereGeometry(16, 16, 1);
+
+const mat = new THREE.MeshStandardMaterial({
+  map: texture,
+  roughness: 0.4,
+  metalness: 0.0,
+  side: THREE.DoubleSide,
+});
+
+const s1 = new THREE.Mesh(geo1, mat);
+const s2 = new THREE.Mesh(geo2, mat.clone());
+
+const sc1 = makeScene(document.getElementById('canvas-standard'));
+const sc2 = makeScene(document.getElementById('canvas-ours'));
+
+sc1.scene.add(s1);
+sc2.scene.add(s2);
+
+// Wireframe overlay on "ours" to show the quad structure
+const wireMat = new THREE.MeshBasicMaterial({
+  color: 0x00ffaa,
+  wireframe: true,
+  transparent: true,
+  opacity: 0.15,
+});
+s2.add(new THREE.Mesh(geo2, wireMat));
+
+function animate() {
+  requestAnimationFrame(animate);
+  sc1.controls.update();
+  sc2.controls.update();
+  sc1.renderer.render(sc1.scene, sc1.camera);
+  sc2.renderer.render(sc2.scene, sc2.camera);
+}
+animate();
+</script>
+
+</body>
+</html>

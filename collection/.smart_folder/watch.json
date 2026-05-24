@@ -1,0 +1,9 @@
+{
+  "auto_start": false,
+  "daemon_persistence": "process-local",
+  "note": "Watch roots persist here for operator visibility. The running daemon does not survive process exit.",
+  "watch_roots": [],
+  "watch_roots_count": 0,
+  "workspace_id": "5fc566458dc5d9a5",
+  "workspace_root": "I:\\FGLS_new\\collection"
+}

@@ -1,0 +1,16 @@
+[engine.features]   Feature loaded: C Binaries
+[engine.features]   Feature loaded: Bermuda Gate
+[engine.features]   Feature loaded: Geometry Codec
+[engine.features]   Feature loaded: C Pipeline
+[engine.features]   Feature loaded: Bermuda Router
+[engine.features]   Feature loaded: Geometry Store
+[engine]   Routes registered: C Binaries
+[engine]   Routes registered: Bermuda Gate
+[engine]   Routes registered: Geometry Codec
+[engine]   Routes registered: C Pipeline
+[engine]   Routes registered: Bermuda Router
+[engine]   Routes registered: Geometry Store
+INFO:     Started server process [5860]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8766 (Press CTRL+C to quit)

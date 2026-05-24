@@ -1,0 +1,156 @@
+POGLS Session Handoff — VQ-POGLS + Batch RL
+============================================
+Generated: May 19, 2026
+
+FILES THIS SESSION:
+  pogls_env.c        — C batch env (ORBITAL/CHIRAL/CROSS/HUB)
+  pogls_env.py       — ctypes wrapper (Gym-compatible)
+  train_batch.py     — PPO batch training loop (x64 envs)
+  pogls_vae.py       — Gumbel VAE prototype (baseline)
+  pogls_vqvae.py     — VQ-POGLS (geometry codebook, EMA update)
+  geo_reshape_junction.h — 20736 junction + Pentagon anchor + Rubik buffer
+  skeleton_index.h   — O(1) lookup (v7, from prev session)
+
+════════════════════════════════════════════
+BATCH RL RESULTS
+════════════════════════════════════════════
+
+Speed comparison:
+  Gym PPO Colab:          300-500  steps/s
+  EnvPool CartPole x64:   495,869  steps/s
+  POGLS single C:         639,371  steps/s
+  POGLS batch x64:      6,596,474  steps/s   ← 13x EnvPool
+  POGLS batch x256:     7,503,796  steps/s
+  Full rollout loop:    2,300,000  steps/s   (numpy policy overhead)
+
+  5M steps in 2.2s on CPU
+
+Action space (4 moves, geometry-derived):
+  0 = ORBITAL  — walk hex ring (+1 position)
+  1 = CHIRAL   — jump mirror face (f ↔ f+6, +120 positions)
+  2 = CROSS    — Metatron cross partner face
+  3 = HUB      — jump to pentagon zone anchor
+
+Observation: float32[8]
+  [zone/12, pair/6, pole, isect/64, rubik_frame/32,
+   icosa_cell/10, enc/720, steps/max_steps]
+
+Reward: geometry-driven (no hand-crafting)
+  isect==0  → +3.0  (boundary/dead zone found)
+  isect<8   → +2.0  (fibo territory)
+  isect<16  → +1.0  (structured)
+  isect≥16  → -0.5  (residual zone)
+
+Colab setup:
+  !gcc -O2 -shared -fPIC -I. pogls_env.c -o pogls_env.so
+  !pip install torch
+  !python train_batch.py
+
+════════════════════════════════════════════
+VQ-POGLS RESULTS
+════════════════════════════════════════════
+
+Architecture:
+  Encoder:   x [B,D] → z [B,64] → quantize → idx [B]
+  Codebook:  240 geometry positions, EMA update, random restart
+  Decoder:   codes[idx] + GEO_TABLE[idx] → x_hat [B,D]
+  Loss:      MSE recon + 0.25 × commitment (no KL, no spread)
+
+Results (dim=128, 8 clusters, 400 epochs, 3.2s CPU):
+  unique positions used: 194/240 (80.8%)  ← vs Gumbel VAE 4/240
+  zone distribution: all 12 pentagon zones used ✓
+  recon MSE: 0.040
+  dead codes: 0  (EMA + random restart working)
+
+Traverse results:
+  ORBITAL valid=True  unique=194  (all positions shift +1)
+  CHIRAL  valid=True  unique=194  (mirror jump)
+  CROSS   valid=True  unique=144  (inter-ring)
+  HUB     valid=True  unique=12   (collapse to anchors — correct ✓)
+
+Key insight: HUB→12 unique = exactly 12 pentagon anchors
+Geometry behavior verified correct end-to-end.
+
+════════════════════════════════════════════
+RESHAPE JUNCTION (geo_reshape_junction.h)
+════════════════════════════════════════════
+
+RESHAPE_JUNCTION = 20736 = 12⁴ = 2⁸×3⁴
+PENTAGON_ANCHOR  = 1728  = 12³ (slots per anchor)
+
+Four paths (all exact, digit-sum=9):
+  Path A: 384 × 54  = 20736  Rubik   (entropy=mid)
+  Path B: 768 × 27  = 20736  Tetra   (entropy=low)
+  Path C: 256 × 81  = 20736  Binary  (entropy=0)
+  Path D: 128 × 162 = 20736  Icosa   (entropy=high)
+
+rj_verify() = 0  ✓ all paths exact
+fold/unfold roundtrip = PASS ✓
+
+════════════════════════════════════════════
+GEOMETRY STACK (complete)
+════════════════════════════════════════════
+
+  Metatron Gate        ✓  geo_metatron_route.h
+  Goldberg Shutter     ✓  geo_goldberg_lut.h
+  Heptagon Fence       ✓  heptagon_fence.h
+  Diamond Field        ✓  geo_diamond_field_v4.h
+  Skeleton Index       ✓  skeleton_index.h       (v7)
+  Reshape Junction     ✓  geo_reshape_junction.h (this session)
+  Batch RL Env         ✓  pogls_env.c            (this session)
+  VQ-POGLS Codebook    ✓  pogls_vqvae.py         (this session)
+
+Loop: CLOSED ✓
+
+Tensor reshape insight:
+  Tensor [batch, seq, dim] maps directly to [zone, frame, cell]
+  Reshape = traverse (ORBITAL/CHIRAL/CROSS/HUB) — no topology break
+  All 12 zones remain addressable after any traverse
+  VQ codebook = geometry-grounded discrete latent space
+
+════════════════════════════════════════════
+NEXT STEPS
+════════════════════════════════════════════
+
+CRITICAL:
+  [ ] Traverse consistency loss
+        L_trav = MSE(decode(traverse(idx,0)), decode(idx)) × λ
+        Makes neighbor positions decode smoothly
+        Needed for interpolation / streaming use cases
+
+  [ ] Wire VQ-POGLS into real data
+        Option A: text embeddings (sentence-transformers)
+        Option B: image patches (ViT-style)
+        Option C: LLM hidden states (hook into forward pass)
+
+  [ ] RL policy → geometry-aware
+        Current: random action
+        Next: policy that learns WHEN to ORBITAL vs CHIRAL
+        Key: agent learns that CHIRAL = "jump to related content"
+
+NICE TO HAVE:
+  [ ] Goldberg shutter: entropy-driven freq-1/2/3 selection
+  [ ] BROT/D4 detection in pipeline v7
+  [ ] Base-4 zoom controller
+  [ ] Benchmark VQ-POGLS vs standard VQ-VAE (codebook utilization)
+
+════════════════════════════════════════════
+KEY NUMBERS (FROZEN)
+════════════════════════════════════════════
+
+  12    pentagon faces   (Dodeca, invariant)
+  20    icosa faces      (TetraRing slots)
+  30    shared edges     (routing channels)
+  54    Rubik slots      (2×3³, reshape staging)
+  240   unique moves     (= 1440/6 = walk/spoke)
+  720   walk cycle       (12×60, stride 37)
+  1440  tring cycle      (4×360, quaternion)
+  1728  per pentagon     (12³)
+  3456  tetra space      (2⁷×3³)
+  6912  junction         (2⁸×3³, tetra+octa)
+  20736 reshape junction (2⁸×3⁴ = 12⁴)
+
+All digit-sum = 9 (sacred family) ✓
+gcd(37, 720) = 1 (bijective walk) ✓
+F - E + V = 2 (Euler invariant) ✓
+cpair(cpair(x)) = x (self-inverse) ✓

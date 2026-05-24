@@ -1,0 +1,8 @@
+
+  Geometry Engine Dashboard
+  ====================
+  URL:  http://127.0.0.1:8766/dashboard
+  API:  http://127.0.0.1:8766/docs
+  ====================
+
+INFO:     127.0.0.1:19145 - "GET /api/status HTTP/1.1" 200 OK

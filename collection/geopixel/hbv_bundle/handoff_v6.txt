@@ -1,0 +1,43 @@
+POGLS/Geometric Pipeline v6 — Vector Sequence Engine
+====================================================
+Generated: May 17, 2026
+
+FILES INCLUDED (in this bundle):
+  geo_flow_chunker.h          — content-driven chunk boundary detection
+  geo_transform_seq.h         — geometric transform sequence en/decode
+  geo_smart_encode.h          — multi-strategy chunk selector (FLAT/RAW/DIAMOND/BATCH/GEOM)
+  geo_onion_shell.h           — onion shell addressing + Hilbert traversal
+  geo_diamond_field_v4.h      — diamond field encode/decode (64B chunks)
+  pogls_fold.h                — DiamondBlock + fold_fibo_intersect
+
+  diamond_geo_pipe_v4.c/.exe  — baseline: smart multi-strategy
+  diamond_geo_pipe_v5.c/.exe  — adds transform sequence (IDENTITY/BROT/BREF/D4/DIFF)
+  diamond_geo_pipe_v6.c/.exe  — adds flow-zone segmentation
+  test_flow.c/.exe            — flow chunker verification
+
+ARCHITECTURE:
+  v4: Fixed 64B chunks → Hilbert traversal → smart_encode (FLAT/RAW/DIAMOND/BATCH/GEOM)
+  v5: Same + transform detection between consecutive traversal-order chunks
+      Tags: 0=FLAT 1=RAW 2=DIAMOND 3=BATCH 4=GEOM 5=IDENTITY 6=BROT 7=BREF 8=D4 9=DIFF
+  v6: Flow chunker splits input at geometric dead zones (isect==0)
+      Each zone encoded independently → state reset at zone boundaries
+
+KEY RESULTS:
+  - 64B pattern x512: v5=50.88x (IDENTITY: 1B) vs v4=12.19x (BATCH: 5B)
+  - Zeros 16KB: 50.57x (FLAT + IDENTITY chain)
+  - Source code (pogls_fold.h): 1.42x (DIFF catches similar consecutive chunks)
+  - Random: 0.99x (no compression, header overhead)
+
+BUILD:
+  gcc -O2 -I. -Inew_diamond_tring -Icore diamond_geo_pipe_v6.c -lm -o diamond_geo_pipe_v6
+
+USAGE:
+  .\diamond_geo_pipe_v6.exe roundtrip <input.bin>   # encode→decode→verify
+  .\diamond_geo_pipe_v5.exe roundtrip <input.bin>
+  .\test_flow.exe                                     # flow boundary stats
+
+NEXT STEPS:
+  - Enable BROT/BREF/D4 by checking transforms in FILE ORDER (not traversal order)
+  - Use flow zone boundaries to define variable-length segments (replace fixed 64B)
+  - Implement grid-codec: 2D spatial dictionary (like QR) for 5-16x on structured data
+  - Benchmark vs zstd on natural binary data (meshes, arrays, images)
