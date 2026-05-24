@@ -100,7 +100,7 @@ static inline uint32_t geo_pixel_roundtrip_verify(uint32_t W, uint32_t H) {
         if (f.coset  != exp_coset)   errors++;
         if (f.fibo   != exp_fibo)    errors++;
         if (f.letter != exp_letter4) errors++;
-        if (f.spoke  > 7u)           errors++;   /* 3-bit field: 0..7 */
+        if (f.spoke  >= GP_SPOKE_MOD) errors++;  /* 3-bit field: valid 0..5 */
     }
     return errors;
 }
@@ -112,11 +112,11 @@ static inline uint32_t geo_pixel_roundtrip_verify(uint32_t W, uint32_t H) {
    Returns: 0 = all unique, >0 = collision count
    ═══════════════════════════════════════ */
 static inline uint32_t geo_pixel_uniqueness_check(uint32_t W) {
-    if (W > 256u) W = 256u;   /* cap for stack safety */
+    if (W > GP_TRIT_MOD) W = GP_TRIT_MOD;   /* cap at grid width for stack safety */
 
     /* track seen (trit,coset,fibo) triplets via small bitmap */
-    /* max distinct = 27×9×144 = 34,992 — use flat array */
-    static uint8_t seen[GP_TRIT_MOD][GP_COSET_MOD][GP_FIBO_MOD];
+    /* max distinct = 27×9×144 = 34,992 — local array for thread safety */
+    uint8_t seen[GP_TRIT_MOD][GP_COSET_MOD][GP_FIBO_MOD];
     memset(seen, 0, sizeof(seen));
 
     uint32_t collisions = 0;

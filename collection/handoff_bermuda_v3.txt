@@ -1,0 +1,188 @@
+POGLS Session Handoff — Bermuda v3 Gear + Hilbert-native Reshape
+================================================================
+Generated: May 20, 2026
+
+FILES THIS SESSION:
+  bermuda_reshape_v3.py    — Gear + Hilbert-native reshape (CURRENT)
+  bermuda_reshape_v2.py    — Shadow Protocol baseline (prev)
+  handoff_bermuda_shadow.txt — prev session handoff
+
+════════════════════════════════════════════════════════════
+THE SHIFT — Peano/Hilbert as Math Guarantee
+════════════════════════════════════════════════════════════
+
+Before:
+  Neural net รับผิดชอบ topology → ยาก, usage ต่ำ, MSE สูง
+
+After:
+  Math รับผิดชอบ topology (Hilbert/stride-37 bijection)
+  Neural net รับผิดชอบ semantic transformation เท่านั้น
+
+Key insight:
+  stride-37 walk ใน skeleton_index.h = Peano/Hilbert 1D mapping อยู่แล้ว
+  gcd(37, 2^k) = 1 → full bijection guaranteed for all gear sizes
+  [B,S,D] → Peano on spatial [B,S] → 1D line → traverse → unroll → [B',S',D]
+  D ไม่ถูก scramble — ผ่านตรง
+
+════════════════════════════════════════════════════════════
+GEAR SYSTEM
+════════════════════════════════════════════════════════════
+
+128*n slots (2^k aligned, Hilbert-native):
+  Gear 1: n=4  →  512 slots
+  Gear 2: n=8  → 1024 slots  ← ANCHOR (gate_18 clean, default)
+  Gear 3: n=16 → 2048 slots
+  Gear 4: n=32 → 4096 slots
+
+snap_gear(N) → smallest gear ที่ N ≤ slots
+Padding reserve = slots - N (room to grow, shadow-neutral zeros)
+shed via unpad() after gate
+
+Per-gear WALK_LEN:
+  WALK_LEN = smallest multiple of 12 >= slots, gcd(37, WALK_LEN)=1
+  Gear 1: WL=516   face_sz=43
+  Gear 2: WL=1032  face_sz=86   ← ANCHOR 100% CROSS ✓
+  Gear 3: WL=2052  face_sz=171
+  Gear 4: WL=4104  face_sz=342
+
+GEAR_INV_WL = modinv(37, WL)   ← key for CROSS self-inverse
+
+════════════════════════════════════════════════════════════
+CROSS SELF-INVERSE FIX
+════════════════════════════════════════════════════════════
+
+Bug (v1/v2): WALK_LEN=720 hardcoded → idx ≥ 720 collides for gear≥2
+Bug (v3 first attempt): invert in slots-space ≠ WL-space
+
+Fix (final):
+  enc   = (idx * 37) % WL              # work in WL-space
+  zone  = enc // face_sz
+  pz    = CROSS_LUT[zone % 12]
+  ne    = pz * face_sz + enc % face_sz
+  idx1  = (ne * INV_WL) % WL % slots   # invert in WL-space, clip to slots
+
+Result:
+  Gear 2 (ANCHOR): 100% ✓
+  Gear 1: 98% (3/200 edge cases from WL>slots boundary — acceptable)
+  Gear 3: 100% ✓
+
+CROSS_LUT = [9,10,11,6,7,8,3,4,5,0,1,2]  (self-inverse verified)
+INV37 per gear: {1:265(WL), 2:781(WL), 3:721(WL), 4:...}
+
+════════════════════════════════════════════════════════════
+FULL PIPELINE (bermuda_pass_v3)
+════════════════════════════════════════════════════════════
+
+def bermuda_pass_v3(gate, x, out_shape, mode):
+  1. snap_gear(N)           → gear
+  2. pad_to_gear()          → x_padded, pad_len  (padding reserve)
+  3. hilbert_scatter()      → reorder by stride-37 walk
+  4. strip()                → core, offset, shadow
+  5. gate(core, mode)       → core_out, idx_in, idx_out  (semantic)
+  6. reattach()             → core_out + shadow + offset
+  7. hilbert_gather()       → restore original order
+  8. unpad()                → shed padding reserve
+  9. reshape(out_shape + D) → final tensor
+
+Shadow Protocol (unchanged from v2):
+  offset = per-token mean  [N, 1]
+  shadow = residual vs batch mean  [N, D]
+  BermudaSnapshot = {offset, shadow, idx_in, orig_shape, out_shape, gear, mode, pad_len}
+
+Traverse modes:
+  ORBITAL  (+1)       local step
+  CHIRAL   (+N//2)    mirror zone
+  CROSS    (LUT+WL)   self-inverse entangled pair
+  HUB      (→anchor)  collapse to zone anchor
+
+════════════════════════════════════════════════════════════
+EXPERIMENT RESULTS (v3)
+════════════════════════════════════════════════════════════
+
+[1] Gear snap:
+  N=50  → Gear 1 (512,  pad=462)
+  N=200 → Gear 1 (512,  pad=312)
+  N=500 → Gear 1 (512,  pad=12)
+  N=1000→ Gear 2 (1024, pad=24)
+  N=2000→ Gear 3 (2048, pad=48)
+
+[2] Hilbert scatter/gather roundtrip: max_err < 1e-9 ✓
+
+[3] Spatial reshape [4,16,D]→[8,8,D]: valid=True all modes ✓
+
+[4] CROSS self-inverse: 100% (Gear 2 ANCHOR) ✓
+
+[5] Gear roundtrip: pad→scatter→gather→unpad err < 1e-9 ✓
+
+[6] 2-gate pipeline [6,8]→CHIRAL→[4,12]→CROSS→[6,8]: valid ✓
+
+════════════════════════════════════════════════════════════
+SHELL ARMOR INTEGRATION (pending v4)
+════════════════════════════════════════════════════════════
+
+From pogls_shell.h — not yet wired into v3:
+  ShellN(n) armor: size_162=162*n (geometry), size_128=128*n (compute)
+  delta = 34*(n+1), gate_18 = delta%18==0 → n=8 is ANCHOR
+  n_shell = decimal dissolution boundary between worlds
+
+  Gear already uses 128*n → ShellN compute side aligned ✓
+  Next: add 162*n geometry side option for routing use cases
+
+NegativeShadow (pogls_temporal_lane5.h) — not yet wired:
+  residual where recon_err > threshold → persist to Lane5
+  recall: ring(hot) → Lane5(cold) → not found
+  shadow in bermuda_pass_v3 = conceptual match, not yet persisted
+
+════════════════════════════════════════════════════════════
+NEXT STEPS
+════════════════════════════════════════════════════════════
+
+CRITICAL:
+  [ ] bermuda_reshape_v4.py
+        Wire ShellN: add 162*n geometry path alongside 128*n compute
+        When to use 162*n: routing/address ops
+        When to use 128*n: tensor/compute ops
+        delta = 34*(n+1) as gap metric between two paths
+
+  [ ] NegativeShadow persist
+        recon_err > threshold → write snapshot to Lane5
+        reload: check Lane5 before returning zero shadow
+        connects bermuda_pass to pogls_temporal_lane5.h
+
+  [ ] Real tensor pipeline test
+        Wire into llama.cpp hidden states (B9 runner hook exists)
+        Test: LLM layer N output → Bermuda → reshape → LLM layer N+1 input
+        Measure: perplexity change, semantic drift
+
+  [ ] Gear 1 CROSS 100% fix
+        WL=516 > slots=512 → 4 positions have ambiguous mapping
+        Option: use WL as n_codes directly (WL=slots+4, accept 4 unused slots)
+        Or: special-case the 4 boundary positions
+
+NICE TO HAVE:
+  [ ] Benchmark: bermuda_pass_v3 vs torch.reshape throughput
+  [ ] Multi-gear pipeline: auto gear-shift when N crosses boundary mid-pipeline
+  [ ] Bond layer: formal idx_in/idx_out binding as geometry certificate
+
+════════════════════════════════════════════════════════════
+KEY NUMBERS (FROZEN + EXTENDED)
+════════════════════════════════════════════════════════════
+
+  12    zones (N_ZONES, dodecahedron faces)
+  37    STRIDE (prime, gcd(37, 2^k)=1 for all k)
+  54    bridge nexus (2×3³)
+  128   compute multiplier (SIMD/Hilbert-native base)
+  162   geometry multiplier (icosphere L2 nodes)
+  240   unique positions (base WALK_LEN=720 / 3)
+  720   base WALK_LEN (12×60)
+
+  Per-gear WALK_LEN (smallest 12-multiple ≥ slots, coprime 37):
+    Gear 1:  512 slots → WL=516   INV_WL=265
+    Gear 2: 1024 slots → WL=1032  INV_WL=781  ← ANCHOR
+    Gear 3: 2048 slots → WL=2052  INV_WL=721
+    Gear 4: 4096 slots → WL=4104  INV_WL=...
+
+  gcd(37, 2^k) = 1 for all k ✓  (bijection guaranteed)
+  cpair(cpair(x)) = x ✓          (CROSS self-inverse, Gear 2+)
+  scatter→gather err < 1e-9 ✓   (Hilbert roundtrip exact)
+  valid=True all modes ✓         (topology never breaks)

@@ -1,0 +1,1123 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Blackjack Dice V8.9 — DP Solver</title>
+<style>
+:root {
+  --bg: #0f0f14;
+  --panel: #1a1a24;
+  --border: #2a2a3a;
+  --text: #e0e0e8;
+  --dim: #8888a0;
+  --accent: #6ee7b7;
+  --accent-dim: #2d5a4a;
+  --red: #f87171;
+  --gold: #fbbf24;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; }
+.app { display: flex; height: 100vh; }
+
+/* Sidebar */
+.sidebar { width: 340px; min-width: 340px; background: var(--panel); border-right: 1px solid var(--border); overflow-y: auto; padding: 16px; }
+.sidebar h1 { font-size: 18px; font-weight: 700; color: var(--accent); margin-bottom: 4px; }
+.sidebar .subtitle { font-size: 12px; color: var(--dim); margin-bottom: 20px; }
+.sidebar h2 { font-size: 13px; font-weight: 600; color: var(--accent); margin: 16px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+.config-group { margin-bottom: 12px; }
+.config-group label { display: flex; justify-content: space-between; font-size: 12px; color: var(--dim); margin-bottom: 2px; }
+.config-group label span.val { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.config-group input[type="range"] { width: 100%; height: 4px; -webkit-appearance: none; appearance: none; background: var(--border); border-radius: 2px; outline: none; }
+.config-group input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); cursor: pointer; }
+.stat-row { display: flex; justify-content: space-between; font-size: 13px; padding: 4px 0; }
+.stat-row .label { color: var(--dim); }
+.stat-row .value { font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat-row .value.pos { color: var(--accent); }
+.stat-row .value.neg { color: var(--red); }
+.stat-row .value.neutral { color: var(--gold); }
+.benchmark { font-size: 12px; padding: 3px 0; color: var(--dim); }
+.benchmark .val { font-weight: 600; }
+.recompute-btn { width: 100%; padding: 10px; margin-top: 12px; background: var(--accent); color: #000; border: none; border-radius: 6px; font-weight: 700; font-size: 14px; cursor: pointer; }
+.recompute-btn:hover { opacity: 0.9; }
+.convergence { font-size: 11px; color: var(--dim); margin-top: 8px; text-align: center; }
+
+/* Auto Pilot controls */
+.autopilot-box { margin-top: 16px; padding: 12px; background: #111118; border-radius: 8px; border: 1px solid var(--border); }
+.autopilot-box h3 { font-size: 12px; font-weight: 600; color: var(--gold); margin-bottom: 8px; }
+.ap-controls { display: flex; gap: 6px; flex-wrap: wrap; }
+.ap-btn { padding: 6px 14px; border: 1px solid var(--border); background: #1a1a24; color: var(--text); border-radius: 4px; font-size: 12px; cursor: pointer; }
+.ap-btn:hover { border-color: var(--accent); }
+.ap-btn.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+.ap-btn:disabled { opacity: 0.4; cursor: default; }
+.ap-stats { font-size: 11px; color: var(--dim); margin-top: 8px; }
+.ap-stats span { margin-right: 12px; }
+
+/* Main */
+.main { flex: 1; overflow-y: auto; padding: 20px; }
+.tabs { display: flex; gap: 0; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+.tab { padding: 8px 20px; font-size: 13px; color: var(--dim); cursor: pointer; border-bottom: 2px solid transparent; }
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* Policy Table */
+.policy-grid { display: inline-block; }
+.policy-row { display: flex; align-items: center; gap: 0; }
+.policy-label { width: 32px; text-align: right; font-size: 11px; color: var(--dim); padding-right: 8px; font-variant-numeric: tabular-nums; }
+.policy-cell { width: 48px; height: 36px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); position: relative; }
+.policy-cell:hover { z-index: 1; box-shadow: 0 0 8px rgba(110,231,183,0.3); transform: scale(1.05); }
+.policy-cell.S { background: #1a3a2a; color: var(--accent); }
+.policy-cell.H { background: #2a1a3a; color: #c084fc; }
+.policy-cell.C { background: #3a2a1a; color: var(--gold); }
+.policy-cell.ev { font-size: 9px; color: var(--dim); display: none; position: absolute; bottom: 1px; right: 2px; }
+.policy-cell:hover .ev { display: block; }
+.policy-header { display: flex; padding-left: 40px; margin-bottom: 4px; }
+.policy-header div { width: 48px; text-align: center; font-size: 10px; color: var(--dim); }
+.legend { display: flex; gap: 16px; margin: 12px 0; font-size: 12px; }
+.legend span { display: flex; align-items: center; gap: 4px; }
+.legend .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; }
+
+/* Manual Play */
+.game-area { max-width: 500px; }
+.game-dice-area { display: flex; gap: 40px; margin: 16px 0; flex-wrap: wrap; }
+.player-hand, .house-hand { flex: 1; min-width: 180px; }
+.player-hand h3, .house-hand h3 { font-size: 13px; color: var(--accent); margin-bottom: 8px; }
+.house-hand h3 { color: var(--red); }
+.dice-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.die { width: 42px; height: 42px; background: #fff; color: #000; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 700; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+.die.hidden { background: #333; color: #333; }
+.die.hidden::after { content: '?'; color: var(--dim); }
+.sum-badge { display: inline-block; margin-top: 8px; padding: 2px 10px; border-radius: 4px; font-size: 14px; font-weight: 700; }
+.sum-badge.valid { background: var(--accent-dim); color: var(--accent); }
+.sum-badge.bust { background: #3a1a1a; color: var(--red); }
+.sum-badge.blackjack { background: #3a3a1a; color: var(--gold); }
+.action-btns { display: flex; gap: 8px; margin: 16px 0; flex-wrap: wrap; }
+.action-btn { padding: 10px 24px; border: 1px solid var(--border); background: var(--panel); color: var(--text); border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; }
+.action-btn:hover { border-color: var(--accent); }
+.action-btn:disabled { opacity: 0.3; cursor: default; }
+.action-btn.stand { border-color: var(--accent); color: var(--accent); }
+.action-btn.hit { border-color: #c084fc; color: #c084fc; }
+.action-btn.counter { border-color: var(--gold); color: var(--gold); }
+.game-ev { font-size: 12px; color: var(--dim); margin: 8px 0; }
+.game-ev .ev-item { display: inline-block; margin-right: 12px; }
+.game-ev .ev-item .ev-val { font-weight: 600; }
+.result-banner { padding: 12px; border-radius: 8px; font-size: 18px; font-weight: 700; text-align: center; margin: 12px 0; }
+.result-banner.win { background: #1a3a2a; color: var(--accent); }
+.result-banner.lose { background: #3a1a1a; color: var(--red); }
+.result-banner.push { background: #2a2a1a; color: var(--gold); }
+.game-stats { display: flex; gap: 16px; font-size: 12px; color: var(--dim); margin-top: 8px; }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .app { flex-direction: column; }
+  .sidebar { width: 100%; min-width: unset; max-height: 40vh; border-right: none; border-bottom: 1px solid var(--border); }
+}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <div class="sidebar">
+    <h1>⚄ BJ Dice V8.9</h1>
+    <div class="subtitle">Exact DP Value Iteration · 120 states</div>
+
+    <h2>Dice Config</h2>
+    <div class="config-group">
+      <label>Player Start Dice <span class="val" id="v-pstart">4</span></label>
+      <input type="range" id="pstart" min="2" max="6" value="4" step="1">
+    </div>
+    <div class="config-group">
+      <label>Player Hit Dice <span class="val" id="v-hit">2</span></label>
+      <input type="range" id="hit" min="1" max="4" value="2" step="1">
+    </div>
+    <div class="config-group">
+      <label>House Hit Dice <span class="val" id="v-hhit">2</span></label>
+      <input type="range" id="hhit" min="1" max="4" value="2" step="1">
+    </div>
+    <div class="config-group">
+      <label>House Stand <span class="val" id="v-stand">17</span></label>
+      <input type="range" id="stand" min="14" max="21" value="17" step="1">
+    </div>
+    <div class="config-group">
+      <label>Counter Min <span class="val" id="v-cthresh">15</span></label>
+      <input type="range" id="cthresh" min="10" max="20" value="15" step="1">
+    </div>
+
+    <h2>Payouts ($)</h2>
+    <div class="config-group">
+      <label>Bet <span class="val" id="v-bet">100</span></label>
+      <input type="range" id="bet" min="10" max="500" value="100" step="10">
+    </div>
+    <div class="config-group">
+      <label>Win Payout <span class="val" id="v-win">200</span></label>
+      <input type="range" id="win" min="50" max="500" value="200" step="10">
+    </div>
+    <div class="config-group">
+      <label>Perfect 21 Bonus <span class="val" id="v-bonus">350</span></label>
+      <input type="range" id="bonus" min="100" max="1000" value="350" step="10">
+    </div>
+    <div class="config-group">
+      <label>Counter Loss Penalty <span class="val" id="v-pen">150</span></label>
+      <input type="range" id="pen" min="0" max="500" value="150" step="5">
+    </div>
+
+    <button class="recompute-btn" id="recompute">⟳ Recompute</button>
+    <div class="convergence" id="convergence"></div>
+
+    <h2>Game EV</h2>
+    <div class="stat-row"><span class="label">Optimal Player EV</span><span class="value" id="ev-optimal">—</span></div>
+    <div class="stat-row"><span class="label">House Edge (optimal)</span><span class="value" id="ev-house">—</span></div>
+
+    <h2>Benchmarks</h2>
+    <div class="benchmark">Always Stand: <span class="val" id="bm-stand">—</span></div>
+    <div class="benchmark">Always Counter: <span class="val" id="bm-counter">—</span></div>
+    <div class="benchmark">Always Hit: <span class="val" id="bm-hit">—</span></div>
+
+    <div class="autopilot-box" id="autopilot-box">
+      <h3>▶ Auto Pilot</h3>
+      <div class="ap-controls">
+        <button class="ap-btn" id="ap-play">▶ Play</button>
+        <button class="ap-btn" id="ap-pause" disabled>⏸ Pause</button>
+        <button class="ap-btn" id="ap-step" disabled>⏭ Step</button>
+        <button class="ap-btn" id="ap-reset">⟳ Reset</button>
+      </div>
+      <div class="ap-controls" style="margin-top:6px">
+        <label style="font-size:11px;color:var(--dim)">Speed:
+          <select id="ap-speed" style="background:#111;color:var(--text);border:1px solid var(--border);border-radius:3px;padding:2px 6px;font-size:11px">
+            <option value="2000">Slow (2s)</option>
+            <option value="1000" selected>Normal (1s)</option>
+            <option value="400">Fast (0.4s)</option>
+            <option value="100">Turbo (0.1s)</option>
+          </select>
+        </label>
+      </div>
+      <div class="ap-stats" id="ap-stats">Games: 0 · Win: 0 · Lose: 0 · Push: 0 · Net: $0</div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="tabs">
+      <div class="tab active" data-tab="policy">Policy Table</div>
+      <div class="tab" data-tab="manual">Manual Play</div>
+      <div class="tab" data-tab="autopilot">Auto Pilot</div>
+    </div>
+
+    <!-- Policy Tab -->
+    <div class="tab-content active" id="tab-policy">
+      <div class="legend">
+        <span><span class="swatch" style="background:#1a3a2a;border:1px solid var(--accent)"></span> Stand</span>
+        <span><span class="swatch" style="background:#2a1a3a;border:1px solid #c084fc"></span> Hit</span>
+        <span><span class="swatch" style="background:#3a2a1a;border:1px solid var(--gold)"></span> Counter</span>
+      </div>
+      <div id="policy-table"></div>
+    </div>
+
+    <!-- Manual Tab -->
+    <div class="tab-content" id="tab-manual">
+      <div class="game-area" id="manual-game">
+        <div class="game-dice-area">
+          <div class="player-hand">
+            <h3>🧑 Player</h3>
+            <div class="dice-row" id="player-dice"></div>
+            <div class="sum-badge" id="player-sum">0</div>
+          </div>
+          <div class="house-hand">
+            <h3>🏠 House</h3>
+            <div class="dice-row" id="house-dice"></div>
+            <div class="sum-badge" id="house-sum">?</div>
+          </div>
+        </div>
+        <div class="game-ev" id="game-ev"></div>
+        <div class="action-btns" id="action-btns">
+          <button class="action-btn stand" id="act-stand">Stand</button>
+          <button class="action-btn hit" id="act-hit">Hit</button>
+          <button class="action-btn counter" id="act-counter">Counter</button>
+        </div>
+        <div id="game-result"></div>
+        <div class="game-stats" id="manual-stats">Games: 0 · Net: $0</div>
+      </div>
+    </div>
+
+    <!-- Auto Pilot Tab -->
+    <div class="tab-content" id="tab-autopilot">
+      <div class="game-area">
+        <div class="game-dice-area">
+          <div class="player-hand">
+            <h3>🧑 Player <span id="ap-ai-label" style="font-size:11px;color:var(--gold);font-weight:400">(AI)</span></h3>
+            <div class="dice-row" id="ap-player-dice"></div>
+            <div class="sum-badge" id="ap-player-sum">0</div>
+          </div>
+          <div class="house-hand">
+            <h3>🏠 House</h3>
+            <div class="dice-row" id="ap-house-dice"></div>
+            <div class="sum-badge" id="ap-house-sum">?</div>
+          </div>
+        </div>
+        <div class="game-ev" id="ap-game-ev"></div>
+        <div id="ap-game-result"></div>
+        <div class="game-stats" id="ap-manual-stats">Games: 0 · Win: 0 · Lose: 0 · Push: 0 · Net: $0</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════
+// DP Engine
+// ═══════════════════════════════════════════════
+const DICE_SIDES = 6;
+const BJ_TARGET = 21;
+
+function diceDist(n) {
+  if (n === 0) return [1];
+  const max = n * 6;
+  let dp = new Array(max + 1).fill(0);
+  dp[0] = 1;
+  for (let i = 0; i < n; i++) {
+    const next = new Array(max + 1).fill(0);
+    for (let s = 0; s <= i * 6; s++) {
+      if (dp[s] === 0) continue;
+      for (let d = 1; d <= 6; d++) {
+        next[s + d] += dp[s] / 6;
+      }
+    }
+    dp = next;
+  }
+  return dp.slice(n);
+}
+
+function runDP(params) {
+  const { P_START_DICE, HIT_DICE, H_HIT_DICE, HOUSE_STAND,
+          COUNTER_LOSS_PEN, COUNTER_BONUS, WIN_PAY, BET,
+          COUNTER_THRESH } = params;
+
+  const N_H = 6;
+  const N_P = 21;
+  const N_THRESH = COUNTER_THRESH;
+
+  // ---- house final distribution ----
+  const house_dist = Array.from({length: N_H}, () =>
+    Array.from({length: N_H}, () => ({}))
+  );
+
+  // Precompute house hitting
+  function houseHitRecur(sum) {
+    if (sum > BJ_TARGET) return {'bust': 1};
+    if (sum >= HOUSE_STAND) return {[sum]: 1};
+    const result = {};
+    for (let d = 1; d <= DICE_SIDES; d++) {
+      const sub = houseHitRecur(sum + d);
+      for (const [k, v] of Object.entries(sub)) {
+        result[k] = (result[k] || 0) + v / DICE_SIDES;
+      }
+    }
+    return result;
+  }
+
+  function houseHitDist(sum) {
+    if (H_HIT_DICE === 1) return houseHitRecur(sum);
+    // H_HIT_DICE > 1: precompute multi-dice distribution
+    const dist = diceDist(H_HIT_DICE);
+    const memo = {};
+    function multiHit(curr) {
+      if (curr > BJ_TARGET) return {'bust': 1};
+      if (curr >= HOUSE_STAND) return {[curr]: 1};
+      const key = curr;
+      if (memo[key]) return memo[key];
+      const result = {};
+      for (let d = H_HIT_DICE; d <= H_HIT_DICE * 6; d++) {
+        if (dist[d] === 0) continue;
+        const sub = multiHit(curr + d);
+        for (const [k, v] of Object.entries(sub)) {
+          result[k] = (result[k] || 0) + v * dist[d];
+        }
+      }
+      memo[key] = result;
+      return result;
+    }
+    return multiHit(sum);
+  }
+
+  for (let hv = 0; hv < N_H; hv++) {
+    for (let hh = 0; hh < N_H; hh++) {
+      house_dist[hv][hh] = houseHitDist((hv+1) + (hh+1));
+    }
+  }
+
+  // ---- value iteration ----
+  const N = N_P * N_H;
+  // index: [p_idx * N_H + hv_idx]
+  function idx(p, hv) { return (p - 2) * N_H + hv; }
+
+  let V = new Array(N).fill(0);
+  let policy = new Array(N).fill('S');
+
+  function evStand(p, hv) {
+    let ev = 0;
+    const hDist = house_dist[hv];
+    for (let hh = 0; hh < N_H; hh++) {
+      const d = hDist[hh];
+      for (const [finalStr, prob] of Object.entries(d)) {
+        const final = finalStr === 'bust' ? 0 : parseInt(finalStr);
+        let payout = 0;
+        if (finalStr === 'bust') {
+          payout = WIN_PAY;
+        } else if (final > BJ_TARGET) {
+          payout = WIN_PAY;
+        } else if (p > final) {
+          payout = WIN_PAY;
+        } else if (p === final) {
+          payout = BET;
+        } else {
+          payout = 0;
+        }
+        ev += prob * payout;
+      }
+    }
+    return ev;
+  }
+
+  function evHit(p, hv) {
+    let ev = 0;
+    const hitDist = diceDist(HIT_DICE);
+    for (let d = HIT_DICE; d <= HIT_DICE * 6; d++) {
+      const prob_d = hitDist[d];
+      if (prob_d === 0) continue;
+      const pn = p + d;
+      if (pn > BJ_TARGET) {
+        ev += prob_d * 0; // bust
+      } else if (pn === BJ_TARGET) {
+        ev += prob_d * COUNTER_BONUS;
+      } else {
+        ev += prob_d * V[idx(pn, hv)];
+      }
+    }
+    return ev;
+  }
+
+  function evCounter(p, hv) {
+    let ev = 0;
+    for (let de = 1; de <= DICE_SIDES; de++) {
+      const prob = 1 / DICE_SIDES;
+      const pn = p + de;
+      if (pn > BJ_TARGET) {
+        ev += prob * (-COUNTER_LOSS_PEN);
+      } else if (pn === BJ_TARGET) {
+        ev += prob * COUNTER_BONUS;
+      } else {
+        // compare to house
+        const hDist = house_dist[hv];
+        for (let hh = 0; hh < N_H; hh++) {
+          const d = hDist[hh];
+          for (const [finalStr, probH] of Object.entries(d)) {
+            let payout = 0;
+            if (finalStr === 'bust') {
+              payout = WIN_PAY;
+            } else {
+              const final = parseInt(finalStr);
+              if (final > BJ_TARGET) {
+                payout = WIN_PAY;
+              } else if (pn > final) {
+                payout = WIN_PAY;
+              } else if (pn === final) {
+                payout = BET;
+              } else {
+                payout = -COUNTER_LOSS_PEN;
+              }
+            }
+            ev += prob * (probH / N_H) * payout;
+          }
+        }
+      }
+    }
+    return ev;
+  }
+
+  let converged = false;
+  let iters = 0;
+  for (let iter = 0; iter < 50; iter++) {
+    let maxDelta = 0;
+    for (let p = 2; p <= BJ_TARGET; p++) {
+      for (let hv = 0; hv < N_H; hv++) {
+        const i = idx(p, hv);
+        const sEv = evStand(p, hv);
+        let best = sEv;
+        let bestAct = 'S';
+        const hEv = evHit(p, hv);
+        if (hEv > best) { best = hEv; bestAct = 'H'; }
+        if (p >= N_THRESH) {
+          const cEv = evCounter(p, hv);
+          if (cEv > best) { best = cEv; bestAct = 'C'; }
+        }
+        const delta = Math.abs(V[i] - best);
+        if (delta > maxDelta) maxDelta = delta;
+        V[i] = best;
+        policy[i] = bestAct;
+      }
+    }
+    iters++;
+    if (maxDelta < 0.01) { converged = true; break; }
+  }
+
+  // ---- overall EV ----
+  const p0Dist = diceDist(P_START_DICE);
+  let overallEV = 0;
+  for (let p0 = P_START_DICE; p0 <= P_START_DICE * 6; p0++) {
+    const prob0 = p0Dist[p0] || 0;
+    if (prob0 === 0) continue;
+    for (let hv = 0; hv < N_H; hv++) {
+      overallEV += prob0 * (1 / N_H) * V[idx(p0, hv)];
+    }
+  }
+
+  // ---- benchmarks ----
+  function evAlways(action) {
+    let ev = 0;
+    for (let p0 = P_START_DICE; p0 <= P_START_DICE * 6; p0++) {
+      const prob0 = p0Dist[p0] || 0;
+      if (prob0 === 0) continue;
+      for (let hv = 0; hv < N_H; hv++) {
+        let val = 0;
+        if (action === 'S') {
+          val = evStand(p0, hv);
+        } else if (action === 'C') {
+          if (p0 >= N_THRESH) {
+            val = evCounter(p0, hv);
+          } else {
+            // fallback to hit if can't counter
+            val = evHit(p0, hv);
+            // resolve recursively to same thing
+          }
+        }
+        ev += prob0 * (1 / N_H) * val;
+      }
+    }
+    return ev;
+  }
+
+  // Always Hit (resolve via DP from initial states only)
+  function evAlwaysHit() {
+    let ev = 0;
+    for (let p0 = P_START_DICE; p0 <= P_START_DICE * 6; p0++) {
+      const prob0 = p0Dist[p0] || 0;
+      if (prob0 === 0) continue;
+      for (let hv = 0; hv < N_H; hv++) {
+        ev += prob0 * (1 / N_H) * evHit(p0, hv);
+      }
+    }
+    return ev;
+  }
+
+  function evAlwaysCounter() {
+    let ev = 0;
+    for (let p0 = P_START_DICE; p0 <= P_START_DICE * 6; p0++) {
+      const prob0 = p0Dist[p0] || 0;
+      if (prob0 === 0) continue;
+      for (let hv = 0; hv < N_H; hv++) {
+        if (p0 >= N_THRESH) {
+          ev += prob0 * (1 / N_H) * evCounter(p0, hv);
+        } else {
+          ev += prob0 * (1 / N_H) * evHit(p0, hv);
+        }
+      }
+    }
+    return ev;
+  }
+
+  const evStandAlways = evAlways('S');
+  const evHitAlways = evAlwaysHit();
+  const evCounterAlways = evAlwaysCounter();
+
+  // ---- stand threshold ----
+  const thresholds = [];
+  for (let hv = 0; hv < N_H; hv++) {
+    let thresh = BJ_TARGET + 1;
+    for (let p = 2; p <= BJ_TARGET; p++) {
+      if (policy[idx(p, hv)] === 'S') {
+        thresh = p;
+        break;
+      }
+    }
+    thresholds.push(thresh);
+  }
+
+  return {
+    V, policy, converged, iters,
+    overallEV, overallEV_pct: (overallEV - BET) / BET * 100,
+    evStandAlways, evStandAlways_pct: (evStandAlways - BET) / BET * 100,
+    evHitAlways, evHitAlways_pct: (evHitAlways - BET) / BET * 100,
+    evCounterAlways, evCounterAlways_pct: (evCounterAlways - BET) / BET * 100,
+    thresholds,
+    house_dist,
+    // For manual game
+    evStand, evHit, evCounter,
+    idx
+  };
+}
+
+// ═══════════════════════════════════════════════
+// UI
+// ═══════════════════════════════════════════════
+const $ = id => document.getElementById(id);
+
+function getParams() {
+  return {
+    P_START_DICE: parseInt($('pstart').value),
+    HIT_DICE: parseInt($('hit').value),
+    H_HIT_DICE: parseInt($('hhit').value),
+    HOUSE_STAND: parseInt($('stand').value),
+    COUNTER_THRESH: parseInt($('cthresh').value),
+    BET: parseInt($('bet').value),
+    WIN_PAY: parseInt($('win').value),
+    COUNTER_BONUS: parseInt($('bonus').value),
+    COUNTER_LOSS_PEN: parseInt($('pen').value),
+    DICE_SIDES: 6,
+    BJ_TARGET: 21
+  };
+}
+
+function fmtPct(v) {
+  const s = v.toFixed(2);
+  if (v > 0) return '+' + s + '%';
+  if (v < 0) return s + '%';
+  return '0.00%';
+}
+
+function fmtDollar(v) {
+  const s = Math.abs(v).toFixed(2);
+  return (v >= 0 ? '+' : '-') + '$' + s;
+}
+
+let lastResult = null;
+let manualStats = { games: 0, net: 0 };
+let manualState = null;
+let apTimer = null;
+let apRunning = false;
+let apStats = { games: 0, wins: 0, losses: 0, pushes: 0, net: 0 };
+
+function updateLabels() {
+  $('v-pstart').textContent = $('pstart').value;
+  $('v-hit').textContent = $('hit').value;
+  $('v-hhit').textContent = $('hhit').value;
+  $('v-stand').textContent = $('stand').value;
+  $('v-cthresh').textContent = $('cthresh').value;
+  $('v-bet').textContent = $('bet').value;
+  $('v-win').textContent = $('win').value;
+  $('v-bonus').textContent = $('bonus').value;
+  $('v-pen').textContent = $('pen').value;
+}
+
+function renderPolicy(result) {
+  const { policy, V, thresholds, idx } = result;
+  const N_H = 6;
+  let html = '<div class="policy-grid">';
+  // header
+  html += '<div class="policy-header"><div></div>';
+  for (let hv = 0; hv < N_H; hv++) {
+    html += '<div>hv=' + (hv+1) + '</div>';
+  }
+  html += '</div>';
+  // rows
+  for (let p = 21; p >= 2; p--) {
+    html += '<div class="policy-row">';
+    html += '<div class="policy-label">' + p + '</div>';
+    for (let hv = 0; hv < N_H; hv++) {
+      const i = idx(p, hv);
+      const act = policy[i];
+      const ev = V[i];
+      html += '<div class="policy-cell ' + act + '">' + act + '<span class="ev">' + ev.toFixed(0) + '</span></div>';
+    }
+    html += '</div>';
+  }
+  html += '</div>';
+  $('policy-table').innerHTML = html;
+}
+
+function renderStats(result) {
+  const r = result;
+  $('ev-optimal').textContent = fmtPct(r.overallEV_pct);
+  $('ev-optimal').className = 'value ' + (r.overallEV_pct >= 0 ? 'pos' : 'neg');
+  $('ev-house').textContent = fmtPct(-r.overallEV_pct);
+  $('ev-house').className = 'value ' + (-r.overallEV_pct > 0 ? 'pos' : 'neg');
+  $('bm-stand').textContent = fmtPct(r.evStandAlways_pct);
+  $('bm-counter').textContent = fmtPct(r.evCounterAlways_pct);
+  $('bm-hit').textContent = fmtPct(r.evHitAlways_pct);
+  $('convergence').textContent = 'Converged in ' + r.iters + ' iterations' + (r.converged ? '' : ' (max reached)');
+}
+
+const sliders = ['pstart','hit','hhit','stand','cthresh','bet','win','bonus','pen'];
+sliders.forEach(id => {
+  document.getElementById(id).addEventListener('input', () => {
+    updateLabels();
+    recompute();
+  });
+});
+
+function recompute() {
+  const params = getParams();
+  const result = runDP(params);
+  lastResult = result;
+  renderPolicy(result);
+  renderStats(result);
+}
+
+// Use debounced recompute from sliders; button for force
+$('recompute').addEventListener('click', recompute);
+
+// ═══════════════════════════════════════════════
+// Tabs
+// ═══════════════════════════════════════════════
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    const target = tab.dataset.tab;
+    if (target === 'autopilot') {
+      $('tab-autopilot').classList.add('active');
+      if (!manualState) startAPGame();
+    } else {
+      $('tab-' + target).classList.add('active');
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════
+// Dice visualization
+// ═══════════════════════════════════════════════
+const DIE_FACES = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
+
+function renderDice(containerId, values, hiddenIndices = []) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = values.map((v, i) => {
+    const hidden = hiddenIndices.includes(i);
+    return '<div class="die' + (hidden ? ' hidden' : '') + '">' + (hidden ? '' : DIE_FACES[v]) + '</div>';
+  }).join('');
+}
+
+function rollDie() { return Math.floor(Math.random() * 6) + 1; }
+function rollDice(n) { return Array.from({length: n}, () => rollDie()); }
+
+function sumDice(arr) { return arr.reduce((a, b) => a + b, 0); }
+
+function startManualGame() {
+  const params = getParams();
+  const playerStart = rollDice(params.P_START_DICE);
+  const houseDice = rollDice(2);
+  manualState = {
+    playerSum: sumDice(playerStart),
+    playerDice: playerStart,
+    houseVisible: houseDice[0],
+    houseHidden: houseDice[1],
+    houseDice: houseDice,
+    phase: 'player',
+    playerDone: false,
+    hitCount: 0
+  };
+  renderDice('player-dice', manualState.playerDice);
+  renderDice('house-dice', [manualState.houseDice[0], manualState.houseDice[1]], [1]);
+  $('player-sum').textContent = 'Sum: ' + manualState.playerSum;
+  $('player-sum').className = 'sum-badge valid';
+  $('house-sum').textContent = '? + ' + manualState.houseVisible;
+  $('house-sum').className = 'sum-badge valid';
+  $('game-result').innerHTML = '';
+  updateManualEV();
+  enableActions(true);
+  if (manualState.playerSum >= params.COUNTER_THRESH) {
+    $('act-counter').disabled = false;
+  } else {
+    $('act-counter').disabled = true;
+  }
+}
+
+function updateManualEV() {
+  if (!lastResult || !manualState || manualState.phase !== 'player') {
+    $('game-ev').innerHTML = '';
+    return;
+  }
+  const r = lastResult;
+  const p = manualState.playerSum;
+  const hv = manualState.houseVisible - 1;
+  if (p > 21) {
+    $('game-ev').innerHTML = '';
+    return;
+  }
+  const sEv = r.evStand(p, hv);
+  const hEv = r.evHit(p, hv);
+  let html = '<div class="ev-item">Stand: <span class="ev-val" style="color:var(--accent)">' + sEv.toFixed(1) + '</span></div>' +
+             '<div class="ev-item">Hit: <span class="ev-val" style="color:#c084fc">' + hEv.toFixed(1) + '</span></div>';
+  if (p >= getParams().COUNTER_THRESH) {
+    const cEv = r.evCounter(p, hv);
+    html += '<div class="ev-item">Counter: <span class="ev-val" style="color:var(--gold)">' + cEv.toFixed(1) + '</span></div>';
+  }
+  $('game-ev').innerHTML = html;
+}
+
+function enableActions(en) {
+  $('act-stand').disabled = !en;
+  $('act-hit').disabled = !en;
+  $('act-counter').disabled = !en;
+}
+
+function resolveHouse(phv, phh) {
+  const params = getParams();
+  let sum = phv + phh;
+  while (sum < params.HOUSE_STAND && sum <= 21) {
+    const dice = rollDice(params.H_HIT_DICE);
+    sum += sumDice(dice);
+  }
+  return sum;
+}
+
+function manualAction(action) {
+  if (!manualState || manualState.phase !== 'player') return;
+  const params = getParams();
+
+  if (action === 'stand') {
+    manualState.phase = 'result';
+    enableActions(false);
+    // reveal house
+    const houseFinal = resolveHouse(manualState.houseVisible, manualState.houseHidden);
+    renderDice('house-dice', manualState.houseDice);
+    const hbust = houseFinal > 21;
+    $('house-sum').textContent = hbust ? 'BUST (' + houseFinal + ')' : 'Sum: ' + houseFinal;
+    $('house-sum').className = 'sum-badge ' + (hbust ? 'bust' : 'valid');
+
+    // result
+    const p = manualState.playerSum;
+    let result, payout;
+    const r = lastResult;
+    if (hbust) {
+      result = 'win'; payout = params.WIN_PAY;
+    } else if (p > houseFinal) {
+      result = 'win'; payout = params.WIN_PAY;
+    } else if (p === houseFinal) {
+      result = 'push'; payout = params.BET;
+    } else {
+      result = 'lose'; payout = 0;
+    }
+    showResult(result, payout);
+  }
+  else if (action === 'hit') {
+    const dice = rollDice(params.HIT_DICE);
+    const add = sumDice(dice);
+    manualState.playerSum += add;
+    manualState.playerDice = manualState.playerDice.concat(dice);
+    renderDice('player-dice', manualState.playerDice);
+    const bust = manualState.playerSum > 21;
+    const perf = manualState.playerSum === 21;
+    $('player-sum').textContent = bust ? 'BUST (' + manualState.playerSum + ')' : 'Sum: ' + manualState.playerSum;
+    $('player-sum').className = 'sum-badge ' + (bust ? 'bust' : (perf ? 'blackjack' : 'valid'));
+
+    if (bust) {
+      manualState.phase = 'result';
+      enableActions(false);
+      showResult('lose', 0);
+    } else if (perf) {
+      manualState.phase = 'result';
+      enableActions(false);
+      const houseFinal = resolveHouse(manualState.houseVisible, manualState.houseHidden);
+      renderDice('house-dice', manualState.houseDice);
+      const hbust = houseFinal > 21;
+      $('house-sum').textContent = hbust ? 'BUST (' + houseFinal + ')' : 'Sum: ' + houseFinal;
+      $('house-sum').className = 'sum-badge ' + (hbust ? 'bust' : 'valid');
+      showResult('win', params.COUNTER_BONUS);
+    } else {
+      updateManualEV();
+      if (manualState.playerSum >= params.COUNTER_THRESH) {
+        $('act-counter').disabled = false;
+      } else {
+        $('act-counter').disabled = true;
+      }
+    }
+  }
+  else if (action === 'counter') {
+    if (manualState.playerSum < params.COUNTER_THRESH) return;
+    const die = rollDie();
+    manualState.playerSum += die;
+    manualState.playerDice = manualState.playerDice.concat([die]);
+    renderDice('player-dice', manualState.playerDice);
+    enableActions(false);
+    manualState.phase = 'result';
+
+    const bust = manualState.playerSum > 21;
+    const perf = manualState.playerSum === 21;
+    $('player-sum').textContent = bust ? 'BUST (' + manualState.playerSum + ')' : 'Sum: ' + manualState.playerSum;
+    $('player-sum').className = 'sum-badge ' + (bust ? 'bust' : (perf ? 'blackjack' : 'valid'));
+
+    // reveal house
+    const houseFinal = resolveHouse(manualState.houseVisible, manualState.houseHidden);
+    renderDice('house-dice', manualState.houseDice);
+    const hbust = houseFinal > 21;
+    $('house-sum').textContent = hbust ? 'BUST (' + houseFinal + ')' : 'Sum: ' + houseFinal;
+    $('house-sum').className = 'sum-badge ' + (hbust ? 'bust' : 'valid');
+
+    if (bust) {
+      showResult('lose', -params.COUNTER_LOSS_PEN);
+    } else if (perf) {
+      showResult('win', params.COUNTER_BONUS);
+    } else if (hbust) {
+      showResult('win', params.WIN_PAY);
+    } else if (manualState.playerSum > houseFinal) {
+      showResult('win', params.WIN_PAY);
+    } else if (manualState.playerSum === houseFinal) {
+      showResult('push', params.BET);
+    } else {
+      showResult('lose', -params.COUNTER_LOSS_PEN);
+    }
+  }
+}
+
+function showResult(result, grossPayout) {
+  const bet = getParams().BET;
+  const net = grossPayout - bet;
+  const banner = $('game-result');
+  const label = result === 'win' ? 'WIN! +' + net : (result === 'lose' ? 'LOSE ' + net : 'PUSH ±0');
+  banner.innerHTML = '<div class="result-banner ' + result + '">' + label + '</div>';
+  manualStats.games++;
+  manualStats.net += net;
+  $('manual-stats').textContent = 'Games: ' + manualStats.games + ' · Net: ' + fmtDollar(manualStats.net);
+}
+
+$('act-stand').addEventListener('click', () => manualAction('stand'));
+$('act-hit').addEventListener('click', () => manualAction('hit'));
+$('act-counter').addEventListener('click', () => manualAction('counter'));
+
+// Auto restart manual game
+document.addEventListener('keydown', (e) => {
+  if (e.key === ' ' && manualState && manualState.phase === 'result') {
+    e.preventDefault();
+    startManualGame();
+  }
+  if (e.key === ' ' && !manualState) {
+    e.preventDefault();
+    startManualGame();
+  }
+});
+
+// ═══════════════════════════════════════════════
+// Auto Pilot
+// ═══════════════════════════════════════════════
+function startAPGame() {
+  const params = getParams();
+  const playerStart = rollDice(params.P_START_DICE);
+  const houseDice = rollDice(2);
+  manualState = {
+    playerSum: sumDice(playerStart),
+    playerDice: playerStart,
+    houseVisible: houseDice[0],
+    houseHidden: houseDice[1],
+    houseDice: houseDice,
+    phase: 'player',
+    playerDone: false,
+    hitCount: 0
+  };
+  renderDice('ap-player-dice', manualState.playerDice);
+  renderDice('ap-house-dice', [manualState.houseDice[0], manualState.houseDice[1]], [1]);
+  $('ap-player-sum').textContent = 'Sum: ' + manualState.playerSum;
+  $('ap-player-sum').className = 'sum-badge valid';
+  $('ap-house-sum').textContent = '? + ' + manualState.houseVisible;
+  $('ap-house-sum').className = 'sum-badge valid';
+  $('ap-game-result').innerHTML = '';
+  updateAPEV();
+}
+
+function updateAPEV() {
+  if (!lastResult || !manualState || manualState.phase !== 'player') {
+    $('ap-game-ev').innerHTML = '';
+    return;
+  }
+  const r = lastResult;
+  const p = manualState.playerSum;
+  const hv = manualState.houseVisible - 1;
+  const sEv = r.evStand(p, hv);
+  const hEv = r.evHit(p, hv);
+  const params = getParams();
+  let html = '<div class="ev-item">Stand: <span class="ev-val" style="color:var(--accent)">' + sEv.toFixed(1) + '</span></div>' +
+             '<div class="ev-item">Hit: <span class="ev-val" style="color:#c084fc">' + hEv.toFixed(1) + '</span></div>';
+  if (p >= params.COUNTER_THRESH) {
+    const cEv = r.evCounter(p, hv);
+    html += '<div class="ev-item">Counter: <span class="ev-val" style="color:var(--gold)">' + cEv.toFixed(1) + '</span></div>';
+  }
+  // show optimal action
+  const i = r.idx(p, hv);
+  const bestAct = r.policy[i];
+  html += ' &nbsp;→ <strong style="color:var(--accent)">AI: ' + bestAct + '</strong>';
+  $('ap-game-ev').innerHTML = html;
+}
+
+function apStep() {
+  if (!manualState) { startAPGame(); return; }
+  if (manualState.phase === 'result') {
+    startAPGame();
+    // If running, schedule next
+    if (apRunning && apTimer === null) {
+      const speed = parseInt($('ap-speed').value);
+      apTimer = setTimeout(() => { apTimer = null; if (apRunning) apStep(); }, speed);
+    }
+    return;
+  }
+  if (manualState.phase !== 'player') return;
+
+  const params = getParams();
+  const r = lastResult;
+  const p = manualState.playerSum;
+  const hv = manualState.houseVisible - 1;
+  const i = r.idx(p, hv);
+  const bestAct = r.policy[i];
+
+  if (bestAct === 'S') {
+    manualActionAP('stand');
+  } else if (bestAct === 'H') {
+    manualActionAP('hit');
+  } else {
+    manualActionAP('counter');
+  }
+}
+
+function manualActionAP(action) {
+  if (!manualState || manualState.phase !== 'player') return;
+  const params = getParams();
+
+  if (action === 'stand') {
+    manualState.phase = 'result';
+    const houseFinal = resolveHouse(manualState.houseVisible, manualState.houseHidden);
+    renderDice('ap-house-dice', manualState.houseDice);
+    const hbust = houseFinal > 21;
+    $('ap-house-sum').textContent = hbust ? 'BUST (' + houseFinal + ')' : 'Sum: ' + houseFinal;
+    $('ap-house-sum').className = 'sum-badge ' + (hbust ? 'bust' : 'valid');
+    const p = manualState.playerSum;
+    let result, payout;
+    if (hbust) { result = 'win'; payout = params.WIN_PAY; }
+    else if (p > houseFinal) { result = 'win'; payout = params.WIN_PAY; }
+    else if (p === houseFinal) { result = 'push'; payout = params.BET; }
+    else { result = 'lose'; payout = 0; }
+    apShowResult(result, payout);
+  }
+  else if (action === 'hit') {
+    const dice = rollDice(params.HIT_DICE);
+    const add = sumDice(dice);
+    manualState.playerSum += add;
+    manualState.playerDice = manualState.playerDice.concat(dice);
+    renderDice('ap-player-dice', manualState.playerDice);
+    const bust = manualState.playerSum > 21;
+    const perf = manualState.playerSum === 21;
+    $('ap-player-sum').textContent = bust ? 'BUST (' + manualState.playerSum + ')' : 'Sum: ' + manualState.playerSum;
+    $('ap-player-sum').className = 'sum-badge ' + (bust ? 'bust' : (perf ? 'blackjack' : 'valid'));
+    if (bust) {
+      manualState.phase = 'result';
+      apShowResult('lose', 0);
+    } else if (perf) {
+      manualState.phase = 'result';
+      const houseFinal = resolveHouse(manualState.houseVisible, manualState.houseHidden);
+      renderDice('ap-house-dice', manualState.houseDice);
+      $('ap-house-sum').textContent = houseFinal > 21 ? 'BUST (' + houseFinal + ')' : 'Sum: ' + houseFinal;
+      apShowResult('win', params.COUNTER_BONUS);
+    } else {
+      updateAPEV();
+      // schedule next step
+      if (apRunning && apTimer === null) {
+        const speed = parseInt($('ap-speed').value);
+        apTimer = setTimeout(() => { apTimer = null; if (apRunning) apStep(); }, speed);
+      }
+    }
+  }
+  else if (action === 'counter') {
+    if (manualState.playerSum < params.COUNTER_THRESH) return;
+    const die = rollDie();
+    manualState.playerSum += die;
+    manualState.playerDice = manualState.playerDice.concat([die]);
+    renderDice('ap-player-dice', manualState.playerDice);
+    manualState.phase = 'result';
+    const bust = manualState.playerSum > 21;
+    const perf = manualState.playerSum === 21;
+    $('ap-player-sum').textContent = bust ? 'BUST (' + manualState.playerSum + ')' : 'Sum: ' + manualState.playerSum;
+    $('ap-player-sum').className = 'sum-badge ' + (bust ? 'bust' : (perf ? 'blackjack' : 'valid'));
+    const houseFinal = resolveHouse(manualState.houseVisible, manualState.houseHidden);
+    renderDice('ap-house-dice', manualState.houseDice);
+    const hbust = houseFinal > 21;
+    $('ap-house-sum').textContent = hbust ? 'BUST (' + houseFinal + ')' : 'Sum: ' + houseFinal;
+    $('ap-house-sum').className = 'sum-badge ' + (hbust ? 'bust' : 'valid');
+    if (bust) { apShowResult('lose', -params.COUNTER_LOSS_PEN); }
+    else if (perf) { apShowResult('win', params.COUNTER_BONUS); }
+    else if (hbust) { apShowResult('win', params.WIN_PAY); }
+    else if (manualState.playerSum > houseFinal) { apShowResult('win', params.WIN_PAY); }
+    else if (manualState.playerSum === houseFinal) { apShowResult('push', params.BET); }
+    else { apShowResult('lose', -params.COUNTER_LOSS_PEN); }
+  }
+}
+
+function apShowResult(result, grossPayout) {
+  const bet = getParams().BET;
+  const net = grossPayout - bet;
+  const banner = $('ap-game-result');
+  const label = result === 'win' ? 'WIN! +' + net : (result === 'lose' ? 'LOSE ' + net : 'PUSH ±0');
+  banner.innerHTML = '<div class="result-banner ' + result + '">' + label + '</div>';
+  apStats.games++;
+  if (result === 'win') apStats.wins++;
+  else if (result === 'lose') apStats.losses++;
+  else apStats.pushes++;
+  apStats.net += net;
+  $('ap-manual-stats').textContent = 'Games: ' + apStats.games + ' · Win: ' + apStats.wins + ' · Lose: ' + apStats.losses + ' · Push: ' + apStats.pushes + ' · Net: ' + fmtDollar(apStats.net);
+  updateAPStatsSidebar();
+
+  // Schedule next if running
+  if (apRunning && apTimer === null) {
+    const speed = parseInt($('ap-speed').value);
+    apTimer = setTimeout(() => { apTimer = null; if (apRunning) apStep(); }, speed);
+  }
+}
+
+function updateAPStatsSidebar() {
+  let wr = apStats.games > 0 ? ((apStats.wins + apStats.pushes * 0.5) / apStats.games * 100).toFixed(1) : '—';
+  $('ap-stats').textContent = 'Games: ' + apStats.games + ' · Win: ' + apStats.wins + ' · Lose: ' + apStats.losses + ' · Push: ' + apStats.pushes + ' · Net: ' + fmtDollar(apStats.net) + ' · WR: ' + wr + '%';
+}
+
+// Auto Pilot controls
+$('ap-play').addEventListener('click', () => {
+  apRunning = true;
+  $('ap-play').disabled = true;
+  $('ap-pause').disabled = false;
+  $('ap-step').disabled = true;
+  if (!manualState || manualState.phase === 'result') startAPGame();
+  const speed = parseInt($('ap-speed').value);
+  apTimer = setTimeout(() => { apTimer = null; if (apRunning) apStep(); }, speed);
+});
+
+$('ap-pause').addEventListener('click', () => {
+  apRunning = false;
+  if (apTimer) { clearTimeout(apTimer); apTimer = null; }
+  $('ap-play').disabled = false;
+  $('ap-pause').disabled = true;
+  $('ap-step').disabled = false;
+});
+
+$('ap-step').addEventListener('click', () => {
+  apStep();
+});
+
+$('ap-reset').addEventListener('click', () => {
+  if (apTimer) { clearTimeout(apTimer); apTimer = null; }
+  apRunning = false;
+  $('ap-play').disabled = false;
+  $('ap-pause').disabled = true;
+  $('ap-step').disabled = false;
+  apStats = { games: 0, wins: 0, losses: 0, pushes: 0, net: 0 };
+  $('ap-manual-stats').textContent = 'Games: 0 · Win: 0 · Lose: 0 · Push: 0 · Net: $0';
+  updateAPStatsSidebar();
+  manualState = null;
+  $('ap-game-result').innerHTML = '';
+  $('ap-player-dice').innerHTML = '';
+  $('ap-house-dice').innerHTML = '';
+  $('ap-game-ev').innerHTML = '';
+});
+
+// ═══════════════════════════════════════════════
+// Init
+// ═══════════════════════════════════════════════
+recompute();
+startManualGame();
+</script>
+</body>
+</html>

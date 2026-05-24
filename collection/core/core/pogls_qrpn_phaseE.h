@@ -23,6 +23,7 @@
 #define POGLS_QRPN_H
 
 #include <stdint.h>
+#include <inttypes.h>
 #include <stdatomic.h>
 #include "pogls_platform.h"   /* PHI_UP, PHI_DOWN, PHI_COMP, PHI_SCALE */
 
@@ -236,6 +237,7 @@ static inline int qrpn_verify_fast(uint64_t value,
 
     /* Normalize c → 32-bit domain for cross-path comparison */
     uint32_t Cq = qrpn_mix32(c);
+    (void)Cq;
 
     /* L2: GPU witness cross-check (FINAL CORRECT)
      *
@@ -369,12 +371,12 @@ static inline void qrpn_stats_print(const qrpn_ctx_t *ctx)
     uint64_t soft   = atomic_load(&ctx->soft_rewind);
     uint64_t hard   = atomic_load(&ctx->hard_abort);
     fprintf(stderr,
-        "[QRPN] total=%llu shadow_fail=%llu soft_rewind=%llu hard_abort=%llu"
+        "[QRPN] total=%" PRIu64 " shadow_fail=%" PRIu64 " soft_rewind=%" PRIu64 " hard_abort=%" PRIu64
         " fail_rate=%.4f%%\n",
-        (unsigned long long)total,
-        (unsigned long long)shadow,
-        (unsigned long long)soft,
-        (unsigned long long)hard,
+        total,
+        shadow,
+        soft,
+        hard,
         total ? (double)(shadow+soft+hard)*100.0/(double)total : 0.0);
 }
 

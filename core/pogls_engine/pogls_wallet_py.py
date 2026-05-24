@@ -352,7 +352,7 @@ class WalletBuilder:
 
         hdr = struct.pack(
             _HDR_FMT,
-            WALLET_MAGIC, WALLET_VERSION, self.mode, flags, 0,   # _pad0=0
+            WALLET_MAGIC, WALLET_VERSION, self.mode, flags,
             self.wallet_id,
             file_count, coord_count,
             hdr_size,        # file_entry_offset

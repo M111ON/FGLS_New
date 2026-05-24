@@ -19,6 +19,7 @@
 #include <string.h>
 #include "geo_config.h"
 #include "geo_net.h"
+#include "pogls_bond.h"     /* intrinsic bond layer: piece, slot, fibo_addr */
 #include "geo_radial_hilbert.h"
 
 /* ── GeoPacketWire (matches geomatrix_gpu_wire.cu) ───────────────── */

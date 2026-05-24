@@ -1,0 +1,19 @@
+{
+  "max_open": 1,
+  "default_coord": {"zone": 2, "shape": "S", "ns": null},
+  "models": {
+    "qwen": {
+      "gguf_path": "I:/Vault/models/Qwen3-0.6B-Q8_0.gguf",
+      "store_path": "I:/FGLS_new/collection/build/qwen_geom_v3",
+      "force_cpu": true,
+      "dim": 1024,
+      "gear": 2,
+      "code_dim": 32
+    }
+  },
+  "coords": [
+    {"zone": 2, "shape": "S", "ns": null, "model_key": "qwen"},
+    {"zone": 6, "shape": "I", "ns": null, "model_key": "qwen"},
+    {"zone": 3, "shape": "T", "ns": null, "model_key": "qwen"}
+  ]
+}

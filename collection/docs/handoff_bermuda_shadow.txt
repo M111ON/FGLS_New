@@ -1,0 +1,189 @@
+POGLS Session Handoff — Bermuda Triangle + Shadow Protocol
+===========================================================
+Generated: May 20, 2026
+
+FILES THIS SESSION:
+  pogls_vqvae.py           — VQ-POGLS + traverse consistency loss (updated)
+  pogls_vqvae_text.py      — VQ-POGLS wired to sentence-transformers (100 sentences)
+  bermuda_reshape.py       — Tensor Bermuda Triangle v1 (baseline)
+  bermuda_reshape_v2.py    — Bermuda v2 + Shadow Protocol + CROSS self-inverse fix
+
+EXTERNAL FILES (from local AI session, not modified here):
+  pogls_shell.h            — ShellN(n) world armor engine (n=4..16)
+  pogls_temporal.h         — FiftyFourBridge + TemporalEntry + Lane5
+  pogls_temporal_lane5.h   — NegativeShadow + InvertedTimeline + checkpoint
+
+════════════════════════════════════════════════════════════
+TRAVERSE CONSISTENCY LOSS (pogls_vqvae.py)
+════════════════════════════════════════════════════════════
+
+Added to VqPogls.loss():
+  L_trav = mean MSE(decode(traverse(idx, mode)), x_hat.detach()) over all 4 modes
+  lam_trav = 0.05
+  Differentiable path: uses codebook.codes[nxt] directly (not no_grad decode)
+  anchor = x_hat.detach() — train neighbor to decode near same space
+
+Result:
+  ORBITAL MSE dropped (smooth neighbor) ✓
+  CHIRAL/CROSS/HUB MSE high = correct (long-range jump by design)
+
+════════════════════════════════════════════════════════════
+BERMUDA TRIANGLE CORE CONCEPT
+════════════════════════════════════════════════════════════
+
+Metaphor: Bermuda Triangle = geometry bottleneck
+  tensor เข้า → หายใน geometry space → ออกมา shape ต่างกัน
+  topology ไม่แตก, semantic preserved
+
+Pipeline:
+  [..., D] → flatten → encode → geometry addr
+                                     ↓
+                                traverse (mode)
+                                     ↓
+                                decode → reshape → [new_shape, D]
+
+Traverse modes:
+  ORBITAL  +1          local step (smooth, low MSE)
+  CHIRAL   +n//2       mirror zone / parallel dimension
+  CROSS    zone↔partner entangled pair (SELF-INVERSE fixed)
+  HUB      →anchor     collapse to zone anchor (compression)
+
+CROSS self-inverse fix:
+  Bug: previous formula broke cpair(cpair(x)) = x
+  Fix: use INV37=253 (37⁻¹ mod 720) to invert walk correctly
+       encs → zones → CROSS_LUT → new_encs → (new_encs * INV37) % n_codes
+  Verified: CROSS_LUT[CROSS_LUT[z]] = z for all z in 0..11 ✓
+
+════════════════════════════════════════════════════════════
+SHADOW PROTOCOL (bermuda_reshape_v2.py)
+════════════════════════════════════════════════════════════
+
+Metal detector analogy:
+  core   = ตัวคน    (geometry-passable signal)
+  shadow = กระเป๋า  (residual, ห้อยรอข้างนอก gate)
+  offset = เข็มขัด  (per-token mean, scale/bias)
+  snapshot = ตั๋ว   (ticket พิสูจน์ topology ไม่แตก)
+
+Functions:
+  strip(x_flat)  → core, offset, shadow
+    offset = x.mean(dim=-1, keepdim=True)       [N, 1]
+    core   = x - offset - batch_mean            [N, D]
+    shadow = residual vs batch mean             [N, D]
+
+  reattach(core_out, snap) → x_out
+    x_out = core_out + shadow.reshape(N,D) + offset.reshape(N,1)
+
+  bermuda_pass(gate, x, out_shape, mode) → x_out, BermudaSnapshot
+    full pipeline: strip → gate → reattach → reshape
+
+BermudaSnapshot dataclass:
+  offset, shadow, idx_in, orig_shape, out_shape, mode
+
+Key result from experiments:
+  [1] valid=True all modes — topology never breaks
+  [2] [4,16,128]→[8,8,128] valid all modes ✓
+  [3] HUB collapse → ≤12 unique positions (zone anchors) ✓
+  [4] CROSS self-inverse: 100% after fix ✓
+  [5] 2-gate pipeline [6,8]→CHIRAL→[4,12]→CROSS→[6,8] valid ✓
+
+════════════════════════════════════════════════════════════
+SHELL ARMOR INTEGRATION (MERGED BY LOCAL AI — NOT YET CODED)
+════════════════════════════════════════════════════════════
+
+Concept (from pogls_shell.h + bermuda + bond):
+  ShellN(n) = world armor layer
+    size_162 = 162 × n   geometry side
+    size_128 = 128 × n   compute side
+    delta    = 34 × (n+1)  gap = n_shell boundary
+    gate_18  = delta % 18 == 0  → clean anchor (n=8 is ANCHOR)
+
+  n_shell = decimal dissolution point
+    tensor dimension ที่หาร LCM ไม่ลงตัว → ใส่ shell padding จนครบ
+    หลัง gate → shed shell → เหลือ core ใน shape จริง
+
+  NegativeShadow (pogls_temporal_lane5.h):
+    สิ่งที่ Bermuda gate ทำไม่ได้ → ไม่ทิ้ง
+    → persist ลง Lane5 (cold storage) เป็น "รอยเท้า"
+    → recall flow: ring (hot) → Lane5 (cold) → not found
+
+Pseudo-pipeline v3 (NOT YET IMPLEMENTED):
+  bermuda_pass_v3(x, n=4):
+    shell_size  = lcm(x.shape, 162*n, 128*n)
+    x_armored   = pad_to_shell(x, shell_size)
+    core, snap  = strip(x_armored)
+    core_out    = bermuda_gate(core, mode)
+    x_out       = reattach(core_out, snap)
+    x_final     = shed_shell(x_out, orig_shape)
+    # residual → NegativeShadow → Lane5 persist
+
+════════════════════════════════════════════════════════════
+ARCHITECTURE INSIGHT (FROZEN)
+════════════════════════════════════════════════════════════
+
+POGLS ไม่ใช่แค่ storage engine อีกต่อไป
+มันคือ shape-invariant transport layer สำหรับ tensor ระหว่าง AI models
+
+  ShellN    = armor   เข้าได้ทุก gate ถ้าใส่เกราะถูก layer
+  Bermuda   = fog     เข้าแล้วเปลี่ยน shape โดย topology ไม่แตก
+  Shadow    = ghost   สิ่งที่ผ่านไม่ได้ไม่หาย แค่ห้อยรอ (NegativeShadow)
+  Snapshot  = ticket  พิสูจน์ entity เดิมออกมา
+  n_shell   = boundary decimal dissolution point ระหว่าง worlds
+
+Tensor reshape insight (from handoff_vqpogls.txt, now extended):
+  Tensor [batch, seq, dim] maps to [zone, frame, cell]
+  Reshape = traverse (ORBITAL/CHIRAL/CROSS/HUB) — no topology break
+  Shadow carries residual through gate — reattach restores fidelity
+  Shell armor enables any→any reshape via LCM padding
+
+════════════════════════════════════════════════════════════
+NEXT STEPS
+════════════════════════════════════════════════════════════
+
+CRITICAL:
+  [ ] bermuda_reshape_v3.py
+        Implement ShellN pad_to_shell() + shed_shell()
+        LCM-based padding: lcm(N, 162*n, 128*n)
+        n=8 as default ANCHOR (gate_18-clean)
+
+  [ ] NegativeShadow persist
+        residual ที่ recon error > threshold → write to Lane5
+        recall: check Lane5 before "not found"
+        ต่อกับ pogls_temporal_lane5.h
+
+  [ ] Wire Bermuda into real tensor pipeline
+        Option A: llama.cpp hidden states hook (มีอยู่แล้วใน B9 runner)
+        Option B: ViT patch reshape between attention layers
+        Option C: multi-LLM orchestration — tensor hand-off between models
+
+NICE TO HAVE:
+  [ ] Benchmark reshape throughput (target: ≥ native torch.reshape speed)
+  [ ] n_shell sweep: test n=4,5,6,8 → find optimal world for each dim
+  [ ] Bond layer: formal definition of tensor↔tensor binding via geometry
+
+════════════════════════════════════════════════════════════
+KEY NUMBERS (FROZEN + EXTENDED)
+════════════════════════════════════════════════════════════
+
+  12    pentagon faces / zones          (Dodeca, invariant)
+  18    gate divisor                    (2×3², ShellN anchor)
+  34    delta constant                  (2×17=2×Fib(7))
+  37    walk stride                     (prime, gcd(37,720)=1)
+  54    bridge nexus                    (2×3³)
+  60    slots per zone                  (FACE_SZ)
+  162   icosphere L2 nodes              (54×3, NODE_MAX)
+  240   unique geometry positions       (720/3)
+  253   INV37 = 37⁻¹ mod 720           (CROSS self-inverse key)
+  720   walk cycle                      (12×60)
+  1728  per pentagon                    (12³)
+  20736 reshape junction                (12⁴ = 2⁸×3⁴)
+
+  ShellN worlds:
+    n=4  → 648 / 512    delta=170
+    n=5  → 810 / 640    delta=204
+    n=6  → 972 / 768    delta=238
+    n=8  → 1296 / 1024  delta=306  ← ANCHOR (gate_18 ✓)
+
+All sacred numbers digit-sum = 9 ✓
+gcd(37, 720) = 1 (bijective walk) ✓
+cpair(cpair(x)) = x (CROSS self-inverse) ✓
+F - E + V = 2 (Euler invariant) ✓

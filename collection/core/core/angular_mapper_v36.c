@@ -18,10 +18,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <inttypes.h>
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#endif
 
 /* ═══════════════════════════════════════════════════════════════════════
    ICOSPHERE TOPOLOGY TABLE  (unchanged from V3.0)
@@ -307,6 +312,30 @@ POGLS_Context* pogls_init(const char *vault_path, POGLS_Mode mode,
     ctx->work_buffer = (uint8_t*)malloc(ctx->buffer_size);
     if (!ctx->work_buffer) { free(ctx); return NULL; }
 
+#ifdef _WIN32
+    if (vault_path) {
+        FILE *fp = fopen(vault_path, "rb");
+        if (!fp) { free(ctx->work_buffer); free(ctx); return NULL; }
+        if (fseek(fp, 0, SEEK_END) != 0) { fclose(fp); free(ctx->work_buffer); free(ctx); return NULL; }
+        long sz = ftell(fp);
+        if (sz < 0) { fclose(fp); free(ctx->work_buffer); free(ctx); return NULL; }
+        if (fseek(fp, 0, SEEK_SET) != 0) { fclose(fp); free(ctx->work_buffer); free(ctx); return NULL; }
+        ctx->mmap_size = (uint64_t)sz;
+        if (ctx->mmap_size > 0) {
+            ctx->mmap_base = malloc((size_t)ctx->mmap_size);
+            if (!ctx->mmap_base) { fclose(fp); free(ctx->work_buffer); free(ctx); return NULL; }
+            if (fread(ctx->mmap_base, 1, (size_t)ctx->mmap_size, fp) != (size_t)ctx->mmap_size) {
+                free(ctx->mmap_base);
+                fclose(fp);
+                free(ctx->work_buffer);
+                free(ctx);
+                return NULL;
+            }
+            ctx->header = (POGLS_Header*)ctx->mmap_base;
+        }
+        fclose(fp);
+    }
+#else
     if (vault_path) {
         int fd = open(vault_path, O_RDWR | O_CREAT, 0644);
         if (fd < 0) { free(ctx->work_buffer); free(ctx); return NULL; }
@@ -322,14 +351,19 @@ POGLS_Context* pogls_init(const char *vault_path, POGLS_Mode mode,
         }
         close(fd);
     }
+#endif
     return ctx;
 }
 
 void pogls_destroy(POGLS_Context *ctx)
 {
     if (!ctx) return;
+#ifdef _WIN32
+    free(ctx->mmap_base);
+#else
     if (ctx->mmap_base && ctx->mmap_base != MAP_FAILED)
         munmap(ctx->mmap_base, ctx->mmap_size);
+#endif
     free(ctx->work_buffer);
     free(ctx);
 }
@@ -341,9 +375,9 @@ void pogls_destroy(POGLS_Context *ctx)
 void pogls_print_address(const POGLS_AngularAddress *addr)
 {
     uint32_t n_idx = fibo_addr_to_node_a((uint32_t)addr->address);
-    printf("  node=%u  |  n=%u  |  A=%llu  |  topo=%u (%u verts)\n",
+    printf("  node=%u  |  n=%u  |  A=%" PRIu64 "  |  topo=%u (%u verts)\n",
            n_idx, addr->n,
-           (unsigned long long)addr->address,
+           (uint64_t)addr->address,
            addr->topo_level, addr->vertex_count);
 }
 
@@ -351,10 +385,10 @@ void pogls_print_context(const POGLS_Context *ctx)
 {
     printf("╔══════ POGLS V3.6 Context ══════╗\n");
     printf("  Mode:        %u\n",     ctx->mode);
-    printf("  n_bits:      %u  (2^n = %llu addresses)\n",
-           ctx->n_bits, (1ULL << ctx->n_bits));
-    printf("  Buffer:      %zu bytes\n", ctx->buffer_size);
-    printf("  mmap size:   %llu bytes\n", (unsigned long long)ctx->mmap_size);
+    printf("  n_bits:      %u  (2^n = %" PRIu64 " addresses)\n",
+           ctx->n_bits, (uint64_t)(1ULL << ctx->n_bits));
+    printf("  Buffer:      %" PRIu64 " bytes\n", (uint64_t)ctx->buffer_size);
+    printf("  mmap size:   %" PRIu64 " bytes\n", (uint64_t)ctx->mmap_size);
     printf("  Float:       none\n");
     printf("╚════════════════════════════════╝\n");
 }

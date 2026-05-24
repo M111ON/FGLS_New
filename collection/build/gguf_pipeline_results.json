@@ -1,0 +1,2382 @@
+{
+  "model": "Qwen3-0.6B-Q8_0",
+  "total_tensors": 113,
+  "total_rows": 147456,
+  "total_time_s": 208.33,
+  "avg_tok_s": 772.0,
+  "per_tensor": {
+    "token_embd.weight": {
+      "rows": 4096,
+      "time_s": 5.13,
+      "tok_s": 798.0,
+      "ORBITAL": {
+        "tokens": 4096,
+        "entries": 4096
+      },
+      "CHIRAL": {
+        "tokens": 4096,
+        "entries": 4096
+      },
+      "CROSS": {
+        "tokens": 4096,
+        "entries": 4096
+      },
+      "HUB": {
+        "tokens": 4096,
+        "entries": 4096
+      }
+    },
+    "blk.0.attn_k.weight": {
+      "rows": 1024,
+      "time_s": 0.97,
+      "tok_s": 1052.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.0.attn_output.weight": {
+      "rows": 1024,
+      "time_s": 0.98,
+      "tok_s": 1049.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.0.attn_q.weight": {
+      "rows": 2048,
+      "time_s": 2.23,
+      "tok_s": 918.0,
+      "ORBITAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CHIRAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CROSS": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "HUB": {
+        "tokens": 2048,
+        "entries": 2048
+      }
+    },
+    "blk.0.attn_v.weight": {
+      "rows": 1024,
+      "time_s": 1.41,
+      "tok_s": 724.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.1.attn_k.weight": {
+      "rows": 1024,
+      "time_s": 1.62,
+      "tok_s": 634.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.1.attn_output.weight": {
+      "rows": 1024,
+      "time_s": 1.4,
+      "tok_s": 732.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.1.attn_q.weight": {
+      "rows": 2048,
+      "time_s": 2.65,
+      "tok_s": 772.0,
+      "ORBITAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CHIRAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CROSS": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "HUB": {
+        "tokens": 2048,
+        "entries": 2048
+      }
+    },
+    "blk.1.attn_v.weight": {
+      "rows": 1024,
+      "time_s": 1.43,
+      "tok_s": 716.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.2.attn_k.weight": {
+      "rows": 1024,
+      "time_s": 1.4,
+      "tok_s": 734.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.2.attn_output.weight": {
+      "rows": 1024,
+      "time_s": 1.33,
+      "tok_s": 772.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.2.attn_q.weight": {
+      "rows": 2048,
+      "time_s": 2.89,
+      "tok_s": 709.0,
+      "ORBITAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CHIRAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CROSS": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "HUB": {
+        "tokens": 2048,
+        "entries": 2048
+      }
+    },
+    "blk.2.attn_v.weight": {
+      "rows": 1024,
+      "time_s": 2.09,
+      "tok_s": 489.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.3.attn_k.weight": {
+      "rows": 1024,
+      "time_s": 1.51,
+      "tok_s": 679.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.3.attn_output.weight": {
+      "rows": 1024,
+      "time_s": 1.48,
+      "tok_s": 694.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.3.attn_q.weight": {
+      "rows": 2048,
+      "time_s": 2.63,
+      "tok_s": 778.0,
+      "ORBITAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CHIRAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CROSS": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "HUB": {
+        "tokens": 2048,
+        "entries": 2048
+      }
+    },
+    "blk.3.attn_v.weight": {
+      "rows": 1024,
+      "time_s": 1.34,
+      "tok_s": 765.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.4.attn_k.weight": {
+      "rows": 1024,
+      "time_s": 1.35,
+      "tok_s": 759.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.4.attn_output.weight": {
+      "rows": 1024,
+      "time_s": 1.28,
+      "tok_s": 801.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.4.attn_q.weight": {
+      "rows": 2048,
+      "time_s": 2.6,
+      "tok_s": 788.0,
+      "ORBITAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CHIRAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CROSS": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "HUB": {
+        "tokens": 2048,
+        "entries": 2048
+      }
+    },
+    "blk.4.attn_v.weight": {
+      "rows": 1024,
+      "time_s": 1.3,
+      "tok_s": 785.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.5.attn_k.weight": {
+      "rows": 1024,
+      "time_s": 1.33,
+      "tok_s": 770.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.5.attn_output.weight": {
+      "rows": 1024,
+      "time_s": 1.33,
+      "tok_s": 769.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.5.attn_q.weight": {
+      "rows": 2048,
+      "time_s": 2.61,
+      "tok_s": 786.0,
+      "ORBITAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CHIRAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CROSS": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "HUB": {
+        "tokens": 2048,
+        "entries": 2048
+      }
+    },
+    "blk.5.attn_v.weight": {
+      "rows": 1024,
+      "time_s": 1.31,
+      "tok_s": 781.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.6.attn_k.weight": {
+      "rows": 1024,
+      "time_s": 1.31,
+      "tok_s": 779.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.6.attn_output.weight": {
+      "rows": 1024,
+      "time_s": 1.34,
+      "tok_s": 765.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.6.attn_q.weight": {
+      "rows": 2048,
+      "time_s": 2.58,
+      "tok_s": 793.0,
+      "ORBITAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CHIRAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CROSS": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "HUB": {
+        "tokens": 2048,
+        "entries": 2048
+      }
+    },
+    "blk.6.attn_v.weight": {
+      "rows": 1024,
+      "time_s": 1.3,
+      "tok_s": 786.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.7.attn_k.weight": {
+      "rows": 1024,
+      "time_s": 1.32,
+      "tok_s": 778.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.7.attn_output.weight": {
+      "rows": 1024,
+      "time_s": 1.37,
+      "tok_s": 749.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.7.attn_q.weight": {
+      "rows": 2048,
+      "time_s": 2.74,
+      "tok_s": 748.0,
+      "ORBITAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CHIRAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CROSS": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "HUB": {
+        "tokens": 2048,
+        "entries": 2048
+      }
+    },
+    "blk.7.attn_v.weight": {
+      "rows": 1024,
+      "time_s": 1.3,
+      "tok_s": 788.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.8.attn_k.weight": {
+      "rows": 1024,
+      "time_s": 1.31,
+      "tok_s": 781.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.8.attn_output.weight": {
+      "rows": 1024,
+      "time_s": 1.32,
+      "tok_s": 776.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.8.attn_q.weight": {
+      "rows": 2048,
+      "time_s": 2.65,
+      "tok_s": 772.0,
+      "ORBITAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CHIRAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CROSS": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "HUB": {
+        "tokens": 2048,
+        "entries": 2048
+      }
+    },
+    "blk.8.attn_v.weight": {
+      "rows": 1024,
+      "time_s": 1.31,
+      "tok_s": 783.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.9.attn_k.weight": {
+      "rows": 1024,
+      "time_s": 1.74,
+      "tok_s": 590.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.9.attn_output.weight": {
+      "rows": 1024,
+      "time_s": 1.29,
+      "tok_s": 792.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.9.attn_q.weight": {
+      "rows": 2048,
+      "time_s": 2.56,
+      "tok_s": 800.0,
+      "ORBITAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CHIRAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CROSS": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "HUB": {
+        "tokens": 2048,
+        "entries": 2048
+      }
+    },
+    "blk.9.attn_v.weight": {
+      "rows": 1024,
+      "time_s": 1.31,
+      "tok_s": 781.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.10.attn_k.weight": {
+      "rows": 1024,
+      "time_s": 1.36,
+      "tok_s": 752.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.10.attn_output.weight": {
+      "rows": 1024,
+      "time_s": 1.31,
+      "tok_s": 783.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.10.attn_q.weight": {
+      "rows": 2048,
+      "time_s": 2.64,
+      "tok_s": 777.0,
+      "ORBITAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CHIRAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CROSS": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "HUB": {
+        "tokens": 2048,
+        "entries": 2048
+      }
+    },
+    "blk.10.attn_v.weight": {
+      "rows": 1024,
+      "time_s": 1.31,
+      "tok_s": 783.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.11.attn_k.weight": {
+      "rows": 1024,
+      "time_s": 1.35,
+      "tok_s": 758.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.11.attn_output.weight": {
+      "rows": 1024,
+      "time_s": 1.3,
+      "tok_s": 786.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.11.attn_q.weight": {
+      "rows": 2048,
+      "time_s": 2.64,
+      "tok_s": 775.0,
+      "ORBITAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CHIRAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CROSS": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "HUB": {
+        "tokens": 2048,
+        "entries": 2048
+      }
+    },
+    "blk.11.attn_v.weight": {
+      "rows": 1024,
+      "time_s": 1.29,
+      "tok_s": 792.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.12.attn_k.weight": {
+      "rows": 1024,
+      "time_s": 1.33,
+      "tok_s": 768.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.12.attn_output.weight": {
+      "rows": 1024,
+      "time_s": 1.34,
+      "tok_s": 766.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.12.attn_q.weight": {
+      "rows": 2048,
+      "time_s": 2.65,
+      "tok_s": 772.0,
+      "ORBITAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CHIRAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CROSS": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "HUB": {
+        "tokens": 2048,
+        "entries": 2048
+      }
+    },
+    "blk.12.attn_v.weight": {
+      "rows": 1024,
+      "time_s": 1.36,
+      "tok_s": 755.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.13.attn_k.weight": {
+      "rows": 1024,
+      "time_s": 1.3,
+      "tok_s": 785.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.13.attn_output.weight": {
+      "rows": 1024,
+      "time_s": 1.35,
+      "tok_s": 757.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.13.attn_q.weight": {
+      "rows": 2048,
+      "time_s": 2.62,
+      "tok_s": 781.0,
+      "ORBITAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CHIRAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CROSS": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "HUB": {
+        "tokens": 2048,
+        "entries": 2048
+      }
+    },
+    "blk.13.attn_v.weight": {
+      "rows": 1024,
+      "time_s": 1.34,
+      "tok_s": 765.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.14.attn_k.weight": {
+      "rows": 1024,
+      "time_s": 1.4,
+      "tok_s": 731.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.14.attn_output.weight": {
+      "rows": 1024,
+      "time_s": 1.33,
+      "tok_s": 771.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.14.attn_q.weight": {
+      "rows": 2048,
+      "time_s": 2.61,
+      "tok_s": 785.0,
+      "ORBITAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CHIRAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CROSS": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "HUB": {
+        "tokens": 2048,
+        "entries": 2048
+      }
+    },
+    "blk.14.attn_v.weight": {
+      "rows": 1024,
+      "time_s": 1.35,
+      "tok_s": 760.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.15.attn_k.weight": {
+      "rows": 1024,
+      "time_s": 1.34,
+      "tok_s": 765.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.15.attn_output.weight": {
+      "rows": 1024,
+      "time_s": 1.32,
+      "tok_s": 775.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.15.attn_q.weight": {
+      "rows": 2048,
+      "time_s": 2.62,
+      "tok_s": 782.0,
+      "ORBITAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CHIRAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CROSS": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "HUB": {
+        "tokens": 2048,
+        "entries": 2048
+      }
+    },
+    "blk.15.attn_v.weight": {
+      "rows": 1024,
+      "time_s": 1.33,
+      "tok_s": 771.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.16.attn_k.weight": {
+      "rows": 1024,
+      "time_s": 1.32,
+      "tok_s": 774.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.16.attn_output.weight": {
+      "rows": 1024,
+      "time_s": 1.29,
+      "tok_s": 793.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.16.attn_q.weight": {
+      "rows": 2048,
+      "time_s": 2.76,
+      "tok_s": 741.0,
+      "ORBITAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CHIRAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CROSS": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "HUB": {
+        "tokens": 2048,
+        "entries": 2048
+      }
+    },
+    "blk.16.attn_v.weight": {
+      "rows": 1024,
+      "time_s": 1.32,
+      "tok_s": 775.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.17.attn_k.weight": {
+      "rows": 1024,
+      "time_s": 1.8,
+      "tok_s": 569.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.17.attn_output.weight": {
+      "rows": 1024,
+      "time_s": 1.31,
+      "tok_s": 780.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.17.attn_q.weight": {
+      "rows": 2048,
+      "time_s": 2.6,
+      "tok_s": 787.0,
+      "ORBITAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CHIRAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CROSS": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "HUB": {
+        "tokens": 2048,
+        "entries": 2048
+      }
+    },
+    "blk.17.attn_v.weight": {
+      "rows": 1024,
+      "time_s": 1.29,
+      "tok_s": 793.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.18.attn_k.weight": {
+      "rows": 1024,
+      "time_s": 1.32,
+      "tok_s": 773.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.18.attn_output.weight": {
+      "rows": 1024,
+      "time_s": 1.31,
+      "tok_s": 781.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.18.attn_q.weight": {
+      "rows": 2048,
+      "time_s": 2.65,
+      "tok_s": 773.0,
+      "ORBITAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CHIRAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CROSS": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "HUB": {
+        "tokens": 2048,
+        "entries": 2048
+      }
+    },
+    "blk.18.attn_v.weight": {
+      "rows": 1024,
+      "time_s": 1.41,
+      "tok_s": 725.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.19.attn_k.weight": {
+      "rows": 1024,
+      "time_s": 1.39,
+      "tok_s": 739.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.19.attn_output.weight": {
+      "rows": 1024,
+      "time_s": 1.53,
+      "tok_s": 671.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.19.attn_q.weight": {
+      "rows": 2048,
+      "time_s": 2.8,
+      "tok_s": 732.0,
+      "ORBITAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CHIRAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CROSS": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "HUB": {
+        "tokens": 2048,
+        "entries": 2048
+      }
+    },
+    "blk.19.attn_v.weight": {
+      "rows": 1024,
+      "time_s": 1.31,
+      "tok_s": 782.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.20.attn_k.weight": {
+      "rows": 1024,
+      "time_s": 1.48,
+      "tok_s": 690.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.20.attn_output.weight": {
+      "rows": 1024,
+      "time_s": 1.59,
+      "tok_s": 644.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.20.attn_q.weight": {
+      "rows": 2048,
+      "time_s": 3.07,
+      "tok_s": 668.0,
+      "ORBITAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CHIRAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CROSS": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "HUB": {
+        "tokens": 2048,
+        "entries": 2048
+      }
+    },
+    "blk.20.attn_v.weight": {
+      "rows": 1024,
+      "time_s": 1.36,
+      "tok_s": 751.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.21.attn_k.weight": {
+      "rows": 1024,
+      "time_s": 1.44,
+      "tok_s": 711.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.21.attn_output.weight": {
+      "rows": 1024,
+      "time_s": 1.69,
+      "tok_s": 607.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.21.attn_q.weight": {
+      "rows": 2048,
+      "time_s": 2.95,
+      "tok_s": 695.0,
+      "ORBITAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CHIRAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CROSS": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "HUB": {
+        "tokens": 2048,
+        "entries": 2048
+      }
+    },
+    "blk.21.attn_v.weight": {
+      "rows": 1024,
+      "time_s": 1.31,
+      "tok_s": 780.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.22.attn_k.weight": {
+      "rows": 1024,
+      "time_s": 1.34,
+      "tok_s": 764.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.22.attn_output.weight": {
+      "rows": 1024,
+      "time_s": 1.48,
+      "tok_s": 694.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.22.attn_q.weight": {
+      "rows": 2048,
+      "time_s": 3.46,
+      "tok_s": 592.0,
+      "ORBITAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CHIRAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CROSS": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "HUB": {
+        "tokens": 2048,
+        "entries": 2048
+      }
+    },
+    "blk.22.attn_v.weight": {
+      "rows": 1024,
+      "time_s": 1.37,
+      "tok_s": 746.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.23.attn_k.weight": {
+      "rows": 1024,
+      "time_s": 1.42,
+      "tok_s": 723.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.23.attn_output.weight": {
+      "rows": 1024,
+      "time_s": 1.33,
+      "tok_s": 772.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.23.attn_q.weight": {
+      "rows": 2048,
+      "time_s": 2.65,
+      "tok_s": 774.0,
+      "ORBITAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CHIRAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CROSS": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "HUB": {
+        "tokens": 2048,
+        "entries": 2048
+      }
+    },
+    "blk.23.attn_v.weight": {
+      "rows": 1024,
+      "time_s": 1.44,
+      "tok_s": 713.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.24.attn_k.weight": {
+      "rows": 1024,
+      "time_s": 1.79,
+      "tok_s": 574.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.24.attn_output.weight": {
+      "rows": 1024,
+      "time_s": 1.69,
+      "tok_s": 607.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.24.attn_q.weight": {
+      "rows": 2048,
+      "time_s": 2.74,
+      "tok_s": 749.0,
+      "ORBITAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CHIRAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CROSS": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "HUB": {
+        "tokens": 2048,
+        "entries": 2048
+      }
+    },
+    "blk.24.attn_v.weight": {
+      "rows": 1024,
+      "time_s": 0.99,
+      "tok_s": 1035.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.25.attn_k.weight": {
+      "rows": 1024,
+      "time_s": 0.99,
+      "tok_s": 1033.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.25.attn_output.weight": {
+      "rows": 1024,
+      "time_s": 1.0,
+      "tok_s": 1021.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.25.attn_q.weight": {
+      "rows": 2048,
+      "time_s": 1.97,
+      "tok_s": 1038.0,
+      "ORBITAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CHIRAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CROSS": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "HUB": {
+        "tokens": 2048,
+        "entries": 2048
+      }
+    },
+    "blk.25.attn_v.weight": {
+      "rows": 1024,
+      "time_s": 0.99,
+      "tok_s": 1036.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.26.attn_k.weight": {
+      "rows": 1024,
+      "time_s": 0.99,
+      "tok_s": 1040.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.26.attn_output.weight": {
+      "rows": 1024,
+      "time_s": 0.99,
+      "tok_s": 1035.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.26.attn_q.weight": {
+      "rows": 2048,
+      "time_s": 1.98,
+      "tok_s": 1033.0,
+      "ORBITAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CHIRAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CROSS": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "HUB": {
+        "tokens": 2048,
+        "entries": 2048
+      }
+    },
+    "blk.26.attn_v.weight": {
+      "rows": 1024,
+      "time_s": 1.01,
+      "tok_s": 1015.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.27.attn_k.weight": {
+      "rows": 1024,
+      "time_s": 1.02,
+      "tok_s": 1007.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.27.attn_output.weight": {
+      "rows": 1024,
+      "time_s": 1.0,
+      "tok_s": 1027.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    },
+    "blk.27.attn_q.weight": {
+      "rows": 2048,
+      "time_s": 2.03,
+      "tok_s": 1011.0,
+      "ORBITAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CHIRAL": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "CROSS": {
+        "tokens": 2048,
+        "entries": 2048
+      },
+      "HUB": {
+        "tokens": 2048,
+        "entries": 2048
+      }
+    },
+    "blk.27.attn_v.weight": {
+      "rows": 1024,
+      "time_s": 1.0,
+      "tok_s": 1026.0,
+      "ORBITAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CHIRAL": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "CROSS": {
+        "tokens": 1024,
+        "entries": 1024
+      },
+      "HUB": {
+        "tokens": 1024,
+        "entries": 1024
+      }
+    }
+  }
+}

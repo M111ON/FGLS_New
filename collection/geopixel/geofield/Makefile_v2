@@ -1,0 +1,26 @@
+CC       ?= gcc
+CFLAGS   ?= -O2 -std=c11 -Wall -Wextra -Wpedantic -D__USE_MINGW_ANSI_STDIO
+
+# All headers are local — no extra -I needed
+INCDIRS  = -I.
+
+TARGET = geo_field_demo
+
+.PHONY: all clean run
+
+all: $(TARGET)
+
+$(TARGET): geo_field_main.c geo_field_core.h $(wildcard *.h)
+	$(CC) $(CFLAGS) $(INCDIRS) -o $@ geo_field_main.c
+
+run: $(TARGET)
+	./$(TARGET)
+
+clean:
+	rm -f $(TARGET) $(TARGET).exe *.geofield
+
+test_atomic_reshape: test_atomic_reshape.c $(wildcard *.h)
+	$(CC) $(CFLAGS) $(INCDIRS) -o $@ test_atomic_reshape.c
+
+test: test_atomic_reshape
+	./test_atomic_reshape

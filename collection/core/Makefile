@@ -3,7 +3,7 @@
 
 LLAMA_DIR ?= I:/llama/llama_cuda124_x64
 CC        := gcc
-CFLAGS    := -O2 -Wall -I. -I$(LLAMA_DIR)/include -I$(LLAMA_DIR)/ggml/include
+CFLAGS    := -O1 -Wall -I. -I$(LLAMA_DIR)/include -I$(LLAMA_DIR)/ggml/include
 LDFLAGS   := -L$(LLAMA_DIR)/build -lllama -lggml -Wl,-rpath,$(LLAMA_DIR)/build
 
 SRCS := llama_pogls_runner.c \

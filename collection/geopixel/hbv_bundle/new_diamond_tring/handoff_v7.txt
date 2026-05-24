@@ -1,0 +1,36 @@
+POGLS Pipeline v7 — Skeleton Field Index
+=========================================
+Generated: May 17, 2026
+
+FILES:
+  diamond_geo_pipe_v7.c  — v7 pipeline (drop-in replace v6)
+  skeleton_index.h       — O(1) skeleton lookup + decision table
+  tring_stub.h           — Tring API stub (replace with local tring.h)
+
+CHANGES FROM v6:
+  + skeleton_lookup(addr) wired into enc_traverse (7 ops, 0 branch)
+  + skel_decide() P0→P5 replaces sequential ts_encode trial
+  + isect fast-reject (P1): popcount >= 16 → RAW immediately
+    → fixes false GEOM on random/ASCII data (3.2x → 1.0x correct)
+  + DIFF ceiling raised 32 → 48 (break-even 53, margin 5B)
+  + skeleton pair boundary → additional zone reset
+  + NULL guard in stats loop (skeleton chunks bypass ts_ctx)
+
+ROUNDTRIP RESULTS (8KB, 128 chunks, xxh64 PASS all):
+  zeros          64.00x   SK_FLAT=128
+  repeated pat   42.67x   SK_ID=1 + IDENTITY chain
+  near-identical 42.67x   SK_ID=1 + IDENTITY chain
+  random          0.98x   RAW=128  ← correct ceiling
+  sine wave       0.98x   RAW=128  ← correct (was 3.2x false)
+
+NOTE: tring_stub.h replaces local tring.h for compilation only.
+  Po's real tring.h should be used in production build.
+  Build: gcc -O2 -I. diamond_geo_pipe_v7.c -lm -o diamond_geo_pipe_v7
+
+NEXT STEPS:
+  [ ] DIFF path: skel-encoded DIFF not decoded correctly yet
+      decoder expects tag=9 format — verify decode path handles it
+  [ ] BROT/D4 detection: add after BREF in decision table
+  [ ] Connect fold_fibo_intersect real DiamondBlock for isect_pop
+  [ ] Goldberg shutter: entropy-driven freq-1/2/3 selection
+  [ ] Benchmark vs zstd on real binary (mesh, float array, image)
