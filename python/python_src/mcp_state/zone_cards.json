@@ -1,0 +1,50 @@
+{
+  "0:I:qwen25coder": {
+    "zone": 0,
+    "shape": "I",
+    "model_key": "qwen25coder",
+    "card_type": 2,
+    "entropy": 234,
+    "locality": 128,
+    "stability": 0,
+    "pattern": 16652,
+    "hash_val": 0,
+    "updated_at": 1780096632
+  },
+  "0:I:smollm2": {
+    "zone": 0,
+    "shape": "I",
+    "model_key": "smollm2",
+    "card_type": 2,
+    "entropy": 230,
+    "locality": 120,
+    "stability": 5,
+    "pattern": 16392,
+    "hash_val": 0,
+    "updated_at": 1780096633
+  },
+  "2:B:qwen25coder": {
+    "zone": 2,
+    "shape": "B",
+    "model_key": "qwen25coder",
+    "card_type": 0,
+    "entropy": 45,
+    "locality": 200,
+    "stability": 180,
+    "pattern": 0,
+    "hash_val": 0,
+    "updated_at": 1780096634
+  },
+  "5:C:codex": {
+    "zone": 5,
+    "shape": "C",
+    "model_key": "codex",
+    "card_type": 1,
+    "entropy": 88,
+    "locality": 200,
+    "stability": 170,
+    "pattern": 0,
+    "hash_val": 0,
+    "updated_at": 1780098268
+  }
+}

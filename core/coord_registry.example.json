@@ -1,0 +1,38 @@
+{
+  "max_open": 2,
+  "default_coord": {"zone": 2, "shape": "S", "ns": null},
+  "models": {
+    "model-a": {
+      "gguf_path": "I:/Vault/models/model-a.gguf",
+      "store_path": "build/model_a_geom",
+      "force_cpu": true,
+      "dim": 1024,
+      "gear": 2,
+      "code_dim": 32
+    },
+    "model-b": {
+      "gguf_path": "I:/Vault/models/model-b.gguf",
+      "store_path": "build/model_b_geom",
+      "force_cpu": true,
+      "dim": 1024,
+      "gear": 2,
+      "code_dim": 32
+    },
+    "model-c": {
+      "gguf_path": "I:/Vault/models/model-c.gguf",
+      "store_path": "build/model_c_geom",
+      "force_cpu": true,
+      "dim": 1024,
+      "gear": 2,
+      "code_dim": 32
+    }
+  },
+  "coords": [
+    {"zone": 2, "shape": "S", "ns": null, "model_key": "model-a"},
+    {"zone": 6, "shape": "I", "ns": null, "model_key": "model-a"},
+    {"zone": 3, "shape": "T", "ns": null, "model_key": "model-b"},
+    {"zone": 7, "shape": "L", "ns": null, "model_key": "model-b"},
+    {"zone": 1, "shape": "O", "ns": null, "model_key": "model-c"},
+    {"zone": 9, "shape": "Z", "ns": null, "model_key": "model-c"}
+  ]
+}

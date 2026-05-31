@@ -1,0 +1,59 @@
+{
+  "max_open": 1,
+  "default_coord": {"zone": 2, "shape": "S", "ns": null},
+  "models": {
+    "qwen25coder": {
+      "gguf_path": "I:/model/qwen2.5-coder-1.5b-instruct-q8_0.gguf",
+      "store_path": "I:/FGLS_new/collection/build/qwen25_coder_geom",
+      "force_cpu": false,
+      "dim": 1536,
+      "gear": 2,
+      "code_dim": 32
+    },
+    "qwen25": {
+      "gguf_path": "I:/model/Qwen2.5-0.5B-Instruct-Q8_0.gguf",
+      "store_path": "I:/FGLS_new/collection/build/qwen25_geom",
+      "tensor_dir": "I:/FGLS_new/collection/build/qwen25_tensors_raw",
+      "force_cpu": false,
+      "dim": 896,
+      "gear": 2,
+      "code_dim": 32,
+      "note": "Standard qwen2 arch, 24 layers, 14 heads, 896-dim. Works with old llama.cpp runner. 291 tensors, 639 MB."
+    },
+    "qwen35": {
+      "gguf_path": "I:/model/Qwen3.5-0.8B-Q4_0.gguf",
+      "store_path": null,
+      "tensor_dir": null,
+      "force_cpu": true,
+      "dim": 1024,
+      "gear": 2,
+      "code_dim": 32,
+      "note": "BLOCKED: Qwen3.5 uses hybrid attention+SSM, llama.cpp v3.x incompatible"
+    },
+    "smollm2": {
+      "gguf_path": "I:/model/SmolLM2-360M-Instruct.Q8_0.gguf",
+      "store_path": "I:/FGLS_new/collection/build/smollm2_geom",
+      "tensor_dir": "I:/FGLS_new/collection/build/smollm2_tensors_raw",
+      "force_cpu": false,
+      "dim": 960,
+      "gear": 2,
+      "code_dim": 32,
+      "arch": "llama",
+      "note": "360M llama arch, 32 layers, 15 heads, 5 KV heads, 960-dim, 8192 ctx. No M-RoPE bug."
+    }
+  },
+  "coords": [
+    {"zone": 0,  "shape": "I", "ns": null, "model_key": "qwen25coder"},
+    {"zone": 1,  "shape": "O", "ns": null, "model_key": "qwen25coder"},
+    {"zone": 2,  "shape": "S", "ns": null, "model_key": "qwen25coder"},
+    {"zone": 3,  "shape": "T", "ns": null, "model_key": "qwen25coder"},
+    {"zone": 4,  "shape": "I", "ns": null, "model_key": "qwen25"},
+    {"zone": 5,  "shape": "Z", "ns": null, "model_key": "qwen25"},
+    {"zone": 6,  "shape": "I", "ns": null, "model_key": "smollm2"},
+    {"zone": 7,  "shape": "L", "ns": null, "model_key": "smollm2"},
+    {"zone": 8,  "shape": "O", "ns": null, "model_key": "smollm2"},
+    {"zone": 9,  "shape": "L", "ns": null, "model_key": "qwen25"},
+    {"zone": 10, "shape": "S", "ns": null, "model_key": "qwen25"},
+    {"zone": 11, "shape": "T", "ns": null, "model_key": "qwen25"}
+  ]
+}

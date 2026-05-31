@@ -1,0 +1,35 @@
+{
+  "system_v": "2.0.4-L",
+  "metadata": {
+    "models": [
+      "smollm2",
+      "qwen25_coder"
+    ],
+    "test_tensors": "attn_output"
+  },
+  "cross_model_fusion": [
+    {
+      "zone": 0,
+      "similarity": -0.0013,
+      "smol_std": 0.04826,
+      "coder_std": 0.01983
+    },
+    {
+      "zone": 6,
+      "similarity": 0.001,
+      "smol_std": 0.14964,
+      "coder_std": 0.02309
+    },
+    {
+      "zone": 11,
+      "similarity": 0.0002,
+      "smol_std": 0.15814,
+      "coder_std": 0.02399
+    }
+  ],
+  "routing_logic_check": {
+    "input_entropy": 215,
+    "expected_route": "qwen25_coder",
+    "status": "VERIFIED_BY_SIM"
+  }
+}
