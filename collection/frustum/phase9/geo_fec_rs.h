@@ -233,6 +233,7 @@ static inline uint16_t fec_rs_recover_all(
  * Returns: total chunks recovered across all three layers.
  * ══════════════════════════════════════════════════════════════════ */
 #include "geo_rewind.h"
+#include "geo_rewind_wang.h"
 #include "geo_fec.h"   /* fec_xor_recover_block, FEC_PARITY_PER_BLOCK */
 
 static inline uint16_t fec_hybrid_recover_block(
@@ -243,7 +244,8 @@ static inline uint16_t fec_hybrid_recover_block(
     const FECParity     xor_par[FEC_PARITY_PER_BLOCK], /* 3 XOR parities */
     const FECParity     rs_par[],                       /* [fec_n] RS parities */
     uint8_t             fec_n,
-    RewindBuffer       *rewind)                         /* L2 temporal pool */
+    RewindBuffer       *rewind,                         /* L2 temporal pool */
+    RewindWangLayer    *wang)                           /* Wang integrity gate */
 {
     uint16_t base  = (uint16_t)(level * GEO_PYR_PHASE_LEN
                                 + block * FEC_CHUNKS_PER_BLOCK);
@@ -272,8 +274,24 @@ static inline uint16_t fec_hybrid_recover_block(
         }
     }
 
+    /* ── Wang gate: check edge integrity before L1 ───── */
+    bool skip_l1 = false;
+    if (wang) {
+        for (uint8_t i = 0u; i < FEC_CHUNKS_PER_BLOCK && !skip_l1; i++) {
+            if (!was_missing[i]) continue;
+            uint16_t pos  = (uint16_t)(base + i);
+            uint32_t enc  = GEO_WALK[pos];
+            uint16_t hint = tring_pos(enc) % REWIND_SLOTS;
+            uint16_t row  = wang_row_of(hint);
+            WangRecoverDecision d = wang_recover_gate(wang, rewind, row);
+            if (d == WANG_RECOVER_SKIP_L1)
+                skip_l1 = true;
+        }
+    }
+
     /* ── L1: XOR for slots rewind couldn't fill ─────────── */
-    total += fec_recover_block(r, store, xor_par);
+    if (!skip_l1)
+        total += fec_recover_block(r, store, xor_par);
 
     /* ── L3: RS safety net ──────────────────────────────
      * L1 may write wrong data (bad parity) into originally-missing slots.
@@ -320,7 +338,8 @@ static inline uint16_t fec_hybrid_recover_all(
     uint8_t             fec_n,
     const FECParity     xor_parity[FEC_TOTAL_PARITY],  /* 180 XOR parities */
     const FECParity     rs_parity_pool[],               /* [60*fec_n] */
-    RewindBuffer       *rewind)
+    RewindBuffer       *rewind,
+    RewindWangLayer    *wang)
 {
     uint16_t total = 0u;
     for (uint8_t l = 0u; l < FEC_LEVELS; l++)
@@ -331,7 +350,7 @@ static inline uint16_t fec_hybrid_recover_all(
                 r, store, l, b,
                 &xor_parity[xor_idx * FEC_PARITY_PER_BLOCK],
                 &rs_parity_pool[(uint16_t)rs_idx * fec_n],
-                fec_n, rewind);
+                fec_n, rewind, wang);
         }
     return total;
 }

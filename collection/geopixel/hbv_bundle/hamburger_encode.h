@@ -40,6 +40,7 @@
 #include "gpx5_container.h"
 #include "hamburger_pipe.h"
 #include "hamburger_classify.h"
+#include "../../hex_tile.h"
 
 /* ── encode result ───────────────────────────────────── */
 #define HB_OK              0
@@ -428,6 +429,17 @@ freq_raw:
     case GPX5_CODEC_ZSTD19:
         return hb_zstd19_apply(in, in_sz, out, out_cap);
 
+    case GPX5_CODEC_HEX: {
+        if (in_sz != 7u || out_cap < 9u) {
+            if (in_sz > out_cap) return 0u;
+            memcpy(out, in, in_sz);
+            return in_sz;
+        }
+        HexTile tile;
+        memcpy(tile.c, in, 7u);
+        return (uint32_t)hex_tile_encode(&tile, out);
+    }
+
     default:
         /* unknown codec: raw passthrough */
         if (in_sz > out_cap) return 0u;
@@ -782,6 +794,16 @@ static inline uint32_t hb_codec_invert(
 
     case GPX5_CODEC_ZSTD19:
         return hb_zstd19_invert(enc, enc_sz, out, out_cap);
+
+    case GPX5_CODEC_HEX: {
+        HexTile tile;
+        if (enc_sz < 2u) return 0u;
+        int dec = hex_tile_decode(enc, enc_sz, &tile);
+        if (dec <= 0 || (uint32_t)dec > enc_sz) return 0u;
+        if (7u > out_cap) return 0u;
+        memcpy(out, tile.c, 7u);
+        return 7u;
+    }
 
     default:
         if (enc_sz > out_cap) return 0u;

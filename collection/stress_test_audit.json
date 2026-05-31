@@ -1,0 +1,20 @@
+[
+    {
+        "entropy": 50,
+        "model": "smollm2-360m",
+        "precision_tier": "Q4 (Coarse)",
+        "decision_reason": "Low complexity: Efficient routing to SmolLM2."
+    },
+    {
+        "entropy": 150,
+        "model": "smollm2-360m",
+        "precision_tier": "Q8 (Balanced)",
+        "decision_reason": "Moderate complexity: Routing to SmolLM2 with balanced precision."
+    },
+    {
+        "entropy": 300,
+        "model": "qwen2.5-coder-1.5b",
+        "precision_tier": "F16 (High Precision)",
+        "decision_reason": "High-complexity detected: Routing to Coder Expert."
+    }
+]

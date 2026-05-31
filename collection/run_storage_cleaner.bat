@@ -1,17 +1,18 @@
 @echo off
 title Storage Cleaner
 setlocal
-
-set PYTHONPATH=I:\FGLS_new\collection\python_src;I:\ZGLS
-set PYTHON=I:\python3.14.4\python.exe
-
+set PYTHON=C:\Users\Administrator.AVENTADOR\AppData\Local\Programs\Python\Python310\python.exe
+set PYTHONPATH=I:\storage-cleaner\src
 echo.
 echo === Storage Cleaner ===
 echo Scans directories for duplicates, trash, temp files
-echo Uses POGLS topology fingerprint for smart duplicate detection
 echo.
-
-"%PYTHON%" "%~dp0python_src\storage_cleaner.pyw" %*
+echo Commands:
+echo   storage-cleaner scan ^<dir^>        Scan a directory
+echo   storage-cleaner gui                 Launch Tkinter GUI
+echo   storage-cleaner api                 Start API server on port 9077
+echo.
+"%PYTHON%" -m storage_cleaner.cli %*
 if %ERRORLEVEL% NEQ 0 (
     echo.
     echo Press any key to close...

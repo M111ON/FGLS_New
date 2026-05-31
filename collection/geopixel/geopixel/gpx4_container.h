@@ -60,6 +60,7 @@
 #define GPX4_LAYER_DELTA     0x03   /* P-frame delta vs prev frame    */
 #define GPX4_LAYER_META      0x04   /* key-value metadata (no tiles)  */
 #define GPX4_LAYER_ANIM_HDR  0x05   /* animation header (no tiles)    */
+#define GPX4_LAYER_GEO       0x06   /* O21 pentagon address table     */
 
 /* layer flags */
 #define GPX4_LFLAG_KEYFRAME  0x01   /* this O4 layer is a keyframe    */
@@ -75,6 +76,11 @@
 #define GPX4_LAYER_ENTRY_SZ  14    /* v2: +2B for 4B size field */
 #define GPX4_TILE_ENTRY_SZ    8
 #define GPX4_ANIM_HDR_SZ     16
+
+/* geo address (O21) */
+#define GPX4_GEO_ADDR_SZ      4
+#define GPX4_GEO_PENT(p)     (((p)>>28)&0x0Fu)
+#define GPX4_GEO_HILBERT(p)  (((p)>>14)&0x3FFFu)
 
 /* ── byte I/O ────────────────────────────────────────── */
 static inline void g4w2(uint8_t *b, uint16_t v)

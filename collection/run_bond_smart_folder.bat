@@ -6,7 +6,7 @@ set POGLS_SO_PATH=I:\FGLS_new\collection\pogls_bond.dll
 set BOND_EXT_PATH=I:\FGLS_new\collection\python_src
 set PYTHONPATH=I:\FGLS_new\collection\python_src;I:\ZGLS
 
-set PYTHON=I:\python3.14.4\python.exe
+set PYTHON=C:\Users\Administrator.AVENTADOR\AppData\Local\Programs\Python\Python310\python.exe
 
 "%PYTHON%" -m pip install uvicorn fastapi python-multipart -q 2>nul
 

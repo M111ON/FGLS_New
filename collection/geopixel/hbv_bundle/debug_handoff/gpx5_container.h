@@ -90,6 +90,8 @@
 #define GPX5_CODEC_ZSTD19   0x04  /* zstd level 19                       */
 #define GPX5_CODEC_FREQ     0x05  /* frequency params (range+freq_seed)  */
 #define GPX5_CODEC_HILBERT  0x06  /* hilbert bit stream (walk/no-walk)   */
+#define GPX5_CODEC_HEX      0x07  /* hex 7-cell tile (flat/triplet/grad/edge) */
+#define GPX5_CODEC_L2       0x08  /* hex L2 block: 7 tiles (49 cells) + zlib */
 #define GPX5_CODEC_RAW      0xFF  /* explicit raw passthrough fallback   */
 
 /* ── tile classify (same as v18 classify output) ─────────── */

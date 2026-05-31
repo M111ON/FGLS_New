@@ -44,6 +44,9 @@ CACHE_DIRS = {"__pycache__", ".cache", "cache", "cached", "caches"}
 
 TRASH_DIRS = {"temp", "tmp", "crashdumps", "wer", "recent"}
 
+# Directories that suggest a file is a copy/backup, not the original
+COPY_DIR_MARKERS = {".vault", "backup", "backups", "copies", "duplicate", "old"}
+
 
 def fmt_bytes(n: int) -> str:
     v = float(n)
@@ -63,6 +66,17 @@ except Exception:
 
 def _stable_id(text: str, length: int = 16) -> str:
     return hashlib.sha256(text.encode()).hexdigest()[:length]
+
+
+def _prefer_keep(flist: list) -> int:
+    """Pick best file to keep: prefer non-vault/backup path, else first."""
+    best = 0
+    for i, f in enumerate(flist):
+        parts = Path(f.path).parts
+        if not any(m in p.lower() for p in parts for m in COPY_DIR_MARKERS):
+            best = i
+            break
+    return best
 
 
 def send2recycle(path: str) -> bool:
@@ -144,14 +158,9 @@ class FileInfo:
             data = Path(self.path).read_bytes()[:65536]
             if not data:
                 return
+            h = hashlib.sha256(data).hexdigest()
+            self.fp = _stable_id(f"{self.size}:{h}", length=16)
             self.topo = topology_scan_multiscale(data)
-            raw = "|".join([
-                self.topo.get("content_type", "?"),
-                self.topo.get("routing_hint", "?"),
-                str(self.topo.get("intra_dedup", 0)),
-                str(self.topo.get("phi_ratio", 0)),
-            ])
-            self.fp = _stable_id(raw, length=16)
         except Exception:
             pass
 
@@ -368,22 +377,53 @@ class StorageCleaner:
         self.summary_text.insert("1.0", "Add directories and click 'Start Scan'")
 
     def _on_exclude(self):
-        def save():
-            text = ed.get("1.0", "end").strip()
-            p = Path(self.dirs[0]) / ".storage_cleaner_exclude" if self.dirs else Path()
-            if p:
-                p.write_text(text)
-                self.exclude_patterns = load_exclude_patterns(str(p))
-            w.destroy()
+        if not self.dirs:
+            self._set_status("Add a directory first")
+            return
+        ep = Path(self.dirs[0]) / ".storage_cleaner_exclude"
+        patterns = load_exclude_patterns(str(ep)) if ep.exists() else list(self.exclude_patterns)
         w = tk.Toplevel(self.root)
         w.title("Exclude Patterns")
-        w.geometry("500x300")
+        w.geometry("560x400")
         w.configure(bg=BG)
-        tk.Label(w, text="One pattern per line (matches path substring):", bg=BG, fg=MUTED, font=FONT_SM).pack(padx=10, pady=6, anchor="w")
-        ed = tk.Text(w, font=FONT_SM, relief="flat", bd=1, highlightbackground=BORDER, highlightthickness=1)
-        ed.pack(fill="both", expand=True, padx=10, pady=4)
-        ed.insert("1.0", "\n".join(self.exclude_patterns))
-        tk.Button(w, text="Save", command=save, bg=CHOCO, fg="#fff", font=FONT_SM, relief="flat", padx=16, pady=4).pack(pady=8)
+        top = tk.Frame(w, bg=BG, padx=10, pady=6)
+        top.pack(fill="x")
+        tk.Label(top, text=f"Exclude for: {self.dirs[0]}", bg=BG, fg=MUTED, font=FONT_SM, wraplength=520).pack(anchor="w")
+        tk.Label(top, text="One pattern per line (matches path substring):", bg=BG, fg=MUTED, font=FONT_SM).pack(anchor="w", pady=(4, 0))
+        mid = tk.Frame(w, bg=BG, padx=10, pady=4)
+        mid.pack(fill="both", expand=True)
+        btn_frame = tk.Frame(mid, bg=BG)
+        btn_frame.pack(side="right", fill="y", padx=(8, 0))
+        list_frame = tk.Frame(mid, bg=SURFACE, relief="flat", bd=1, highlightbackground=BORDER, highlightthickness=1)
+        list_frame.pack(fill="both", expand=True, side="left")
+        scroll = tk.Scrollbar(list_frame, orient="vertical")
+        lb = tk.Listbox(list_frame, font=FONT_SM, bg=SURFACE, fg=TEXT, relief="flat", bd=0,
+                        highlightthickness=0, yscrollcommand=scroll.set)
+        scroll.config(command=lb.yview)
+        scroll.pack(side="right", fill="y")
+        lb.pack(fill="both", expand=True)
+        for pat in patterns:
+            lb.insert("end", pat)
+        entry = tk.Entry(w, font=FONT_SM, relief="flat", bd=1, highlightbackground=BORDER, highlightthickness=1)
+        entry.pack(fill="x", padx=10, pady=(0, 4))
+        def _add():
+            val = entry.get().strip()
+            if val and val not in lb.get(0, "end"):
+                lb.insert("end", val)
+                entry.delete(0, "end")
+        def _remove():
+            sel = lb.curselection()
+            if sel:
+                lb.delete(sel[0])
+        def _save():
+            self.exclude_patterns = list(lb.get(0, "end"))
+            ep.parent.mkdir(parents=True, exist_ok=True)
+            ep.write_text("\n".join(self.exclude_patterns))
+            w.destroy()
+        self._btn(btn_frame, "Add", _add).pack(fill="x", pady=(0, 4))
+        self._btn(btn_frame, "Remove", _remove).pack(fill="x", pady=(0, 4))
+        self._btn(btn_frame, "Save", _save, primary=True).pack(fill="x", pady=(0, 4))
+        self._btn(btn_frame, "Cancel", w.destroy).pack(fill="x")
 
     def _set_status(self, msg):
         self.status_var.set(msg)
@@ -487,10 +527,10 @@ class StorageCleaner:
         total = sum(f.size for f in self.files)
         trash = [f for f in self.files if f.category in ("trash", "temp", "log", "cache")]
         trash_sz = sum(f.size for f in trash)
-        by_fp: dict[str, list[FileInfo]] = {}
+        by_fp: dict[tuple[int, str], list[FileInfo]] = {}
         for f in self.files:
             if f.fp:
-                by_fp.setdefault(f.fp, []).append(f)
+                by_fp.setdefault((f.size, f.fp), []).append(f)
         dupes = {k: v for k, v in by_fp.items() if len(v) > 1}
         wasted = sum((len(v) - 1) * v[0].size for v in dupes.values())
         by_ext: dict[str, int] = {}
@@ -514,20 +554,20 @@ class StorageCleaner:
         t = self.dupe_tree
         for i in t.get_children():
             t.delete(i)
-        by_fp: dict[str, list[FileInfo]] = {}
+        by_key: dict[tuple[int, str], list[FileInfo]] = {}
         for f in self.files:
             if f.fp:
-                by_fp.setdefault(f.fp, []).append(f)
+                by_key.setdefault((f.size, f.fp), []).append(f)
         rows = []
-        for fp, flist in sorted(by_fp.items(), key=lambda x: -len(x[1])):
+        for (fsize, fp), flist in sorted(by_key.items(), key=lambda x: -len(x[1])):
             if len(flist) < 2:
                 continue
-            wasted = (len(flist) - 1) * flist[0].size
+            wasted = (len(flist) - 1) * fsize
             name = Path(flist[0].path).name
             shown = "\n".join(f.path for f in flist[:3])
             if len(flist) > 3:
                 shown += f"\n... +{len(flist)-3} more"
-            rows.append(("☐", name, fmt_bytes(flist[0].size), len(flist), fmt_bytes(wasted), fp, shown))
+            rows.append(("☐", name, fmt_bytes(fsize), len(flist), fmt_bytes(wasted), f"{fsize}:{fp}", shown))
         t.populate(rows)
 
     def _populate_trash(self):
@@ -614,20 +654,42 @@ class StorageCleaner:
             vals = self.dupe_tree.item(item, "values")
             if not vals or vals[0] != "☑":
                 continue
-            fp = vals[5]
-            flist = [f for f in self.files if f.fp == fp]
+            parts = vals[5].split(":", 1)
+            if len(parts) != 2:
+                continue
+            fsize, fp = int(parts[0]), parts[1]
+            flist = [f for f in self.files if f.fp == fp and f.size == fsize]
             if len(flist) < 2:
                 continue
-            keep = flist[0]
-            rest = flist[1:]
+            # Check if already same inode (already hardlinked)
+            inodes = set()
+            exist = [f for f in flist if os.path.exists(f.path)]
+            for f in exist:
+                try:
+                    inodes.add(os.stat(f.path).st_ino)
+                except Exception:
+                    pass
+            if len(inodes) <= 1:
+                self._set_status(f"All {len(flist)} files already on same inode, nothing to do")
+                continue
+            # Pick best keeper (prefer non-vault/backup path)
+            filtered = [f for f in exist]
+            keep_idx = _prefer_keep(filtered)
+            keep_path = filtered[keep_idx].path
+            rest = [f for f in exist if f.path != keep_path]
             saved = sum(f.size for f in rest)
-            if not tk.messagebox.askyesno("Confirm", f"Keep:\n  {keep.path}\n\nReplace {len(rest)} with hardlinks (save {fmt_bytes(saved)})?"):
+            paths_preview = "\n".join(f.path for f in rest[:5])
+            if len(rest) > 5:
+                paths_preview += f"\n... +{len(rest)-5} more"
+            if not tk.messagebox.askyesno("Confirm",
+                f"Keep (original):\n  {keep_path}\n\n"
+                f"Replace {len(rest)} copies with hardlinks (save {fmt_bytes(saved)}):\n{paths_preview}"):
                 continue
             ok = fail = 0
             for f in rest:
                 try:
                     os.remove(f.path)
-                    os.link(keep.path, f.path)
+                    os.link(keep_path, f.path)
                     ok += 1
                 except Exception:
                     fail += 1
@@ -643,9 +705,12 @@ class StorageCleaner:
         if not sel:
             return
         vals = self.dupe_tree.item(sel[0], "values")
-        fp = vals[5]
-        files = [f for f in self.files if f.fp == fp]
-        msg = f"Duplicate group: fp={fp}\nName: {vals[1]}\nSize: {vals[2]}  Count: {vals[3]}  Wasted: {vals[4]}\n\nFiles:\n"
+        parts = vals[5].split(":", 1)
+        if len(parts) != 2:
+            return
+        fsize, fp = int(parts[0]), parts[1]
+        files = [f for f in self.files if f.fp == fp and f.size == fsize]
+        msg = f"Duplicate group: size={fsize} fp={fp}\nName: {vals[1]}\nCount: {vals[3]}  Wasted: {vals[4]}\n\nFiles:\n"
         for f in files:
             msg += f"\n  {f.path}"
         tk.messagebox.showinfo("Duplicate Details", msg)

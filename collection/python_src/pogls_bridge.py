@@ -28,6 +28,7 @@ Usage:
 """
 
 import ctypes
+import hashlib
 import os
 import platform
 from pathlib import Path
@@ -395,3 +396,129 @@ class PoglsBridge:
     def __repr__(self):
         return (f"PoglsBridge(so={self._path.name} "
                 f"v{self.version} verify_bits={self.verify_bits})")
+
+
+def _is_printable_ratio(data: bytes) -> float:
+    if not data:
+        return 0.0
+    printable = sum(1 for b in data if b in (9, 10, 13) or 32 <= b <= 126)
+    return printable / len(data)
+
+
+def _guess_content_type(data: bytes) -> str:
+    if not data:
+        return "binary"
+    if data[:4] == b"GGUF":
+        return "gguf"
+    if _is_printable_ratio(data) >= 0.9:
+        txt = data[:4096].decode("utf-8", errors="ignore").lstrip()
+        if txt.startswith("{") or txt.startswith("["):
+            return "json"
+        return "text"
+    return "binary"
+
+
+def _fib_set(limit: int) -> set[int]:
+    fibs = {1, 2}
+    a, b = 1, 2
+    while b <= limit:
+        a, b = b, a + b
+        fibs.add(b)
+    return fibs
+
+
+def topology_scan_multiscale(data: bytes) -> dict:
+    """Classify a blob into a compact topology summary."""
+    content_type = _guess_content_type(data)
+    scales = (16, 32, 64, 128)
+    profile = []
+    fibs = _fib_set(max(len(data) // 2, 1))
+
+    for scale in scales:
+        if scale <= 0:
+            continue
+        chunks = [data[i:i + scale] for i in range(0, len(data), scale) if data[i:i + scale]]
+        if not chunks:
+            profile.append({
+                "scale": scale,
+                "total_chunks": 0,
+                "unique_chunks": 0,
+                "intra_dedup": 0.0,
+                "phi_ratio": 0.0,
+            })
+            continue
+
+        seen: dict[bytes, list[int]] = {}
+        for idx, chunk in enumerate(chunks):
+            seen.setdefault(chunk, []).append(idx)
+
+        total_chunks = len(chunks)
+        unique_chunks = len(seen)
+        repeated_chunks = total_chunks - unique_chunks
+
+        phi_hits = 0
+        phi_total = 0
+        for positions in seen.values():
+            if len(positions) < 2:
+                continue
+            for a, b in zip(positions, positions[1:]):
+                gap = b - a
+                phi_total += 1
+                if gap in fibs:
+                    phi_hits += 1
+
+        intra_dedup = repeated_chunks / total_chunks if total_chunks else 0.0
+        phi_ratio = phi_hits / phi_total if phi_total else 0.0
+        profile.append({
+            "scale": scale,
+            "total_chunks": total_chunks,
+            "unique_chunks": unique_chunks,
+            "intra_dedup": round(intra_dedup, 4),
+            "phi_ratio": round(phi_ratio, 4),
+        })
+
+    best = max(profile, key=lambda row: (row["intra_dedup"], row["phi_ratio"], -row["scale"])) if profile else {
+        "scale": 32,
+        "intra_dedup": 0.0,
+        "phi_ratio": 0.0,
+    }
+
+    if content_type in {"text", "json", "gguf"}:
+        routing_hint = "woven"
+        access_mode = "random-access"
+    elif best["intra_dedup"] >= 0.35:
+        routing_hint = "sequential"
+        access_mode = "streaming"
+    else:
+        routing_hint = "novel"
+        access_mode = "store-all"
+
+    topology_fp = hashlib.sha256(data).hexdigest()
+    geometry = {
+        "topology_fp": topology_fp,
+        "content_type": content_type,
+        "best_scale": best["scale"],
+        "routing_hint": routing_hint,
+        "access_mode": access_mode,
+        "intra_dedup": best["intra_dedup"],
+        "phi_ratio": best["phi_ratio"],
+        "scale_profile": profile,
+    }
+
+    try:
+        br = PoglsBridge()
+        seed = br.seed_from_fp(topology_fp)
+        piece = br.make_piece(seed, axis=1)
+        geometry["geometry"] = piece.to_dict()
+        geometry["bond_key"] = f"{piece.bond_key:016x}"
+        geometry["shape"] = piece.shape_char
+    except Exception:
+        geometry["geometry"] = {
+            "geo_key": topology_fp[:16],
+            "shape": "?",
+            "bond_L": "0" * 16,
+            "bond_R": "0" * 16,
+            "bond_key": "0" * 16,
+        }
+
+    return geometry

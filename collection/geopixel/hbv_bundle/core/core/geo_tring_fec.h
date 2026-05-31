@@ -1,5 +1,5 @@
 /*
- * geo_tring_fec.h — TRing + RS-FEC integration helpers
+ * geo_tring_fec.h -- TRing + RS-FEC integration helpers
  * ====================================================
  *
  * A thin operational wrapper over:

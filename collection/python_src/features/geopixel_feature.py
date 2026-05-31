@@ -33,6 +33,31 @@ GP_RESIDUAL_VERSION = 1
 GP_RESIDUAL_MAX_CHUNK = 64
 GPR1_HEADER_SZ = 17  # magic(4) + ver(1) + cs(2) + nc(2) + total_len(8)
 
+# ── Input limiter guards ──────────────────────────────
+GEOPIXEL_MAX_INPUT_BYTES = 64 * 1024 * 1024    # 64MB decoded cap
+GEOPIXEL_MAX_BLOB_BYTES  = 128 * 1024 * 1024   # 128MB encoded cap
+GEOPIXEL_MAX_PIXEL_ARRAY = 9999                # max pixels in stripe decode
+
+
+def _reject_oversized(label: str, size: int, limit: int):
+    if size > limit:
+        raise HTTPException(413,
+            f"{label} too large: {size} bytes (max {limit})")
+
+
+def _validate_stripe_pixels(pixels: list, min_count: int, label: str):
+    if not isinstance(pixels, list):
+        raise HTTPException(400, f"{label}: must be a list")
+    if len(pixels) > GEOPIXEL_MAX_PIXEL_ARRAY:
+        raise HTTPException(413, f"{label}: too many pixels ({len(pixels)})")
+    if len(pixels) < min_count:
+        raise HTTPException(400,
+            f"{label}: need at least {min_count} pixels, got {len(pixels)}")
+    for i, p in enumerate(pixels):
+        if not isinstance(p, dict) or not all(k in p for k in ("r", "g", "b")):
+            raise HTTPException(400,
+                f"{label}[{i}]: missing r/g/b fields")
+
 
 def geo_pixel_encode(idx: int, W: int) -> tuple[int, int, int]:
     idx_mod = idx % W
@@ -707,9 +732,7 @@ class GeoPixelFeature(EngineFeature):
         @router.post("/stripe-decode")
         def geopixel_stripe_decode_endpoint(body: StripeDecodeRequest):
             try:
-                if len(body.pixels) < BGP_STRIPE_W:
-                    raise HTTPException(400,
-                        f"Need at least {BGP_STRIPE_W} pixels, got {len(body.pixels)}")
+                _validate_stripe_pixels(body.pixels, BGP_STRIPE_W, "stripe-decode")
                 result = bond_stripe_from_pixels(body.pixels[:BGP_STRIPE_W])
                 return result
             except HTTPException:
@@ -741,9 +764,7 @@ class GeoPixelFeature(EngineFeature):
         @router.post("/stripe-decode-v2")
         def geopixel_stripe_decode_v2_endpoint(body: StripeDecodeRequest):
             try:
-                if len(body.pixels) < BGP_STRIPE_V2_PX:
-                    raise HTTPException(400,
-                        f"Need at least {BGP_STRIPE_V2_PX} pixels for V2, got {len(body.pixels)}")
+                _validate_stripe_pixels(body.pixels, BGP_STRIPE_V2_PX, "stripe-decode-v2")
                 result = bond_stripe_from_pixels_v2(body.pixels[:BGP_STRIPE_V2_PX])
                 return result
             except HTTPException:
@@ -832,7 +853,12 @@ class GeoPixelFeature(EngineFeature):
         @router.post("/residual-encode")
         def geopixel_residual_encode(body: ResidualEncodeRequest):
             try:
+                raw_b64_size = len(body.data_b64)
+                _reject_oversized("residual-encode input (base64)",
+                                  raw_b64_size, GEOPIXEL_MAX_BLOB_BYTES)
                 data = base64.b64decode(body.data_b64)
+                _reject_oversized("residual-encode input (decoded)",
+                                  len(data), GEOPIXEL_MAX_INPUT_BYTES)
                 blob = gp_residual_encode_bytes(
                     data, chunk_size=body.chunk_size, workers=body.workers)
                 return {
@@ -849,7 +875,12 @@ class GeoPixelFeature(EngineFeature):
         @router.post("/residual-decode")
         def geopixel_residual_decode(body: ResidualDecodeRequest):
             try:
+                raw_b64_size = len(body.blob_b64)
+                _reject_oversized("residual-decode blob (base64)",
+                                  raw_b64_size, GEOPIXEL_MAX_BLOB_BYTES)
                 blob = base64.b64decode(body.blob_b64)
+                _reject_oversized("residual-decode blob (decoded)",
+                                  len(blob), GEOPIXEL_MAX_BLOB_BYTES)
                 data = gp_residual_decode_bytes(blob)
                 return {
                     "output_bytes": len(data),

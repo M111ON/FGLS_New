@@ -1,0 +1,12 @@
+[
+  {
+    "version": 1,
+    "key": "test:abc",
+    "author": "me",
+    "deck": "test",
+    "card_schema_version": "v1",
+    "parent_version": 0,
+    "fingerprint": 1234,
+    "timestamp": 1780111257
+  }
+]
