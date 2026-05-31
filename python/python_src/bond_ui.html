@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bond Layer UI</title>
+<style>
+* { box-sizing: border-box; margin: 0; }
+body { font-family: system-ui, sans-serif; background: #f5f5f5; color: #111; padding: 20px; }
+h1 { font-size: 1.3rem; margin-bottom: 4px; }
+.sub { color: #666; font-size: .85rem; margin-bottom: 20px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px,1fr)); gap: 16px; }
+.card { background: #fff; border-radius: 10px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+.card h2 { font-size: 1rem; margin-bottom: 10px; }
+label { display: block; font-size: .8rem; color: #555; margin: 8px 0 2px; }
+input { width: 100%; padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: .9rem; }
+input:focus { outline: none; border-color: #6366f1; }
+button { margin-top: 10px; padding: 7px 16px; background: #6366f1; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: .85rem; }
+button:hover { background: #4f46e5; }
+pre { background: #f0f0f0; border-radius: 6px; padding: 10px; font-size: .8rem; overflow-x: auto; margin-top: 8px; min-height: 40px; white-space: pre-wrap; }
+.badge { display: inline-block; font-size: .7rem; padding: 2px 8px; border-radius: 10px; margin: 8px 0 0; }
+.badge.ok { background: #d1fae5; color: #065f46; }
+.badge.fail { background: #fee2e2; color: #991b1b; }
+.row { display: flex; gap: 8px; }
+.row input { flex:1; }
+</style>
+</head>
+<body>
+
+<h1>Bond Layer v1.1</h1>
+<p class="sub">POGLS geometry-native bond gateway</p>
+
+<div class="grid">
+
+  <!-- Piece -->
+  <div class="card">
+    <h2>Create Piece</h2>
+    <label>topology_fp (hex 16 chars)</label>
+    <input id="fp" value="a3f0b2c1d4e5f6a7" placeholder="a3f0b2c1d4e5f6a7">
+    <label>Axis (0-8)</label>
+    <input id="axis" type="number" min="0" max="8" value="1">
+    <button onclick="createPiece()">Create</button>
+    <pre id="pieceOut"></pre>
+  </div>
+
+  <!-- Verify -->
+  <div class="card">
+    <h2>Verify Bond</h2>
+    <label>Agent A — fp</label>
+    <input id="vfp_a" value="a3f0b2c1d4e5f6a7">
+    <div class="row">
+      <div><label>Axis</label><input id="vax_a" type="number" min="0" max="8" value="1"></div>
+      <div><label>Shape</label><input id="vshape_a" readonly placeholder="I"></div>
+    </div>
+    <label>Agent B — fp</label>
+    <input id="vfp_b" value="a3f0b2c1d4e5f6a7">
+    <div class="row">
+      <div><label>Axis</label><input id="vax_b" type="number" min="0" max="8" value="3"></div>
+      <div><label>Shape</label><input id="vshape_b" readonly placeholder="T"></div>
+    </div>
+    <button onclick="verifyBond()">Verify</button>
+    <pre id="verifyOut"></pre>
+  </div>
+
+  <!-- Wallet -->
+  <div class="card">
+    <h2>Build Wallet</h2>
+    <p style="font-size:.8rem;color:#666">แต่ละบรรทัด: <code>fp,axis,agent_id</code></p>
+    <textarea id="walletInput" rows="5" style="width:100%;border:1px solid #ddd;border-radius:6px;padding:6px;font-size:.8rem;font-family:monospace">a3f0b2c1d4e5f6a7,1,1
+a3f0b2c1d4e5f6a7,3,2
+deadbeefcafe0002,0,3</textarea>
+    <button onclick="buildWallet()">Build Wallet</button>
+    <pre id="walletOut"></pre>
+  </div>
+
+  <!-- Health -->
+  <div class="card">
+    <h2>Health</h2>
+    <button onclick="checkHealth()">Check</button>
+    <pre id="healthOut"></pre>
+  </div>
+
+</div>
+
+<script>
+const BASE = 'http://127.0.0.1:8000';
+
+async function api(method, path, body) {
+  const opts = { method, headers: {'Content-Type':'application/json'} };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(BASE + path, opts);
+  const data = await r.json();
+  if (!r.ok) throw { status: r.status, data };
+  return data;
+}
+
+function show(el, data) {
+  el.textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+}
+
+// create piece — also fills in shape for verify
+async function createPiece() {
+  const el = document.getElementById('pieceOut');
+  el.textContent = 'Loading...';
+  try {
+    const fp = document.getElementById('fp').value.trim();
+    const axis = parseInt(document.getElementById('axis').value);
+    const data = await api('POST', '/bond/create-piece', { fp, axis });
+    show(el, data);
+    // auto-fill verify fields
+    document.getElementById('vfp_a').value = fp;
+    document.getElementById('vax_a').value = axis;
+    document.getElementById('vshape_a').value = data.shape;
+  } catch (e) {
+    show(el, e.data || e.message);
+  }
+}
+
+async function verifyBond() {
+  const el = document.getElementById('verifyOut');
+  el.textContent = 'Loading...';
+  try {
+    const fp_a = document.getElementById('vfp_a').value.trim();
+    const axis_a = parseInt(document.getElementById('vax_a').value);
+    const fp_b = document.getElementById('vfp_b').value.trim();
+    const axis_b = parseInt(document.getElementById('vax_b').value);
+    const data = await api('POST', '/bond/verify', { fp_a, axis_a, fp_b, axis_b });
+    show(el, data);
+    document.getElementById('vshape_a').value = data.agent_a?.shape || '';
+    document.getElementById('vshape_b').value = data.agent_b?.shape || '';
+  } catch (e) {
+    show(el, e.data || e.message);
+  }
+}
+
+async function buildWallet() {
+  const el = document.getElementById('walletOut');
+  el.textContent = 'Loading...';
+  try {
+    const lines = document.getElementById('walletInput').value.trim().split('\n').filter(Boolean);
+    const agents = lines.map((l, i) => {
+      const [fp, axis, agent_id] = l.split(',').map(s => s.trim());
+      return { fp, axis: parseInt(axis), agent_id: parseInt(agent_id) || i };
+    });
+    const data = await api('POST', '/bond/wallet', { agents });
+    show(el, data);
+  } catch (e) {
+    show(el, e.data || e.message);
+  }
+}
+
+async function checkHealth() {
+  const el = document.getElementById('healthOut');
+  el.textContent = 'Loading...';
+  try {
+    const data = await api('POST', '/bond/health');
+    show(el, data);
+  } catch (e) {
+    show(el, e.data || e.message);
+  }
+}
+</script>
+</body>
+</html>
