@@ -1,0 +1,19 @@
+{
+  "0:I": {
+    "smollm2": {
+      "similarity": 0.9,
+      "peer_key": "qwen25coder"
+    },
+    "qwen25coder": {
+      "similarity": 0.9,
+      "peer_key": "smollm2"
+    }
+  },
+  "2:B": {
+    "qwen25coder": {
+      "route_decision": "custom",
+      "route_action": "verify"
+    }
+  },
+  "5:C": {}
+}

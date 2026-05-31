@@ -1,0 +1,135 @@
+{
+  "model": "Qwen2.5-0.5B-Instruct",
+  "file": "qwen2.5-0.5b-instruct-q8_0.gguf",
+  "size_mb": 638.7,
+  "architecture": "qwen2",
+  "quantization": "Q8_0",
+  "file_type": 7,
+  "n_layers": 24,
+  "dim": 896,
+  "ffn_dim": 4864,
+  "n_heads": 14,
+  "n_kv_heads": 2,
+  "ctx_len": 32768,
+  "n_tensors": 291,
+  "global_tensors": [
+    {
+      "name": "output.weight",
+      "shape": [
+        896,
+        151936
+      ],
+      "dtype": "Q8_0"
+    },
+    {
+      "name": "token_embd.weight",
+      "shape": [
+        896,
+        151936
+      ],
+      "dtype": "Q8_0"
+    },
+    {
+      "name": "output_norm.weight",
+      "shape": [
+        896
+      ],
+      "dtype": "F32"
+    }
+  ],
+  "tensors_per_block": 12,
+  "block_pattern": [
+    {
+      "name": "blk.N.attn_norm.weight",
+      "shape": [
+        896
+      ],
+      "dtype": "F32"
+    },
+    {
+      "name": "blk.N.ffn_down.weight",
+      "shape": [
+        4864,
+        896
+      ],
+      "dtype": "Q8_0"
+    },
+    {
+      "name": "blk.N.ffn_gate.weight",
+      "shape": [
+        896,
+        4864
+      ],
+      "dtype": "Q8_0"
+    },
+    {
+      "name": "blk.N.ffn_up.weight",
+      "shape": [
+        896,
+        4864
+      ],
+      "dtype": "Q8_0"
+    },
+    {
+      "name": "blk.N.ffn_norm.weight",
+      "shape": [
+        896
+      ],
+      "dtype": "F32"
+    },
+    {
+      "name": "blk.N.attn_k.bias",
+      "shape": [
+        128
+      ],
+      "dtype": "F32"
+    },
+    {
+      "name": "blk.N.attn_k.weight",
+      "shape": [
+        896,
+        128
+      ],
+      "dtype": "Q8_0"
+    },
+    {
+      "name": "blk.N.attn_output.weight",
+      "shape": [
+        896,
+        896
+      ],
+      "dtype": "Q8_0"
+    },
+    {
+      "name": "blk.N.attn_q.bias",
+      "shape": [
+        896
+      ],
+      "dtype": "F32"
+    },
+    {
+      "name": "blk.N.attn_q.weight",
+      "shape": [
+        896,
+        896
+      ],
+      "dtype": "Q8_0"
+    },
+    {
+      "name": "blk.N.attn_v.bias",
+      "shape": [
+        128
+      ],
+      "dtype": "F32"
+    },
+    {
+      "name": "blk.N.attn_v.weight",
+      "shape": [
+        896,
+        128
+      ],
+      "dtype": "Q8_0"
+    }
+  ],
+  "_summary": "24 layers x 12 tensors = 288 block tensors + 3 global = 291 total"
+}

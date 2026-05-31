@@ -1,0 +1,1610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Geometry Engine — Bauhaus</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #f5f0e8; --fg: #1a1a1a;
+  --border: #1a1a1a; --border-w: 2px;
+  --card: #ffffff; --card-border: #1a1a1a;
+  --primary: #1a1a1a; --primary-fg: #f5f0e8;
+  --gold: #ffcc00; --gold-bg: rgba(255,204,0,0.12);
+  --secondary: #e63b2e; --secondary-bg: rgba(230,59,46,0.10);
+  --tertiary: #0055ff; --tertiary-bg: rgba(0,85,255,0.08);
+  --success: #1a1a1a; --danger: #e63b2e; --amber: #cc8800;
+  --text-muted: #5a5a5a;
+  --font: 'Inter','Segoe UI',system-ui,sans-serif;
+  --font-headline: 'Space Grotesk','Inter',sans-serif;
+  --mono: 'Menlo','Cascadia Code','Consolas',monospace;
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px; --sp-6: 24px;
+}
+* { box-sizing: border-box; margin: 0; border-radius: 0 !important; }
+body { font-family: var(--font); background: var(--bg); color: var(--fg); -webkit-font-smoothing: antialiased; }
+.neo-shadow { box-shadow: 3px 3px 0px 0px #1a1a1a; }
+.neo-shadow-hover:hover { box-shadow: 5px 5px 0px 0px #1a1a1a; transform: translate(-1px, -1px); }
+.neo-shadow-active:active { box-shadow: 0px 0px 0px 0px #1a1a1a; transform: translate(3px, 3px); }
+h1, h2, h3, h4, .h { font-family: var(--font-headline); font-weight: 700; text-transform: uppercase; letter-spacing: -0.3px; }
+
+/* Header */
+.header {
+  background: var(--primary); padding: 12px 24px; display: flex; align-items: center; gap: 12px;
+  border-bottom: 3px solid var(--gold);
+}
+.header h1 { color: var(--gold); font-family: var(--font-headline); font-size: 1.1rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+.header .badge { background: var(--gold); color: var(--primary); font-size: .5rem; font-weight: 700; padding: 3px 10px; text-transform: uppercase; letter-spacing: 1px; border: 2px solid #1a1a1a; }
+.header .status-dot { width: 10px; height: 10px; display: inline-block; margin-left: auto; flex-shrink: 0; border: 2px solid #1a1a1a; }
+.header .status-dot.online { background: var(--gold); }
+.header .status-dot.degraded { background: var(--amber); }
+.header .status-dot.offline { background: var(--secondary); }
+
+.container { max-width: 1400px; margin: 0 auto; padding: 12px; }
+
+/* Gauges row */
+.gauges-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: var(--sp-2); margin-bottom: var(--sp-3); }
+.gauge-card {
+  background: var(--card); border: 2px solid var(--card-border); padding: 8px 6px; text-align: center;
+  box-shadow: 3px 3px 0px 0px #1a1a1a; transition: transform .1s, box-shadow .1s;
+}
+.gauge-card:hover { box-shadow: 5px 5px 0px 0px #1a1a1a; transform: translate(-1px, -1px); }
+.gauge-card .g-title { font-size: .5rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .8px; margin-bottom: 3px; font-weight: 700; font-family: var(--font-headline); }
+.gauge-card .g-value { font-size: 1.2rem; font-weight: 700; color: var(--fg); font-family: var(--font-headline); }
+.gauge-card .g-unit { font-size: .6rem; color: var(--text-muted); font-family: var(--mono); }
+.gauge-card .g-sub { font-size: .6rem; color: var(--text-muted); margin-top: 2px; font-family: var(--mono); }
+.gauge-card .g-bar { height: 4px; background: #1a1a1a; margin-top: 6px; overflow: hidden; border: none; }
+.gauge-card .g-bar-fill { height: 100%; background: var(--gold); transition: width .6s; }
+.gauge-card .g-led { font-family: var(--font-headline); font-size: 1.3rem; font-weight: 700; letter-spacing: 2px; }
+.gauge-card .g-led.gold-led { color: var(--gold); }
+.gauge-card .g-led.green-led { color: var(--success); }
+.gauge-card .g-led.amber-led { color: var(--amber); }
+
+/* SVG Gauge */
+.svg-gauge-wrap { display: flex; justify-content: center; align-items: center; padding: 1px; }
+.gauge-svg { width: 110px; height: 72px; }
+
+/* Radar */
+.radar-wrap { display: flex; justify-content: center; padding: 1px; }
+
+/* Section */
+.section { background: var(--card); border: 2px solid var(--card-border); margin-bottom: var(--sp-3); overflow: hidden; }
+.section-header { background: var(--primary); color: var(--primary-fg); padding: 10px 16px; display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; border-bottom: 2px solid var(--gold); }
+.section-header:hover { background: #2a2a2a; }
+.section-header h2 { font-size: .8rem; font-weight: 700; flex: 1; letter-spacing: .5px; font-family: var(--font-headline); text-transform: uppercase; }
+.section-header .icon { font-size: .85rem; opacity: .8; }
+.section-header .toggle { color: var(--gold); font-size: .6rem; transition: transform .2s; }
+.section-body { padding: var(--sp-3) 14px; display: none; }
+.section-body.open { display: block; }
+
+.status-tag { font-size: .5rem; font-weight: 700; text-transform: uppercase; padding: 2px 8px; letter-spacing: .6px; font-family: var(--font-headline); border: 2px solid #1a1a1a; }
+.status-tag.online { background: var(--gold); color: #1a1a1a; }
+.status-tag.offline { background: var(--bg); color: var(--text-muted); }
+.status-tag.error { background: var(--secondary); color: white; }
+
+.viz-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--sp-2); margin-bottom: var(--sp-2); }
+.viz-card { background: var(--card); border: 2px solid var(--border); padding: 8px 10px; transition: border-color .15s; }
+.viz-card:hover { border-color: var(--tertiary); }
+.viz-card h3 { font-size: .55rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .8px; margin-bottom: 6px; font-weight: 700; font-family: var(--font-headline); }
+.viz-card .num { font-size: 1.1rem; font-weight: 700; color: var(--fg); line-height: 1.2; font-family: var(--font-headline); }
+.viz-card .desc { font-size: .6rem; color: var(--text-muted); margin-top: 1px; font-family: var(--mono); }
+
+.form-row { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-bottom: var(--sp-2); align-items: end; }
+.form-group { display: flex; flex-direction: column; gap: 2px; }
+.form-group label { font-size: .55rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .8px; font-weight: 700; font-family: var(--font-headline); }
+.form-group input, .form-group select { padding: 5px 8px; border: 2px solid var(--border); font-size: .75rem; font-family: var(--font); background: var(--card); color: var(--fg); outline: none; transition: border-color .15s; }
+.form-group input:focus, .form-group select:focus { border-color: var(--tertiary); box-shadow: 0 0 0 2px var(--tertiary-bg); }
+.form-group input[type=number] { width: 70px; }
+
+.btn { padding: 6px 16px; border: 2px solid var(--border); cursor: pointer; font-size: .7rem; font-weight: 700; font-family: var(--font-headline); transition: all .1s; letter-spacing: .5px; text-transform: uppercase; }
+.btn:active { transform: translate(2px, 2px); box-shadow: none; }
+.btn-gold { background: var(--gold); color: var(--primary); box-shadow: 3px 3px 0px 0px #1a1a1a; }
+.btn-gold:hover { background: #e6b800; color: var(--primary); box-shadow: 5px 5px 0px 0px #1a1a1a; transform: translate(-1px, -1px); }
+.btn-outline { background: transparent; border: 2px solid var(--border); color: var(--fg); box-shadow: 3px 3px 0px 0px #1a1a1a; }
+.btn-outline:hover { background: var(--gold); border-color: var(--border); color: var(--primary); box-shadow: 5px 5px 0px 0px #1a1a1a; transform: translate(-1px, -1px); }
+.btn-sm { padding: 3px 10px; font-size: .6rem; }
+.btn:disabled { opacity: .3; cursor: not-allowed; box-shadow: none !important; }
+.btn-gold:active { transform: translate(2px, 2px); box-shadow: none; }
+.btn-outline:active { transform: translate(2px, 2px); box-shadow: none; }
+
+.output-box { background: #1A1A1A; color: #D4D8DD; padding: 8px 10px; font-family: var(--mono); font-size: .65rem; line-height: 1.5; white-space: pre-wrap; overflow-x: auto; min-height: 30px; max-height: 200px; overflow-y: auto; margin-top: 6px; border-left: 3px solid var(--gold); cursor: default; user-select: text; }
+.output-box::before { content: '\276F  '; color: var(--gold); font-size: .6rem; }
+.output-box .ok { color: var(--gold); }
+.output-box .err { color: var(--secondary); }
+.output-box .hl { color: var(--tertiary); }
+
+.data-row { display: flex; justify-content: space-between; padding: 2px 0; font-size: .65rem; border-bottom: 1px solid #d0cbc3; font-family: var(--mono); }
+
+.matrix-grid { display: inline-grid; gap: 2px; margin: 6px 0; }
+.matrix-row { display: grid; grid-template-columns: 20px repeat(6, 1fr); gap: 2px; align-items: center; }
+.matrix-label { font-size: .55rem; color: var(--text-muted); text-align: right; padding-right: 4px; font-family: var(--mono); }
+.matrix-cell { width: 100%; aspect-ratio: 1; min-height: 12px; border: 1px solid #1a1a1a; transition: opacity .15s; }
+.matrix-cell.present { background: var(--gold); }
+.matrix-cell.absent { background: var(--bg); opacity: .2; }
+.matrix-cell.absent:hover { opacity: .5; }
+
+.data-table { width: 100%; border-collapse: collapse; font-size: .65rem; }
+.data-table th { text-align: left; color: var(--text-muted); font-weight: 700; padding: 4px 6px; border-bottom: 2px solid var(--border); font-size: .55rem; text-transform: uppercase; letter-spacing: .6px; font-family: var(--font-headline); }
+.data-table td { padding: 3px 6px; border-bottom: 1px solid #d0cbc3; }
+.data-table tr:hover td { background: var(--gold-bg); }
+.zone-badge { display: inline-block; padding: 1px 5px; font-size: .55rem; background: var(--gold); color: #1a1a1a; font-weight: 700; font-family: var(--font-headline); border: 1px solid #1a1a1a; }
+.ns-badge { display: inline-block; padding: 1px 5px; font-size: .5rem; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; font-family: var(--font-headline); border: 1px solid #1a1a1a; }
+.ns-badge.s { background: var(--gold); color: #1a1a1a; }
+.ns-badge.n { background: var(--secondary); color: white; }
+
+.terminal-box { background: #1A1A1A; overflow: hidden; margin-top: 6px; border: 2px solid #1a1a1a; }
+.terminal-header { background: #2A2A2A; padding: 5px 10px; font-size: .55rem; color: #aaa; display: flex; justify-content: space-between; letter-spacing: .5px; font-family: var(--font-headline); border-bottom: 2px solid var(--gold); }
+.terminal-body { padding: 8px 10px; font-family: var(--mono); font-size: .65rem; color: #D4D8DD; line-height: 1.5; white-space: pre-wrap; max-height: 280px; overflow-y: auto; min-height: 40px; }
+
+.spinner { display: inline-block; width: 10px; height: 10px; border: 2px solid #555; border-top-color: var(--gold); animation: spin .6s linear infinite; vertical-align: middle; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Responsive */
+@media (max-width: 800px) { .gauges-row { grid-template-columns: repeat(3,1fr); } }
+@media (max-width: 500px) {
+  .header { padding: 8px 14px; flex-wrap: wrap; }
+  .header h1 { font-size: .9rem; }
+  .container { padding: 8px; }
+  .gauges-row { grid-template-columns: repeat(2,1fr); gap: var(--sp-1); }
+  .viz-grid { grid-template-columns: 1fr; }
+  .section-body { padding: var(--sp-2) 10px; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>&#x25C8; Geometry Engine Dashboard</h1>
+  <span class="badge">v0.1</span>
+  <span id="engineStatusDot" class="status-dot offline"></span>
+</div>
+
+<div class="container">
+
+<!-- ─── Status Gauge Row ─── -->
+<div class="gauges-row" id="statusGauges"></div>
+
+<!-- ─── Section: Geometry Store ─── -->
+<div class="section" id="secStore">
+  <div class="section-header" onclick="toggleSec(this)">
+    <span class="icon">&#x1F5C4;</span>
+    <h2>Geometry Store</h2>
+    <span class="status-tag" id="storeStatus">loading</span>
+    <span class="toggle">&#x25BC;</span>
+  </div>
+  <div class="section-body open" id="storeBody">
+    <div class="viz-grid" id="storeVizGrid"></div>
+    <div class="viz-grid" style="grid-template-columns: 1fr 1fr;">
+      <div class="viz-card"><h3>Zone &#x2715; Shape Coverage</h3><div id="storeCoverageMatrix"></div></div>
+      <div class="viz-card"><h3>Coverage Gauge</h3><div id="storeCoverageGauge" class="svg-gauge-wrap"></div></div>
+    </div>
+    <div class="viz-card" style="margin-top:10px;"><h3>All Keys</h3><div style="max-height:200px;overflow-y:auto;border:1px solid var(--silver);border-radius:4px;" id="storeKeyTable"></div></div>
+    <div style="margin-top:10px;"><div class="form-row">
+      <div class="form-group"><label>Zone</label><input type="number" id="qZone" min="0" max="11" value="6"></div>
+      <div class="form-group"><label>Shape</label><select id="qShape"><option>I</option><option>O</option><option>T</option><option>S</option><option>Z</option><option>L</option></select></div>
+      <div class="form-group"><label>Namespace</label><select id="qNs"><option value="">—</option><option>Q</option><option>K</option><option>V</option><option>O</option><option>G</option><option>U</option><option>D</option></select></div>
+      <button class="btn btn-gold" onclick="storeQuery()">Query</button>
+    </div><div class="viz-grid" style="grid-template-columns:1fr 1fr;margin-top:0;">
+      <div class="viz-card"><h3>Weight Stats</h3>    <div class="output-box" id="storeQueryOut" style="min-height:30px;margin-top:0;">Press <strong>Query</strong> above</div></div>
+      <div class="viz-card"><h3>Weight Heatmap</h3><div id="storeWeightHeatmap" style="display:flex;justify-content:center;min-height:60px;align-items:center;"><div style="color:var(--text-muted);font-size:.7rem;">query a weight to preview</div></div></div>
+    </div></div>
+  </div>
+</div>
+
+<!-- ─── Section: Bermuda Router ─── -->
+<div class="section" id="secRouter">
+  <div class="section-header" onclick="toggleSec(this)">
+    <span class="icon">&#x1F9F0;</span>
+    <h2>Bermuda Router</h2>
+    <span class="status-tag" id="routerStatus">loading</span>
+    <span class="toggle">&#x25BC;</span>
+  </div>
+  <div class="section-body open" id="routerBody">
+    <div class="form-row">
+      <div class="form-group"><label>Dim</label><input type="number" id="rDim" value="128" min="16" max="768"></div>
+      <div class="form-group"><label>Tokens</label><input type="number" id="rTokens" value="64" min="2" max="4096"></div>
+      <div class="form-group"><label>Seed</label><input type="number" id="rSeed" value="42"></div>
+      <div class="form-group"><label>Mode</label><select id="rMode"><option value="0">ORBITAL</option><option value="1">CHIRAL</option><option value="2">CROSS</option><option value="3">HUB</option></select></div>
+      <button class="btn btn-gold" onclick="routerRoute()">Route</button>
+      <button class="btn btn-outline" onclick="routerRouteAll()">All 4 Modes</button>
+    </div>
+    <div class="gauges-row" id="routerMiniGauges" style="margin-bottom:10px;"></div>
+    <div class="viz-grid" style="grid-template-columns: 1.3fr 1.2fr 1fr;">
+      <div class="viz-card"><h3>Zone Distribution (12 faces)</h3><div id="zoneRadar" class="radar-wrap"></div></div>
+      <div class="viz-card"><h3>Shape Donut</h3><div id="shapeDonut" style="display:flex;justify-content:center;"></div></div>
+      <div class="viz-card"><h3>Route / Ground</h3><div id="routeGroundStack" style="display:flex;justify-content:center;align-items:center;min-height:100px;"></div></div>
+    </div>
+    <div class="viz-card" style="margin-bottom:10px;"><h3>TRing Slot Occupancy (720 slots, 36×20)</h3><div id="tringHeatmap" style="display:flex;justify-content:center;overflow-x:auto;"></div></div>
+    <div style="margin-top:10px;">
+      <div id="modeCompareGrid" style="display:none;margin-bottom:8px;" class="viz-card"><h3>All 4 Modes Comparison</h3><div id="modeCompareContent"></div></div>
+      <div id="modeRadarOverlay" style="display:none;margin-bottom:8px;" class="viz-card"><h3>Mode Overlay — Zone Distribution</h3><div id="modeRadarContent" class="radar-wrap"></div></div>
+      <div class="viz-card"><h3>Verdicts</h3><div style="max-height:160px;overflow-y:auto;" id="routerVerdictTable"></div></div>
+    </div>
+    <div class="output-box" id="routerOut">Press <strong>Route</strong> or <strong>All 4 Modes</strong> above</div>
+  </div>
+</div>
+
+<!-- ─── Section: Bermuda Gate ─── -->
+<div class="section" id="secGate">
+  <div class="section-header" onclick="toggleSec(this)">
+    <span class="icon">&#x1F310;</span>
+    <h2>Bermuda Gate</h2>
+    <span class="status-tag" id="gateStatus">loading</span>
+    <span class="toggle">&#x25BC;</span>
+  </div>
+  <div class="section-body open" id="gateBody">
+    <div class="gauges-row" id="gateGauges" style="margin-bottom:10px;"></div>
+    <div class="form-row">
+      <button class="btn btn-gold" onclick="gateForward()">Forward Test</button>
+      <button class="btn btn-outline" onclick="gateCompareC()">Compare with C</button>
+    </div>
+    <div class="viz-grid">
+      <div class="viz-card"><h3>Python Gate</h3><div class="output-box" id="gateOut">Press <strong>Forward Test</strong> above</div></div>
+      <div class="viz-card"><h3>C test_gate_forward</h3><div class="output-box" id="gateCOut">Press <strong>Compare with C</strong> above</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Section: C Pipeline ─── -->
+<div class="section" id="secPipeline">
+  <div class="section-header" onclick="toggleSec(this)">
+    <span class="icon">&#x1F517;</span>
+    <h2>C Pipeline (DLL Bridge)</h2>
+    <span class="status-tag" id="pipelineStatus">loading</span>
+    <span class="toggle">&#x25BC;</span>
+  </div>
+  <div class="section-body" id="pipelineBody">
+    <div class="gauges-row" id="pipelineGauges" style="margin-bottom:10px;"></div>
+    <div class="form-row">
+      <button class="btn btn-gold" onclick="pipelineHilbert()">Test Hilbert</button>
+      <button class="btn btn-outline" onclick="pipelineTraverse()">Traverse</button>
+      <button class="btn btn-outline" onclick="pipelineBatchRoute()">Batch Route</button>
+    </div>
+    <div class="output-box" id="pipelineOut">Press a button above</div>
+  </div>
+</div>
+
+<!-- ─── Section: C Binaries ─── -->
+<div class="section" id="secC">
+  <div class="section-header" onclick="toggleSec(this)">
+    <span class="icon">&#x1F5A5;</span>
+    <h2>C Binaries</h2>
+    <span class="status-tag" id="cStatus">loading</span>
+    <span class="toggle">&#x25BC;</span>
+  </div>
+  <div class="section-body" id="cBody">
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;" id="cBinaryList"></div>
+    <div class="terminal-box">
+      <div class="terminal-header"><span>Terminal</span><span id="cRunLabel">idle</span></div>
+      <div class="terminal-body" id="cOutput">Select binary and click Run</div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Section: GeoPixel Codec ─── -->
+<div class="section" id="secGeopixel">
+  <div class="section-header" onclick="toggleSec(this)">
+    <span class="icon">&#x1F4DD;</span>
+    <h2>GeoPixel Codec</h2>
+    <span class="status-tag" id="geopixelStatus">loading</span>
+    <span class="toggle">&#x25BC;</span>
+  </div>
+  <div class="section-body" id="geopixelBody">
+    <div class="gauges-row" id="geopixelGauges" style="margin-bottom:10px;"></div>
+    <div class="form-row">
+      <div class="form-group"><label>Idx</label><input type="number" id="gpIdx" value="42" min="0" max="4095"></div>
+      <div class="form-group"><label>W (mod)</label><input type="number" id="gpW" value="256" min="2" max="4096"></div>
+      <button class="btn btn-gold" onclick="gpEncode()">Encode</button>
+      <div style="width:20px;"></div>
+      <div class="form-group"><label>R</label><input type="number" id="gpR" value="120" min="0" max="255"></div>
+      <div class="form-group"><label>G</label><input type="number" id="gpG" value="96" min="0" max="255"></div>
+      <div class="form-group"><label>B</label><input type="number" id="gpB" value="42" min="0" max="255"></div>
+      <button class="btn btn-outline" onclick="gpDecode()">Decode</button>
+    </div>
+    <div class="viz-grid" style="grid-template-columns: 1fr 1fr;">
+      <div class="viz-card"><h3>Encode Result</h3><div id="gpEncodeOut" class="output-box" style="min-height:40px;">Press <strong>Encode</strong></div></div>
+      <div class="viz-card"><h3>Decode Fields + CRT</h3><div id="gpDecodeOut" class="output-box" style="min-height:40px;">Press <strong>Decode</strong></div></div>
+    </div>
+    <div class="form-row" style="margin-top:8px;">
+      <div class="form-group"><label>GeoKey (hex)</label><input type="text" id="gpGeoKey" value="0xDEADBEEFCAFE1234" style="width:180px;font-family:var(--mono);font-size:.65rem;"></div>
+      <div class="form-group"><label>Shape</label><select id="gpShape"><option>I</option><option>O</option><option>T</option><option>S</option><option>Z</option><option>J</option><option>L</option></select></div>
+      <div class="form-group"><label>BondL (hex)</label><input type="text" id="gpBondL" value="0x1111222233334444" style="width:160px;font-family:var(--mono);font-size:.65rem;"></div>
+      <div class="form-group"><label>BondR (hex)</label><input type="text" id="gpBondR" value="0xAAAA5555BBBB6666" style="width:160px;font-family:var(--mono);font-size:.65rem;"></div>
+      <button class="btn btn-gold" onclick="gpFingerprint()">Fingerprint</button>
+      <button class="btn btn-outline" onclick="gpStripe()">Encode Stripe</button>
+    </div>
+    <div class="viz-grid" style="grid-template-columns: 1fr 1fr;">
+      <div class="viz-card"><h3>Fingerprint</h3><div id="gpFpOut" class="output-box" style="min-height:30px;">Click <strong>Fingerprint</strong></div></div>
+      <div class="viz-card"><h3>Stripe &#x2192; 27 Pixels</h3><div id="gpStripeOut" style="min-height:30px;display:flex;flex-wrap:wrap;gap:2px;align-items:center;">Click <strong>Encode Stripe</strong></div></div>
+    </div>
+    <div class="form-row" style="margin-top:8px;">
+      <div class="form-group"><label>Addr (hex)</label><input type="text" id="gpAddr" value="0xDEADBEEF" style="width:140px;font-family:var(--mono);font-size:.65rem;"></div>
+      <button class="btn btn-gold" onclick="gpGrid()">Grid</button>
+      <div style="width:20px;"></div>
+      <div class="form-group"><label>Count</label><input type="number" id="gpRtCount" value="10" min="1" max="200"></div>
+      <button class="btn btn-outline" onclick="gpRoundtrip()">Roundtrip</button>
+      <button class="btn btn-outline" onclick="gpUniqueness()">Uniqueness</button>
+    </div>
+    <div class="viz-grid" style="grid-template-columns: 1fr 1fr;">
+      <div class="viz-card"><h3>Address Grid (27&#x2715;27)</h3><div id="gpGridOut" style="display:flex;justify-content:center;min-height:50px;">Click <strong>Grid</strong></div></div>
+      <div class="viz-card"><h3>Roundtrip / Uniqueness</h3><div id="gpRtOut" class="output-box" style="min-height:50px;">Click <strong>Roundtrip</strong> or <strong>Uniqueness</strong></div></div>
+    </div>
+    <div class="viz-card" style="margin-top:10px;">
+      <h3>Sparse Residual Codec</h3>
+      <div class="form-row">
+        <div class="form-group"><label>Chunk Size</label><input type="number" id="gpResChunk" value="64" min="1" max="64"></div>
+        <div class="form-group"><label>Workers</label><input type="number" id="gpResWorkers" value="4" min="1" max="16"></div>
+        <button class="btn btn-gold" onclick="gpResidualInfo()">Info</button>
+        <button class="btn btn-outline" onclick="gpResidualEncode()">Encode</button>
+        <button class="btn btn-outline" onclick="gpResidualDecode()">Decode</button>
+      </div>
+      <div class="form-row" style="align-items:stretch;">
+        <div class="form-group" style="flex:1;">
+          <label>Input (Base64)</label>
+          <textarea id="gpResIn" style="width:100%;min-height:74px;font-family:var(--mono);font-size:.6rem;background:#fff;border:2px solid var(--border);"></textarea>
+        </div>
+        <div class="form-group" style="flex:1;">
+          <label>Output / Status</label>
+          <textarea id="gpResOut" readonly style="width:100%;min-height:74px;font-family:var(--mono);font-size:.6rem;background:#f8f8f8;border:2px solid var(--border);"></textarea>
+        </div>
+      </div>
+      <div class="output-box" id="gpResMeta" style="min-height:34px;">Deterministic residual codec. RGB/BMP is generated on-demand only.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Section: Container Format (.gpr1 / .gpx4) ─── -->
+<div class="section" id="secContainer">
+  <div class="section-header" onclick="toggleSec(this)">
+    <span class="icon">&#x1F4E6;</span>
+    <h2>Container Format</h2>
+    <span class="status-tag" id="containerStatus">loading</span>
+    <span class="toggle">&#x25BC;</span>
+  </div>
+  <div class="section-body" id="containerBody">
+    <div class="gauges-row" id="containerGauges" style="margin-bottom:10px;"></div>
+
+    <!-- GPR1 tab -->
+    <div style="border:2px solid var(--border);margin-bottom:10px;">
+      <div style="background:var(--primary);color:var(--gold);padding:6px 12px;font-family:var(--font-headline);font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;">
+        GPR1 — GeoPixel Residual Container
+      </div>
+      <div style="padding:10px;">
+        <div class="form-row">
+          <div class="form-group"><label>Chunk Size</label><input type="number" id="conGpr1Chunk" value="64" min="1" max="64"></div>
+          <div class="form-group"><label>Workers</label><input type="number" id="conGpr1Workers" value="4" min="1" max="16"></div>
+          <button class="btn btn-gold" onclick="conGpr1Encode()">Encode File to .gpr1</button>
+          <button class="btn btn-outline" onclick="conGpr1Decode()">Decode .gpr1</button>
+          <button class="btn btn-outline" onclick="conGpr1Info()">Info</button>
+        </div>
+        <div class="form-row">
+          <input type="file" id="conGpr1FileInput" style="display:none;" onchange="conGpr1HandleFile(event)">
+          <input type="file" id="conGpr1DecodeInput" style="display:none;" onchange="conGpr1HandleDecode(event)">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;width:100%;">
+            <div id="conGpr1Status" class="output-box" style="flex:1;min-height:32px;font-size:.6rem;">Ready. Select a file to encode or decode.</div>
+            <div id="conGpr1Result" class="output-box" style="flex:1;min-height:32px;font-size:.6rem;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- GPX4 tab -->
+    <div style="border:2px solid var(--border);">
+      <div style="background:var(--primary);color:var(--gold);padding:6px 12px;font-family:var(--font-headline);font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;">
+        GPX4 — Multi-Layer GeoPixel Container
+      </div>
+      <div style="padding:10px;">
+        <div class="form-row">
+          <button class="btn btn-gold" onclick="conGpx4Inspect()">Upload &amp; Inspect .gpx4</button>
+          <button class="btn btn-outline" onclick="conGpx4Info()">Info by Path</button>
+        </div>
+        <div class="form-row">
+          <input type="file" id="conGpx4FileInput" style="display:none;" onchange="conGpx4HandleFile(event)">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;width:100%;">
+            <div id="conGpx4Status" class="output-box" style="flex:1;min-height:32px;font-size:.6rem;">Ready. Upload a .gpx4 file to inspect its structure.</div>
+            <div id="conGpx4Result" class="output-box" style="flex:1;min-height:32px;font-size:.6rem;"></div>
+          </div>
+        </div>
+        <!-- GPX4 Timeline / Preview -->
+        <div style="border:2px solid var(--border);margin-top:10px;">
+          <div style="background:var(--primary);color:var(--gold);padding:6px 12px;font-family:var(--font-headline);font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;">
+            GPX4 Timeline &amp; Preview
+          </div>
+          <div style="padding:10px;">
+            <div class="form-row">
+              <button class="btn btn-gold" onclick="conGpx4Timeline()">Timeline by Path</button>
+              <button class="btn btn-outline" onclick="conGpx4BuildDemo()">Build Demo GPX4</button>
+              <button class="btn btn-outline" onclick="conGpx4PreviewO4()">Preview O4 Layer</button>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;width:100%;margin-top:6px;">
+              <div id="conGpx4TimelineStatus" class="output-box" style="flex:1;min-height:28px;font-size:.55rem;">Timeline ready.</div>
+            </div>
+            <div id="conGpx4TimelineFrames" style="margin-top:8px;font-size:.55rem;"></div>
+            <div id="conGpx4TimelinePreview" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Section: Geometry Codec ─── -->
+<div class="section" id="secCodec">
+  <div class="section-header" onclick="toggleSec(this)">
+    <span class="icon">&#x1F4F9;</span>
+    <h2>Geometry Codec</h2>
+    <span class="status-tag" id="codecStatus">loading</span>
+    <span class="toggle">&#x25BC;</span>
+  </div>
+  <div class="section-body" id="codecBody">
+    <div class="gauges-row" id="codecGauges" style="margin-bottom:10px;"></div>
+    <div class="form-row">
+      <div class="form-group"><label>Levels</label><input type="number" id="cTicks" value="16" min="4" max="144"></div>
+      <div class="form-group"><label>Dim</label><input type="number" id="cDim" value="128" min="16" max="768"></div>
+      <div class="form-group"><label>Tokens</label><input type="number" id="cTokens" value="64" min="4" max="4096"></div>
+      <div class="form-group"><label>Seed</label><input type="number" id="cSeed" value="42"></div>
+      <div class="form-group"><label>Mode</label><select id="cMode"><option value="0">ORBITAL</option><option value="1">CHIRAL</option><option value="2">CROSS</option><option value="3">HUB</option></select></div>
+      <div class="form-group"><label>Highlight</label><select id="cHighlight"><option value="">none</option><option value="enter">Enter</option><option value="leave">Leave</option><option value="persist">Persist</option></select></div>
+      <button class="btn btn-gold" onclick="codecCapture()">Capture</button>
+      <label style="display:flex;align-items:center;gap:6px;font-size:.65rem;font-weight:600;text-transform:uppercase;cursor:pointer;"><input type="checkbox" id="cVideo" onchange="codecToggleVideo()"> Lossless MP4</label>
+    </div>
+    <div class="gauges-row" id="codecPipelineGauges" style="margin-bottom:10px;display:none;"></div>
+    <div class="viz-grid" style="grid-template-columns: 1.5fr 1fr;">
+      <div class="viz-card"><h3>Preview <span id="codecFrameBadge" style="display:none;color:var(--gold);font-size:.5rem;margin-left:4px;">+HDR</span> <span id="codecVideoBadge" style="display:none;color:var(--secondary);font-size:.5rem;margin-left:4px;">LOSS</span></h3><div id="codecAPNG" style="display:flex;justify-content:center;align-items:center;min-height:80px;background:#1a1a1a;">waiting...</div><video id="codecVideo" style="display:none;max-width:280px;width:100%;border:2px solid var(--border);" controls loop muted></video></div>
+      <div class="viz-card"><h3>Level Stats</h3><div class="output-box" id="codecStats" style="min-height:80px;">Click Capture</div></div>
+    </div>
+    <div class="viz-grid" style="grid-template-columns: 1fr 1fr;">
+      <div class="viz-card"><h3>Connections (enter/leave/persist per level)</h3><div id="codecConnChart" style="min-height:60px;"></div></div>
+      <div class="viz-card"><h3>Flow Edges</h3><div id="codecFlowEdges" style="max-height:120px;overflow-y:auto;min-height:40px;"></div></div>
+    </div>
+    <div class="viz-card" style="margin-top:10px;"><h3>Level Detail</h3><div id="codecLevelTable" style="max-height:160px;overflow-y:auto;"></div></div>
+    <div class="output-box" id="codecOut">Press <strong>Capture</strong> above</div>
+  </div>
+</div>
+
+</div>
+
+<script>
+const API = '';
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(API + path, opts);
+  if (!r.ok) {
+    let text = await r.text();
+    try { const j = JSON.parse(text); text = j.detail || j.error || text; } catch {}
+    throw new Error(`HTTP ${r.status}: ${text}`);
+  }
+  return r.json();
+}
+
+function toggleSec(h) {
+  const b = h.nextElementSibling;
+  b.classList.toggle('open');
+  h.querySelector('.toggle').textContent = b.classList.contains('open') ? '\u25BC' : '\u25B6';
+}
+function showLoading(el) { if (el) el.innerHTML = '<span class="spinner"></span> loading...'; }
+function el(id) { return document.getElementById(id); }
+
+// ─── Gauge SVG Renderers ───
+
+// Semi-circular needle gauge (compact)
+function svgGauge(value, min, max, label, unit, color) {
+  const v = Math.max(min, Math.min(max, value));
+  const pct = (v - min) / (max - min);
+  const cx = 55, cy = 56, r = 42;
+  const startAngle = Math.PI * 0.75;
+  const endAngle = Math.PI * 2.25;
+  const sweep = endAngle - startAngle;
+  const angle = startAngle + sweep * pct;
+
+  function polar(a) { return [cx + r * Math.cos(a), cy + r * Math.sin(a)]; }
+
+  // Background arc
+  const bgStart = polar(startAngle);
+  const bgEnd = polar(endAngle);
+  const bgLarge = sweep > Math.PI ? 1 : 0;
+  let bgArc = `M ${bgStart[0]} ${bgStart[1]} A ${r} ${r} 0 ${bgLarge} 1 ${bgEnd[0]} ${bgEnd[1]}`;
+
+  // Value arc (same arc but painted differently)
+  const valEnd = polar(angle);
+  const valLarge = (angle - startAngle) > Math.PI ? 1 : 0;
+  let valArc = bgStart[0] === valEnd[0] && bgStart[1] === valEnd[1]
+    ? bgArc : `M ${bgStart[0]} ${bgStart[1]} A ${r} ${r} 0 ${valLarge} 1 ${valEnd[0]} ${valEnd[1]}`;
+
+  // Needle
+  const needleLen = r - 6;
+  const nx = cx + needleLen * Math.cos(angle);
+  const ny = cy + needleLen * Math.sin(angle);
+  const needleColor = color || (pct > 0.7 ? 'var(--gold)' : pct > 0.3 ? 'var(--tertiary)' : 'var(--secondary)');
+
+  // Tick marks
+  let ticks = '';
+  for (let i = 0; i <= 5; i++) {
+    const a = startAngle + sweep * (i / 5);
+    const inner = r - 10, outer = r - 3;
+    const ix = cx + inner * Math.cos(a), iy = cy + inner * Math.sin(a);
+    const ox = cx + outer * Math.cos(a), oy = cy + outer * Math.sin(a);
+    ticks += `<line x1="${ix}" y1="${iy}" x2="${ox}" y2="${oy}" stroke="var(--silver-dark)" stroke-width="1.5"/>`;
+  }
+
+  return `<svg class="gauge-svg" viewBox="0 0 110 72" width="110" height="72">
+    <path d="${bgArc}" fill="none" stroke="var(--silver-light)" stroke-width="6" stroke-linecap="round"/>
+    <path d="${valArc}" fill="none" stroke="${needleColor}" stroke-width="6" stroke-linecap="round" style="transition: all .5s;"/>
+    ${ticks}
+    <line x1="${cx}" y1="${cy}" x2="${nx}" y2="${ny}" stroke="${needleColor}" stroke-width="1.5" stroke-linecap="round" style="transition: all .5s;"/>
+    <circle cx="${cx}" cy="${cy}" r="3" fill="${needleColor}"/>
+    <text x="${cx}" y="${cy - 16}" text-anchor="middle" font-size="13" font-weight="700" fill="var(--fg)">${Math.round(v)}</text>
+    ${unit ? `<text x="${cx}" y="${cy - 5}" text-anchor="middle" font-size="7" fill="var(--text-muted)">${unit}</text>` : ''}
+    ${label ? `<text x="${cx}" y="${cy + 12}" text-anchor="middle" font-size="6" fill="var(--text-muted)">${label}</text>` : ''}
+  </svg>`;
+}
+
+// Radial progress ring
+function svgRadialRing(pct, label, color, size) {
+  const s = size || 100;
+  const cx = s/2, cy = s/2, r = s/2 - 10;
+  const circ = 2 * Math.PI * r;
+  const offset = circ * (1 - Math.min(Math.max(pct, 0), 1));
+  const c = color || 'var(--gold)';
+  return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}">
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--silver-light)" stroke-width="4"/>
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${c}" stroke-width="4" stroke-dasharray="${circ}" stroke-dashoffset="${offset}" stroke-linecap="round" transform="rotate(-90 ${cx} ${cy})" style="transition: stroke-dashoffset .6s;"/>
+    <text x="${cx}" y="${cy - 3}" text-anchor="middle" font-size="${s * .16}" font-weight="700" fill="var(--fg)">${(pct * 100).toFixed(0)}%</text>
+    ${label ? `<text x="${cx}" y="${cy + 11}" text-anchor="middle" font-size="${s * .07}" fill="var(--text-muted)">${label}</text>` : ''}
+  </svg>`;
+}
+
+// Radar / spider chart
+function svgRadar(data, maxVal, size) {
+  const s = size || 180;
+  const cx = s/2, cy = s/2;
+  const r = s/2 - 18;
+  const n = Object.keys(data).length;
+  if (n === 0) return '<div style="color:var(--text-muted);padding:20px;">no data</div>';
+  const keys = Object.keys(data).sort((a, b) => parseInt(a) - parseInt(b));
+  const mv = Math.max(...Object.values(data), 1);
+  const maxR = maxVal || Math.ceil(mv / 10) * 10;
+
+  function angle(i) { return (Math.PI * 2 * i / n) - Math.PI / 2; }
+
+  // Grid circles + spokes
+  let grids = '';
+  for (let ring = 1; ring <= 4; ring++) {
+    const rr = r * ring / 4;
+    grids += `<circle cx="${cx}" cy="${cy}" r="${rr}" fill="none" stroke="var(--silver-light)" stroke-width=".4" opacity=".4"/>`;
+  }
+  for (let i = 0; i < n; i++) {
+    const a = angle(i);
+    grids += `<line x1="${cx}" y1="${cy}" x2="${cx + r * Math.cos(a)}" y2="${cy + r * Math.sin(a)}" stroke="var(--silver-light)" stroke-width=".4" opacity=".4"/>`;
+  }
+
+  // Data polygon
+  let pts = '', lbls = '';
+  const values = keys.map(k => data[k]);
+  for (let i = 0; i < n; i++) {
+    const a = angle(i);
+    const vr = r * values[i] / maxR;
+    const x = cx + vr * Math.cos(a), y = cy + vr * Math.sin(a);
+    pts += `${x},${y} `;
+    // Labels outside the chart
+    const lr = r + 14;
+    const lx = cx + lr * Math.cos(a), ly = cy + lr * Math.sin(a);
+    const anchor = a > 0.1 && a < Math.PI - 0.1 ? 'start' : a > Math.PI + 0.1 && a < Math.PI * 2 - 0.1 ? 'end' : 'middle';
+    lbls += `<text x="${lx}" y="${ly + 3}" text-anchor="${anchor}" font-size="7" fill="var(--text-muted)">${keys[i]}</text>`;
+  }
+
+  // Data dots
+  let dots = '';
+  const ptsArr = pts.trim().split(' ').map(p => p.split(',').map(Number));
+  for (const [x, y] of ptsArr) {
+    dots += `<circle cx="${x}" cy="${y}" r="2.5" fill="var(--fg)" stroke="var(--bg)" stroke-width="1"/>`;
+  }
+
+  return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}">
+    ${grids}${lbls}
+    <polygon points="${pts.trim()}" fill="var(--gold)" opacity=".2" stroke="var(--fg)" stroke-width="1.5"/>
+    ${dots}
+    <text x="${cx}" y="${cy + 4}" text-anchor="middle" font-size="8" fill="var(--text-muted)" opacity=".5">max=${maxR}</text>
+  </svg>`;
+}
+
+// SVG Donut chart (for shape distribution)
+function svgDonut(data, colors, size) {
+  const total = Object.values(data).reduce((a, b) => a + b, 0) || 1;
+  const s = size || 110;
+  const cx = s/2, cy = s/2, r = s/2 - 10, ir = s/4 + 2;
+  const colorList = colors || ['#ffcc00','#1a1a1a','#e63b2e','#0055ff','#cc8800','#5a5a5a','#f5f0e8'];
+  const keys = Object.keys(data);
+  if (keys.length === 0) return '<div style="color:var(--text-muted);padding:20px;">no data</div>';
+
+  function polar(a, rad) { return [cx + rad * Math.cos(a), cy + rad * Math.sin(a)]; }
+  let cum = 0;
+  let arcs = '', segLabels = '';
+  keys.forEach((k, i) => {
+    const val = data[k];
+    const angle = (val / total) * 360;
+    if (angle < 0.5) return;
+    const start = cum, end = cum + angle;
+    cum = end;
+    const sRad = (start - 90) * Math.PI / 180;
+    const eRad = (end - 90) * Math.PI / 180;
+    const x1 = cx + r * Math.cos(sRad), y1 = cy + r * Math.sin(sRad);
+    const x2 = cx + r * Math.cos(eRad), y2 = cy + r * Math.sin(eRad);
+    const large = angle > 180 ? 1 : 0;
+    arcs += `<path d="M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z" fill="${colorList[i % colorList.length]}" opacity=".85" stroke="var(--bg)" stroke-width="1"/>`;
+    // Label at centroid
+    const mid = (start + end) / 2;
+    const mRad = (mid - 90) * Math.PI / 180;
+    const lr = r * 0.65;
+    const lx = cx + lr * Math.cos(mRad), ly = cy + lr * Math.sin(mRad);
+    if (angle > 15) segLabels += `<text x="${lx}" y="${ly+3}" text-anchor="middle" font-size="9" font-weight="600" fill="var(--white)">${k}</text>`;
+  });
+  // Center hole
+  arcs += `<circle cx="${cx}" cy="${cy}" r="${ir}" fill="var(--bg)"/>`;
+  arcs += `<text x="${cx}" y="${cy-1}" text-anchor="middle" font-size="14" font-weight="700" fill="var(--fg)">${total}</text>`;
+  arcs += `<text x="${cx}" y="${cy+9}" text-anchor="middle" font-size="6" fill="var(--text-muted)">tokens</text>`;
+  // Legend
+  let legend = '';
+  keys.forEach((k, i) => { legend += `<span style="display:inline-flex;align-items:center;gap:3px;font-size:.65rem;color:var(--text-muted);margin:1px 4px;"><span style="width:8px;height:8px;border-radius:2px;background:${colorList[i%colorList.length]};display:inline-block;"></span>${k}=${data[k]}</span>`; });
+  return `<div style="text-align:center;"><svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}">${arcs}${segLabels}</svg><div>${legend}</div></div>`;
+}
+
+// Stacked horizontal bar (for R/G or simple ratios)
+function svgStackedBar(sections, size) {
+  const total = sections.reduce((a, s) => a + s.value, 0) || 1;
+  const w = size || 110, h = 16;
+  let cum = 0, bars = '', labels = '';
+  sections.forEach((s, i) => {
+    const pct = s.value / total;
+    const x = cum * w, bw = pct * w;
+    bars += `<rect x="${x}" y="0" width="${bw}" height="${h}" fill="${s.color}" style="transition:width .4s;"/>`;
+    if (bw > 20) labels += `<text x="${x + bw/2}" y="${h/2+3}" text-anchor="middle" font-size="7" font-weight="700" fill="var(--bg)">${s.label} ${(pct*100).toFixed(0)}%</text>`;
+    cum += pct;
+  });
+  if (cum < 1) bars += `<rect x="${cum*w}" y="0" width="${(1-cum)*w}" height="${h}" fill="#d0cbc3" opacity=".4"/>`;
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${bars}${labels}</svg>`;
+}
+
+// Comparison grid: render 4 mini gauges in a 2x2 grid
+function svgCompareGrid(modes) {
+  let html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">';
+  const modeColors = ['var(--gold)', 'var(--tertiary)', 'var(--secondary)', '#5a5a5a'];
+  modes.forEach((m, i) => {
+    const pct = (m.route_count + m.ground_count) > 0 ? m.route_count / (m.route_count + m.ground_count) : 0;
+    html += `<div style="text-align:center;padding:4px;background:var(--card);border:2px solid var(--border);box-shadow:3px 3px 0px 0px #1a1a1a;">
+      <div style="font-size:.5rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;font-family:var(--font-headline);font-weight:700;">${m.mode}</div>
+      ${svgGauge(pct * 100, 0, 100, '', '%', modeColors[i % modeColors.length])}
+      <div style="display:flex;justify-content:center;gap:6px;font-size:.6rem;margin-top:1px;">
+        <span style="color:var(--fg);font-weight:700;font-family:var(--font-headline);">R=${m.route_count}</span>
+        <span style="color:var(--text-muted);">G=${m.ground_count}</span>
+      </div>
+    </div>`;
+  });
+  return html + '</div>';
+}
+
+// TRing heatmap: 720 slots as 36×20 grid
+function svgTringHeatmap(slots, cellSize) {
+  const cs = cellSize || 4, gap = 0.5, cols = 36, rows = 20;
+  const w = cols * (cs + gap), h = rows * (cs + gap);
+  const set = new Set(slots || []);
+  let cells = '';
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const idx = r * cols + c;
+      const occ = set.has(idx);
+      const fill = occ ? 'var(--gold)' : '#1a1a1a';
+      const op = occ ? '1' : '.06';
+      cells += `<rect x="${c*(cs+gap)}" y="${r*(cs+gap)}" width="${cs}" height="${cs}" fill="${fill}" opacity="${op}"/>`;
+    }
+  }
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="max-width:100%;"><rect width="${w}" height="${h}" fill="none"/>${cells}</svg>`;
+}
+
+// Weight heatmap: 2D float32 values as color grid
+function svgWeightHeatmap(data, size) {
+  if (!data || !data.length) return '<div style="color:var(--text-muted);padding:10px;">no data</div>';
+  const rows = data.length, cols = data[0].length;
+  const cs = Math.max(2, Math.min(12, Math.floor((size || 240) / cols)));
+  const w = cols * cs, h = rows * cs;
+  let vals = data.flat(), min = Math.min(...vals), max = Math.max(...vals), rng = max - min || 1;
+  let cells = '';
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const v = data[r][c];
+      const t = (v - min) / rng;
+      const R = Math.round(255 * (1 - t)), G = Math.round(200 * t), B = Math.round(50 * (1 - t));
+      const fill = `rgb(${Math.min(255,R)},${Math.min(255,G)},${Math.min(255,B)})`;
+      cells += `<rect x="${c*cs}" y="${r*cs}" width="${cs}" height="${cs}" fill="${fill}"/>`;
+    }
+  }
+  return `<div style="text-align:center;"><svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="max-width:100%;"><rect width="${w}" height="${h}" fill="none"/>${cells}</svg>
+  <div style="font-size:.6rem;color:var(--text-muted);margin-top:2px;">${rows}×${cols}  [${min.toFixed(3)}, ${max.toFixed(3)}]</div></div>`;
+}
+
+// Mode overlay radar: plot all 4 modes as polygon layers on one radar
+function svgRadarOverlay(modes, size) {
+  const data = {};
+  const modeColors = ['#ffcc00','#0055ff','#e63b2e','#5a5a5a'];
+  const labels = {};
+  modes.forEach((m, mi) => {
+    for (const [z, cnt] of Object.entries(m.zone_distribution || {})) {
+      data[m.mode] = data[m.mode] || {};
+      data[m.mode][z] = cnt;
+      labels[z] = true;
+    }
+  });
+  const allZones = Object.keys(labels).sort((a,b)=>+a - +b);
+  if (!allZones.length) return '<div style="color:var(--text-muted);padding:10px;">no zone data</div>';
+  const maxVal = Math.max(...modes.map(m => Math.max(...Object.values(m.zone_distribution||{}), 1)));
+  const s = size || 200, cx = s/2, cy = s/2, r = s/2 - 26;
+  const n = allZones.length;
+  let base = '', layers = '';
+  allZones.forEach((z, i) => {
+    const ang = (i / n) * Math.PI * 2 - Math.PI/2;
+    const x = cx + r * Math.cos(ang), y = cy + r * Math.sin(ang);
+    base += `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="var(--silver-light)" stroke-width=".6" opacity=".4"/>`;
+    base += `<text x="${x}" y="${y+3}" text-anchor="${x > cx ? 'start' : x < cx ? 'end' : 'middle'}" font-size="7" fill="var(--text-muted)">Z${z}</text>`;
+    // grid rings
+    for (let ri = 1; ri <= 4; ri++) {
+      const gr = r * ri / 4;
+      const gx = cx + gr * Math.cos(ang), gy = cy + gr * Math.sin(ang);
+      if (i === 0) {
+        const ring = allZones.map((_, j) => {
+          const ga = (j / n) * Math.PI * 2 - Math.PI/2;
+          return `${cx + (gr) * Math.cos(ga)},${cy + (gr) * Math.sin(ga)}`;
+        }).join(' ');
+        base += `<polygon points="${ring}" fill="none" stroke="var(--silver-light)" stroke-width=".4" opacity=".25"/>`;
+      }
+    }
+  });
+  modes.forEach((m, mi) => {
+    const pts = allZones.map(z => {
+      const ang = ((allZones.indexOf(z)) / n) * Math.PI * 2 - Math.PI/2;
+      const val = (m.zone_distribution[z] || 0) / maxVal;
+      const pr = r * val;
+      return `${cx + pr * Math.cos(ang)},${cy + pr * Math.sin(ang)}`;
+    }).join(' ');
+    layers += `<polygon points="${pts}" fill="${modeColors[mi]}" opacity=".25" stroke="${modeColors[mi]}" stroke-width="1.5"/>`;
+  });
+  const legend = modes.map((m, mi) =>
+    `<span style="display:inline-flex;align-items:center;gap:3px;font-size:.55rem;color:var(--text-muted);font-family:var(--mono);margin:1px 4px;"><span style="width:8px;height:2px;background:${modeColors[mi]};display:inline-block;"></span>${m.mode}</span>`
+  ).join('');
+  return `<div style="text-align:center;"><svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}">${base}${layers}</svg><div>${legend}</div></div>`;
+}
+
+// LED digit display
+function svgLED(value, digits, label) {
+  const s = value.toString().padStart(digits, '0');
+  return `<div style="text-align:center;"><div class="g-led gold-led" style="font-size:1.6rem;">${s}</div>${label ? `<div class="g-sub" style="font-size:.6rem;">${label}</div>` : ''}</div>`;
+}
+
+function gaugeCard(html, title) {
+  return `<div class="gauge-card">${title ? `<div class="g-title">${title}</div>` : ''}${html}</div>`;
+}
+
+// ─── Auto-refresh timer ───
+let _autoRefreshId = null;
+function startAutoRefresh(intervalMs) {
+  if (_autoRefreshId) clearInterval(_autoRefreshId);
+  _autoRefreshId = setInterval(() => {
+    loadStatus(true);
+  }, intervalMs || 15000);
+}
+
+// ─── Status ───
+async function loadStatus(silent) {
+  try {
+    const s = await api('GET', '/api/status');
+    const dot = el('engineStatusDot');
+    const nOn = s.features_online, nTot = s.features_total;
+    dot.className = 'status-dot ' + (nOn === nTot ? 'online' : nOn > 0 ? 'degraded' : 'offline');
+    const pct = nTot > 0 ? nOn / nTot : 0;
+    el('statusGauges').innerHTML =
+      gaugeCard(svgRadialRing(pct, 'Features', pct === 1 ? 'var(--gold)' : pct > 0.5 ? 'var(--tertiary)' : 'var(--secondary)', 75), 'FEATURES') +
+      gaugeCard(svgGauge(Math.floor(s.uptime_seconds), 0, Math.max(Math.floor(s.uptime_seconds) * 2, 60), 'Uptime', 's', 'var(--gold)')) +
+      gaugeCard(svgLED(nOn + '/' + nTot, 3, 'online'), 'Status') +
+      gaugeCard('<div style="display:flex;flex-wrap:wrap;gap:3px;justify-content:center;margin-top:3px;">' +
+        s.features.map(f => `<span style="font-size:.5rem;background:${f.enabled ? 'var(--gold)' : 'var(--bg)'};color:${f.enabled ? '#1a1a1a' : 'var(--text-muted)'};padding:2px 6px;font-family:var(--font-headline);font-weight:700;text-transform:uppercase;letter-spacing:.5px;border:1px solid #1a1a1a;">${f.name}</span>`).join('') +
+        '</div>', 'PLUGINS');
+    return s;
+  } catch {
+    el('engineStatusDot').className = 'status-dot offline';
+    el('statusGauges').innerHTML = gaugeCard('<div style="color:var(--red);padding:10px;">Server offline</div>');
+    return null;
+  }
+}
+
+// ─── Store ───
+async function loadStore() {
+  const statusEl = el('storeStatus'), body = el('storeBody');
+  try {
+    const d = await api('GET', '/api/store/stats');
+    if (d.status === 'unavailable') {
+      statusEl.textContent = 'offline'; statusEl.className = 'status-tag offline';
+      el('storeVizGrid').innerHTML = `
+        <div class="viz-card" style="grid-column:1/-1;text-align:center;padding:20px;">
+          <div style="font-size:2rem;opacity:.2;margin-bottom:6px;">&#x1F5C4;</div>
+          <div style="color:var(--text-muted);font-size:.8rem;">No Geometry Store found</div>
+          <div style="color:var(--text-muted);font-size:.6rem;margin-top:4px;font-family:var(--mono);">Place .gsidx / .gsdat in <code style="background:var(--gold);color:#1a1a1a;padding:0 4px;font-weight:700;">build/</code></div>
+        </div>`;
+      el('storeCoverageGauge').innerHTML = svgRadialRing(0, '0/72 keys', 'var(--text-muted)', 110);
+      el('storeCoverageMatrix').innerHTML = '<div style="padding:8px;text-align:center;color:var(--text-muted);font-size:.65rem;font-family:var(--font-headline);font-weight:700;">NO STORE LOADED</div>';
+      el('storeKeyTable').innerHTML = '';
+      return;
+    }
+    statusEl.textContent = 'online'; statusEl.className = 'status-tag online';
+    const nKeys = d.n_keys, maxKeys = 72, pct = nKeys / maxKeys;
+    el('storeVizGrid').innerHTML =
+      `<div class="viz-card"><h3>Keys</h3><div class="num">${nKeys}</div><div class="desc"><span style="font-family:var(--mono);">of ${maxKeys}</span></div></div>` +
+      `<div class="viz-card"><h3>Rows</h3><div class="num">${(d.total_rows / 1000).toFixed(1)}K</div><div class="desc"><span style="font-family:var(--mono);">weight rows</span></div></div>` +
+      `<div class="viz-card"><h3>Data</h3><div class="num">${d.data_kb.toFixed(0)}</div><div class="desc"><span style="font-family:var(--mono);">KB on disk</span></div></div>`;
+
+    el('storeCoverageGauge').innerHTML = svgRadialRing(pct, nKeys + '/' + maxKeys + ' keys',
+      pct > 0.8 ? 'var(--gold)' : pct > 0.4 ? 'var(--tertiary)' : 'var(--secondary)', 110);
+
+    const cov = await api('GET', '/api/store/key-coverage');
+    if (cov.status === 'online') {
+      const shapes = ['I','O','T','S','Z','L'];
+      let mh = '<div class="matrix-grid"><div class="matrix-row"><div class="matrix-label"></div>' +
+        shapes.map(s => `<div style="font-size:.6rem;color:var(--text-muted);text-align:center;">${s}</div>`).join('') + '</div>';
+      for (let z = 0; z < 12; z++) {
+        mh += '<div class="matrix-row"><div class="matrix-label">' + z + '</div>';
+        for (const sh of shapes)
+          mh += `<div class="matrix-cell ${(cov.matrix['z'+z]||{})[sh] ? 'present' : 'absent'}" title="z${z}/${sh}"></div>`;
+        mh += '</div>';
+      }
+      el('storeCoverageMatrix').innerHTML = mh + '</div>';
+    }
+
+    const keys = d.keys || [];
+    if (keys.length) {
+      let kh = '<table class="data-table"><thead><tr><th>Zone</th><th>Shape</th><th>NS</th><th>Rows</th><th>Cols</th></tr></thead><tbody>';
+      for (const k of keys.slice(0, 84))
+        kh += `<tr><td><span class="zone-badge">Z${k.zone}</span></td><td>${k.shape}</td><td style="color:var(--text-muted)">${k.namespace||'—'}</td><td>${k.rows.toLocaleString()}</td><td>${k.cols}</td></tr>`;
+      el('storeKeyTable').innerHTML = kh + '</tbody></table>';
+    }
+  } catch (e) {
+    statusEl.textContent = 'error'; statusEl.className = 'status-tag error';
+  }
+}
+async function storeQuery() {
+  const out = el('storeQueryOut'), hm = el('storeWeightHeatmap'); showLoading(out); hm.innerHTML = '<span class="spinner"></span>';
+  try {
+    const d = await api('POST', '/api/store/query', { zone: +el('qZone').value, shape: el('qShape').value, ns: el('qNs').value || null });
+    if (d.found) {
+      out.innerHTML = `<span class="ok">FOUND</span>  [${d.shape.join('×')}]  ${d.dtype}  [${d.min.toFixed(3)}, ${d.max.toFixed(3)}]  \u03BC=${d.mean.toFixed(4)}`;
+      hm.innerHTML = d.data_sample ? svgWeightHeatmap(d.data_sample, 240) : '<div style="color:var(--text-muted);padding:10px;">no sample available</div>';
+    } else {
+      out.innerHTML = '<span class="err">NOT FOUND</span>';
+      hm.innerHTML = '<div style="color:var(--text-muted);padding:10px;">weight not found</div>';
+    }
+  } catch (e) { out.innerHTML = `<span class="err">ERROR:</span> ${e.message}`; hm.innerHTML = ''; }
+}
+
+// ─── Router ───
+function hideSec(id) { const s = document.getElementById(id); if (s) s.style.display = 'none'; }
+async function loadRouter() {
+  try {
+    const s = await api('GET', '/api/status');
+    const f = s.features.find(x => x.name === 'Bermuda Router');
+    const el2 = el('routerStatus');
+    if (f && f.enabled) { el2.textContent = 'online'; el2.className = 'status-tag online'; }
+    else { el2.textContent = 'offline'; el2.className = 'status-tag offline'; hideSec('secRouter'); }
+  } catch { hideSec('secRouter'); }
+}
+async function routerRoute() {
+  const out = el('routerOut'); showLoading(out);
+  try {
+    const d = await api('POST', '/api/router/route', { dim: +el('rDim').value, n_tokens: +el('rTokens').value, mode: +el('rMode').value, seed: +el('rSeed').value });
+    const tRingPct = d.tring_occupied / d.tring_total;
+    const rgPct = (d.route_count + d.ground_count) > 0 ? d.route_count / (d.route_count + d.ground_count) : 0;
+    el('routerMiniGauges').innerHTML =
+      gaugeCard(svgGauge(rgPct * 100, 0, 100, 'Route Ratio', '%', rgPct > 0.5 ? 'var(--gold)' : 'var(--tertiary)')) +
+      gaugeCard(svgGauge(d.tring_occupied, 0, d.tring_total, 'TRing', 'slots', 'var(--gold)')) +
+      gaugeCard(svgGauge(d.shadow_norm * 100, 0, 30, 'Shadow', '', 'var(--secondary)')) +
+      gaugeCard(svgGauge(d.gear, 1, 4, 'Gear', '', 'var(--tertiary)')) +
+      gaugeCard(`<div class="num">${d.n_real}</div><div class="desc">real</div>`) +
+      gaugeCard(`<div class="num">${d.mode}</div>`);
+    // Radar
+    el('zoneRadar').innerHTML = svgRadar(d.zone_distribution, null, 220);
+    // Shape donut
+    const sd = d.shape_distribution || {};
+    el('shapeDonut').innerHTML = Object.keys(sd).length > 0
+      ? svgDonut(sd, ['#ffcc00','#1a1a1a','#e63b2e','#0055ff','#cc8800','#5a5a5a'], 100)
+      : '<div style="color:var(--text-muted);padding:14px;">no shapes</div>';
+    // Route/Ground stacked bar
+    const rgTotal = d.route_count + d.ground_count || 1;
+    el('routeGroundStack').innerHTML = svgStackedBar([
+      {label:'RT', value:d.route_count, color:'#ffcc00'},
+      {label:'GR', value:d.ground_count, color:'#5a5a5a'},
+    ], 140) + `<div style="text-align:center;margin-top:3px;font-size:.55rem;color:var(--text-muted);font-family:var(--mono);">R:${d.route_count}  G:${d.ground_count}</div>`;
+    // TRing heatmap
+    el('tringHeatmap').innerHTML = d.tring_slots
+      ? svgTringHeatmap(d.tring_slots, 5)
+      : '<div style="color:var(--text-muted);padding:10px;">no slots</div>';
+    // Hide mode overlay/compare if showing single mode
+    el('modeCompareGrid').style.display = 'none';
+    el('modeRadarOverlay').style.display = 'none';
+    // Table
+    const tokens = d.sample_tokens || [];
+    let th = '<table class="data-table"><thead><tr><th>#</th><th>Zone</th><th>Shape</th><th>Polarity</th><th>TRing</th></tr></thead><tbody>';
+    tokens.forEach((t, i) => {
+      th += `<tr><td>${i}</td><td><span class="zone-badge">Z${t.zone}</span></td><td>${t.shape}</td><td><span class="ns-badge ${t.polarity==='ROUTE'?'s':'n'}">${t.polarity}</span></td><td style="font-family:var(--mono);font-size:.65rem">${t.tring_slot}</td></tr>`;
+    });
+    el('routerVerdictTable').innerHTML = th + '</tbody></table>';
+    out.innerHTML = `<span class="ok">ROUTE OK</span>  ${d.n_real}t  ${Object.keys(d.zone_distribution).length} zones  ${Object.keys(d.shape_distribution).length} shapes`;
+  } catch (e) { out.innerHTML = `<span class="err">ERROR:</span> ${e.message}`; }
+}
+async function routerRouteAll() {
+  const out = el('routerOut'); showLoading(out);
+  try {
+    const d = await api('POST', '/api/router/route-all', { dim: +el('rDim').value, n_tokens: +el('rTokens').value, seed: +el('rSeed').value });
+    // Show visual 2x2 comparison grid
+    el('modeCompareGrid').style.display = 'block';
+    el('modeCompareContent').innerHTML = svgCompareGrid(d.results);
+    // Show mode overlay radar
+    el('modeRadarOverlay').style.display = 'block';
+    el('modeRadarContent').innerHTML = svgRadarOverlay(d.results, 200);
+    // Show all TRing heatmaps in a row
+    let thm = '';
+    d.results.forEach((r, i) => {
+      const colors = ['#ffcc00','#0055ff','#e63b2e','#5a5a5a'];
+      thm += `<div style="text-align:center;border:2px solid var(--border);padding:4px;background:var(--card);box-shadow:3px 3px 0px 0px #1a1a1a;">
+        <div style="font-size:.5rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;font-family:var(--font-headline);font-weight:700;margin-bottom:1px;"><span style="color:${colors[i%colors.length]};font-weight:700;">${r.mode}</span> ${r.tring_occupied}/720</div>
+        ${svgTringHeatmap(r.tring_slots, 3)}
+      </div>`;
+    });
+    el('tringHeatmap').innerHTML = `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;width:100%;">${thm}</div>`;
+    // Also show text detail
+    let h = '<span class="ok">ALL 4 MODES — detail</span>\n';
+    for (const r of d.results)
+      h += `\n${r.mode}:  ${r.n_real}t  R=${r.route_count} G=${r.ground_count}  gear=${r.gear}  shadow=${r.shadow_norm}\n  tring=${r.tring_occupied}/720\n  zones: ${JSON.stringify(r.zone_distribution)}\n  shapes: ${JSON.stringify(r.shape_distribution)}\n`;
+    out.innerHTML = h;
+  } catch (e) { out.innerHTML = `<span class="err">ERROR:</span> ${e.message}`; }
+}
+
+// ─── Gate ───
+async function loadGate() {
+  try {
+    const d = await api('GET', '/api/gate/info');
+    const el2 = el('gateStatus');
+    if (d.status === 'online') {
+      el2.textContent = 'online'; el2.className = 'status-tag online';
+      el('gateGauges').innerHTML =
+        gaugeCard(svgLED(d.n_codes, 4, 'codebook')) +
+        gaugeCard(`<div class="num">${d.dim}</div><div class="desc" style="font-family:var(--mono);">in dim</div>`) +
+        gaugeCard(`<div class="num">${d.code_dim}</div><div class="desc" style="font-family:var(--mono);">code dim</div>`) +
+        gaugeCard(svgGauge(d.code_dim, 1, d.dim, 'compression', 'x', 'var(--gold)'));
+    } else { el2.textContent = 'offline'; el2.className = 'status-tag offline'; hideSec('secGate'); }
+  } catch { hideSec('secGate'); }
+}
+async function gateForward() {
+  const out = el('gateOut'); showLoading(out);
+  try {
+    const d = await api('POST', '/api/gate/forward');
+    out.innerHTML = `<span class="ok">CODEBOOK INDEX: ${d.codebook_index}</span>\n` +
+      `quantize loss = ${d.quantize_loss}\nzone = ${d.zone}\nshape = ${d.shape}\npolarity = ${d.polarity}\ntring = ${d.tring_slot}` +
+      (d.geo_params ? `\ngeo = [${d.geo_params.slice(0,8).map(v => v.toFixed(4)).join(', ')}${d.geo_params.length > 8 ? ', ...' : ''}]` : '');
+  } catch (e) { out.innerHTML = `<span class="err">ERROR:</span> ${e.message}`; }
+}
+async function gateCompareC() {
+  const out = el('gateCOut'); showLoading(out);
+  try {
+    const d = await api('GET', '/api/gate/compare-c');
+    if (d.status === 'done') {
+      out.innerHTML = `<span class="ok">Exit: ${d.exit_code}</span>\n${d.stdout||''}${d.stderr ? '\nSTDERR:\n'+d.stderr : ''}`;
+      if (d.parsed_code_idx !== null) out.innerHTML += `\n<span class="hl">code_idx = ${d.parsed_code_idx}</span>`;
+    } else out.innerHTML = `<span class="err">${d.error||'unavailable'}</span>`;
+  } catch (e) { out.innerHTML = `<span class="err">ERROR:</span> ${e.message}`; }
+}
+
+// ─── Pipeline ───
+async function loadPipeline() {
+  try {
+    const d = await api('GET', '/api/pipeline/status');
+    const el2 = el('pipelineStatus');
+    if (d.status === 'online') {
+      el2.textContent = 'online'; el2.className = 'status-tag online';
+      const bi = d.bijection || {};
+      const nOk = Object.values(bi).filter(Boolean).length, nTot = Object.keys(bi).length;
+      el('pipelineGauges').innerHTML =
+        gaugeCard(svgRadialRing(d.dll_loaded ? 1 : 0, 'DLL', d.dll_loaded ? 'var(--gold)' : 'var(--secondary)', 75)) +
+        gaugeCard(svgRadialRing(nOk / nTot, 'Hilbert', nOk === nTot ? 'var(--gold)' : 'var(--tertiary)', 75)) +
+        gaugeCard(`<div class="g-led ${d.dll_loaded?'gold-led':'amber-led'}" style="font-size:1.1rem;">${d.dll_loaded ? 'LOADED' : 'MISSING'}</div><div class="g-sub">pogls_bermuda.dll</div>`) +
+        gaugeCard(Object.entries(bi).map(([g, ok]) =>
+          `<span style="font-size:.65rem;font-weight:700;font-family:var(--font-headline);color:${ok?'var(--gold)':'var(--secondary)'};margin:0 3px;">G${g} ${ok?'\u2713':'\u2717'}</span>`
+        ).join('') + '<div class="g-sub">BIJECTION</div>');
+    } else { el2.textContent = 'offline'; el2.className = 'status-tag offline'; }
+  } catch {}
+}
+async function pipelineHilbert() {
+  const out = el('pipelineOut'); showLoading(out);
+  try {
+    const d = await api('GET', '/api/pipeline/hilbert-test');
+    let h = '<span class="ok">Hilbert Bijection</span>\n';
+    for (const r of d.results) h += `  G${r.gear}  pos=${r.position}  enc=${r.encoded}  dec=${r.decoded}  ${r.match ? '✓' : '✗'}\n`;
+    out.innerHTML = h;
+  } catch (e) { out.innerHTML = `<span class="err">ERROR:</span> ${e.message}`; }
+}
+async function pipelineTraverse() {
+  const out = el('pipelineOut'); showLoading(out);
+  try {
+    const d = await api('GET', '/api/pipeline/traverse-test');
+    let h = '<span class="ok">Traverse Modes (gear=2)</span>\n';
+    for (const r of d.results) { h += `\n${r.mode}:\n`; for (const e of r.entries) h += `  ${e.idx_in} \u2192 ${e.idx_out}  z${e.zone}\n`; }
+    out.innerHTML = h;
+  } catch (e) { out.innerHTML = `<span class="err">ERROR:</span> ${e.message}`; }
+}
+async function pipelineBatchRoute() {
+  const out = el('pipelineOut'); showLoading(out);
+  try {
+    const d = await api('POST', '/api/pipeline/batch-route', { indices: [0,1,2,3,4,5,6,7], gear: 2, mode: 0 });
+    let h = `<span class="ok">Batch Route: ${d.n} entries</span>\n`;
+    for (const e of d.entries) h += `  ${e.idx_in} \u2192 ${e.idx_out}  z${e.zone}  ${e.shape}  ${e.polarity}  t${e.tring_slot}\n`;
+    out.innerHTML = h;
+  } catch (e) { out.innerHTML = `<span class="err">ERROR:</span> ${e.message}`; }
+}
+
+// ─── C Binaries ───
+async function loadCBinaries() {
+  const el2 = el('cStatus');
+  try {
+    const d = await api('GET', '/api/c/list');
+    const list = d.binaries || [];
+    const nAvail = list.filter(b => b.available).length;
+    el2.textContent = nAvail + ' available'; el2.className = 'status-tag ' + (nAvail > 0 ? 'online' : 'offline');
+    el('cBinaryList').innerHTML = list.map(b =>
+      `<button class="btn ${b.available ? 'btn-gold' : 'btn-outline'}" onclick="runCBinary('${b.name}')" ${b.available ? '' : 'disabled'} title="${b.description}">${b.available ? '\u25B6' : '\u2610'} ${b.name}</button>`
+    ).join('');
+    el('cRunLabel').textContent = 'ready: ' + (list.find(b => b.available)?.name || 'none');
+  } catch { el2.textContent = 'offline'; el2.className = 'status-tag offline'; }
+}
+async function runCBinary(name) {
+  const out = el('cOutput'), label = el('cRunLabel');
+  out.innerHTML = '<span class="spinner"></span> running...'; label.textContent = 'running: ' + name;
+  try {
+    const d = await api('POST', '/api/c/run', { binary_name: name, args: '', timeout: 30 });
+    label.textContent = 'done: ' + name + (d.exit_code === 0 ? ' ✓' : ' ✗');
+    let html = `<span class="${d.exit_code === 0 ? 'ok' : 'err'}">Exit: ${d.exit_code}</span>\n` + (d.stdout || '');
+    if (d.stderr) html += '\n<span class="err">STDERR:</span>\n' + d.stderr;
+    if (d.timed_out) html += '\n<span class="err">TIMEOUT</span>';
+    out.innerHTML = html;
+  } catch (e) { label.textContent = 'error'; out.innerHTML = `<span class="err">ERROR:</span> ${e.message}`; }
+}
+
+// ─── Codec ───
+async function loadCodec() {
+  try {
+    const d = await api('GET', '/api/codec/status');
+    const el2 = el('codecStatus');
+    if (d.router_online) {
+      el2.textContent = 'online'; el2.className = 'status-tag online';
+      el('codecGauges').innerHTML =
+        gaugeCard(`<div class="num">${d.cells}</div><div class="desc">cells</div>`) +
+        gaugeCard(`<div class="num">${d.max_levels_per_cycle}</div><div class="desc">cycle max</div>`) +
+        gaugeCard(`<div class="num">8\u00d78</div><div class="desc">frame px</div>`) +
+        gaugeCard(`<div class="num">3</div><div class="desc">layers RGB</div>`);
+    } else { el2.textContent = 'offline'; el2.className = 'status-tag offline'; hideSec('secCodec'); }
+  } catch { hideSec('secCodec'); }
+}
+function codecToggleVideo() {
+  const isVid = el('cVideo').checked;
+  el('codecAPNG').style.display = isVid ? 'none' : 'flex';
+  el('codecVideo').style.display = isVid ? 'block' : 'none';
+}
+async function codecCapture() {
+  const out = el('codecOut'); showLoading(out);
+  const isVid = el('cVideo').checked;
+  try {
+    if (isVid) {
+      el('codecVideoBadge').style.display = 'inline';
+      el('codecFrameBadge').style.display = 'none';
+      // Fetch MP4 as blob
+      const r = await fetch('/api/codec/video', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          n_ticks: +el('cTicks').value, dim: +el('cDim').value,
+          n_tokens: +el('cTokens').value, mode: +el('cMode').value,
+          seed: +el('cSeed').value, highlight: el('cHighlight').value,
+        }),
+      });
+      if (!r.ok) {
+        let text = await r.text();
+        try { const j = JSON.parse(text); text = j.detail || j.error || text; } catch {}
+        throw new Error(`HTTP ${r.status}: ${text}`);
+      }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const vid = el('codecVideo');
+      vid.src = url;
+      vid.play();
+      el('codecAPNG').innerHTML = '';
+      el('codecPipelineGauges').style.display = 'none';
+      el('codecConnChart').innerHTML = '';
+      el('codecFlowEdges').innerHTML = '';
+      el('codecLevelTable').innerHTML = '';
+      el('codecStats').innerHTML =
+        `<div class="data-row"><span>Format</span><span style="font-weight:700;">libx264rgb</span></div>` +
+        `<div class="data-row"><span>Lossless</span><span style="color:var(--secondary);font-weight:700;">YES</span></div>` +
+        `<div class="data-row"><span>Size</span><span>${(blob.size/1024).toFixed(1)} KB</span></div>`;
+      out.innerHTML = `<span class="ok">LOSSESS MP4 OK</span>  ${(blob.size/1024).toFixed(1)} KB`;
+      return;
+    }
+    el('codecVideoBadge').style.display = 'none';
+    const d = await api('POST', '/api/codec/capture', {
+      n_ticks: +el('cTicks').value, dim: +el('cDim').value,
+      n_tokens: +el('cTokens').value, mode: +el('cMode').value,
+      seed: +el('cSeed').value, highlight: el('cHighlight').value,
+    });
+      el('codecAPNG').innerHTML = d.apng_b64
+        ? `<img src="data:image/png;base64,${d.apng_b64}" style="image-rendering:pixelated;max-width:280px;width:100%;border:2px solid var(--border);">`
+        : '<span class="err">no image</span>';
+    // Header frame badge
+    const badge = el('codecFrameBadge');
+    if (d.has_header_frame) { badge.style.display = 'inline'; } else { badge.style.display = 'none'; }
+    // Pipeline gauges
+    const pg = el('codecPipelineGauges');
+    if (d.pipeline) {
+      const p = d.pipeline;
+      const cs = p.cold_store || {};
+      pg.style.display = 'grid';
+      pg.innerHTML =
+        gaugeCard(`<div class="num">${p.total_chunks}</div><div class="desc">chunks</div>`) +
+        gaugeCard(`<div class="g-led gold-led">${p.hot}</div><div class="desc">HOT</div>`) +
+        gaugeCard(`<div class="g-led" style="color:var(--tertiary);">${p.cold}</div><div class="desc">COLD</div>`) +
+        gaugeCard(`<div class="num">${cs.evictions||0}</div><div class="desc">evictions</div>`) +
+        gaugeCard(`<div class="g-led" style="font-size:.9rem;color:var(--fg);">${cs.overflow_count||0}</div><div class="desc">overflow</div>`);
+    } else {
+      pg.style.display = 'none';
+    }
+    // Stats
+    const lv = d.levels_raw || [];
+    const totT = lv.reduce((s, x) => s + x.n_tokens, 0);
+    const avgOcc = lv.length > 0 ? totT / lv.length : 0;
+    el('codecStats').innerHTML =
+      `<div class="data-row"><span>Levels</span><span>${d.n_levels}</span></div>` +
+      `<div class="data-row"><span>Total tokens</span><span>${totT}</span></div>` +
+      `<div class="data-row"><span>Avg occupied</span><span>${avgOcc.toFixed(1)}</span></div>` +
+      `<div class="data-row"><span>Enter total</span><span style="color:var(--gold);font-weight:700;">${d.total_enter}</span></div>` +
+      `<div class="data-row"><span>Leave total</span><span style="color:var(--secondary);font-weight:700;">${d.total_leave}</span></div>` +
+      `<div class="data-row"><span>Persist total</span><span style="color:var(--fg);font-weight:700;">${d.total_persist}</span></div>`;
+    // Connection bar chart
+    const conns = d.connections || [];
+    if (conns.length > 0) {
+      const maxN = Math.max(...conns.map(c => Math.max(c.n_enter, c.n_leave, c.n_persist)), 1);
+      let chart = '<div style="display:flex;gap:3px;align-items:end;min-height:50px;">';
+      conns.forEach(c => {
+        chart += `<div style="display:flex;flex-direction:column;align-items:center;flex:1;">`;
+        chart += `<div title="enter:${c.n_enter}" style="width:100%;height:${c.n_enter/maxN*40}px;background:var(--gold);min-height:2px;"></div>`;
+        chart += `<div title="leave:${c.n_leave}" style="width:100%;height:${c.n_leave/maxN*40}px;background:var(--secondary);min-height:2px;"></div>`;
+        chart += `<div title="persist:${c.n_persist}" style="width:100%;height:${c.n_persist/maxN*40}px;background:var(--fg);min-height:2px;"></div>`;
+        chart += `<span style="font-size:.45rem;color:var(--text-muted);font-family:var(--mono);margin-top:2px;">${c.level}</span></div>`;
+      });
+      chart += '</div>';
+      el('codecConnChart').innerHTML = chart;
+    }
+    // Flow edges
+    el('codecFlowEdges').innerHTML = conns.length > 0
+      ? conns.map(c => `L${c.level}: +${c.n_enter} -${c.n_leave} \u2206${c.n_cur}`).join(' | ')
+      : '<span style="color:var(--text-muted);font-size:.6rem;">no data</span>';
+    // Level detail table
+    let th = '<table class="data-table"><thead><tr><th>Lv</th><th>Occ</th><th>+Enter</th><th>-Leave</th><th>\u2206</th></tr></thead><tbody>';
+    conns.forEach(c => {
+      th += `<tr><td>${c.level}</td><td>${c.n_cur}</td><td style="color:var(--gold);font-weight:700;">${c.n_enter}</td><td style="color:var(--secondary);font-weight:700;">${c.n_leave}</td><td style="font-weight:700;">${c.n_persist}</td></tr>`;
+    });
+    el('codecLevelTable').innerHTML = th + '</tbody></table>';
+    out.innerHTML = `<span class="ok">CODEC OK</span>  ${d.n_levels} levels  ${totT}t  ${d.total_enter}e ${d.total_leave}l ${d.total_persist}p`;
+  } catch (e) { out.innerHTML = `<span class="err">ERROR:</span> ${e.message}`; }
+}
+
+// ─── GeoPixel Codec ───
+async function loadGeopixel() {
+  try {
+    const d = await api('GET', '/api/geopixel/info');
+    el('geopixelStatus').textContent = 'online'; el('geopixelStatus').className = 'status-tag online';
+    el('geopixelGauges').innerHTML =
+      gaugeCard(`<div class="num">${d.constants.GP_GRID_W}&#x2715;${d.constants.GP_GRID_W}</div><div class="desc">grid</div>`) +
+      gaugeCard(`<div class="num">${d.constants.BGP_STRIPE_W}</div><div class="desc">stripe px</div>`) +
+      gaugeCard(`<div class="num">${d.constants.BGP_STRIPE_BYTES}</div><div class="desc">piece bytes</div>`) +
+      gaugeCard(`<div class="num">${d.constants.GP_RESIDUAL_MAX_CHUNK}</div><div class="desc">residual chunk</div>`) +
+      gaugeCard(`<div class="g-led ${d.c_bridge.available ? 'gold-led' : 'amber-led'}">${d.c_bridge.available ? 'C OK' : 'C--'}</div><div class="desc">C bridge</div>`);
+  } catch { el('geopixelStatus').textContent = 'offline'; el('geopixelStatus').className = 'status-tag offline'; }
+}
+function gpShowPixel(label, r, g, b) {
+  const hex = '#' + [r,g,b].map(x => x.toString(16).padStart(2,'0')).join('');
+  return `<span style="display:inline-block;width:16px;height:16px;background:${hex};border:2px solid #1a1a1a;vertical-align:middle;margin-right:4px;"></span> ${hex} (${r},${g},${b})`;
+}
+async function gpEncode() {
+  const out = el('gpEncodeOut'); showLoading(out);
+  try {
+    const d = await api('POST', '/api/geopixel/encode', { idx: +el('gpIdx').value, W: +el('gpW').value });
+    out.innerHTML =
+      `<span class="ok">Encode idx=${d.input.idx} mod W=${d.input.W}</span>\n` +
+      `Pixel: ${gpShowPixel('', d.pixel.r, d.pixel.g, d.pixel.b)}\n` +
+      `Fields: trit=${d.decoded_fields.trit} spoke=${d.decoded_fields.spoke} coset=${d.decoded_fields.coset} letter=${d.decoded_fields.letter} fibo=${d.decoded_fields.fibo}`;
+  } catch (e) { out.innerHTML = `<span class="err">${e.message}</span>`; }
+}
+async function gpDecode() {
+  const out = el('gpDecodeOut'); showLoading(out);
+  try {
+    const d = await api('POST', '/api/geopixel/decode', { r: +el('gpR').value, g: +el('gpG').value, b: +el('gpB').value });
+    let html = `<span class="ok">Decode ${gpShowPixel('', d.pixel.r, d.pixel.g, d.pixel.b)}</span>\n`;
+    html += `trit=${d.fields.trit} spoke=${d.fields.spoke} coset=${d.fields.coset} letter=${d.fields.letter} fibo=${d.fields.fibo}\n`;
+    html += `CRT recover: byte=${d.crt_recovered_byte}`;
+    if (d.crt_recovered_char) html += ` char='${d.crt_recovered_char}'`;
+    out.innerHTML = html;
+  } catch (e) { out.innerHTML = `<span class="err">${e.message}</span>`; }
+}
+async function gpFingerprint() {
+  const out = el('gpFpOut'); showLoading(out);
+  try {
+    const body = {
+      geo_key: parseInt(el('gpGeoKey').value, 16) || 0xDEAD,
+      shape: el('gpShape').value,
+      bond_L: parseInt(el('gpBondL').value, 16) || 0,
+      bond_R: parseInt(el('gpBondR').value, 16) || 0,
+    };
+    const d = await api('POST', '/api/geopixel/fingerprint', body);
+    out.innerHTML =
+      `<span class="ok">Fingerprint</span>  ${gpShowPixel('', d.fingerprint.r, d.fingerprint.g, d.fingerprint.b)}\n` +
+      `geo_key=${d.piece.geo_key}  shape=${d.piece.shape}\n` +
+      `bond_key=${d.piece.bond_key}  rgb888=${d.fingerprint.rgb888}`;
+  } catch (e) { out.innerHTML = `<span class="err">${e.message}</span>`; }
+}
+async function gpStripe() {
+  const out = el('gpStripeOut'); showLoading(out);
+  try {
+    const body = {
+      geo_key: parseInt(el('gpGeoKey').value, 16) || 0xDEAD,
+      shape: el('gpShape').value,
+      bond_L: parseInt(el('gpBondL').value, 16) || 0,
+      bond_R: parseInt(el('gpBondR').value, 16) || 0,
+    };
+    const d = await api('POST', '/api/geopixel/stripe', body);
+    let html = d.stripe.map((p, i) =>
+      `<span title="idx=${p.index} byte=${p.byte} rgb=${p.r},${p.g},${p.b}" style="display:inline-block;width:14px;height:14px;background:${p.rgb};border:1px solid #1a1a1a;cursor:default;"></span>`
+    ).join('');
+    html += `<span style="font-size:.55rem;color:var(--text-muted);margin-left:4px;font-family:var(--mono);">${d.width}px stripe</span>`;
+    out.innerHTML = html;
+  } catch (e) { out.innerHTML = `<span class="err">${e.message}</span>`; }
+}
+async function gpGrid() {
+  const out = el('gpGridOut'); showLoading(out);
+  try {
+    const addr = parseInt(el('gpAddr').value, 16) || 0xDEAD;
+    const d = await api('POST', '/api/geopixel/grid-svg', { addr });
+    out.innerHTML = d.svg;
+  } catch (e) { out.innerHTML = `<span class="err">${e.message}</span>`; }
+}
+async function gpRoundtrip() {
+  const out = el('gpRtOut'); showLoading(out);
+  try {
+    const d = await api('POST', '/api/geopixel/roundtrip', { seed: 42, count: +el('gpRtCount').value });
+    let html = `<span class="ok">${d.pass}/${d.count} OK</span>  <span class="${d.fail > 0 ? 'err' : ''}">${d.fail} FAIL</span>\n`;
+    if (d.results.length <= 5) {
+      d.results.forEach((r, i) => {
+        html += `R${i}: ${r.pass ? '\u2713' : '\u2717'} geo=${r.original.geo_key} shape=${r.original.shape} err=${r.errors}\n`;
+      });
+    }
+    out.innerHTML = html;
+  } catch (e) { out.innerHTML = `<span class="err">${e.message}</span>`; }
+}
+async function gpUniqueness() {
+  const out = el('gpRtOut'); showLoading(out);
+  try {
+    const d = await api('POST', '/api/geopixel/uniqueness', { W: 27 });
+    const ok = d.all_unique ? '<span class="ok">ALL UNIQUE</span>' : '<span class="err">COLLISIONS</span>';
+    out.innerHTML = `${ok}  ${d.unique_pixels}/${d.W} unique  ${d.collisions} collisions`;
+  } catch (e) { out.innerHTML = `<span class="err">${e.message}</span>`; }
+}
+
+async function gpResidualInfo() {
+  const out = el('gpResOut'); const meta = el('gpResMeta'); out.value = 'loading...';
+  try {
+    const d = await api('GET', '/api/geopixel/residual-info');
+    out.value = JSON.stringify(d, null, 2);
+    meta.innerHTML = `magic=${d.magic} version=${d.version} chunk<=${d.chunk_size_max}B`;
+  } catch (e) {
+    out.value = e.message;
+    meta.innerHTML = `<span class="err">${e.message}</span>`;
+  }
+}
+
+async function gpResidualEncode() {
+  const out = el('gpResOut'); const meta = el('gpResMeta'); out.value = 'loading...';
+  try {
+    const d = await api('POST', '/api/geopixel/residual-encode', {
+      data_b64: el('gpResIn').value.trim(),
+      chunk_size: +el('gpResChunk').value,
+      workers: +el('gpResWorkers').value,
+    });
+    out.value = d.blob_b64;
+    meta.innerHTML = `encoded ${d.input_bytes}B → ${d.blob_bytes}B (${(d.ratio * 100).toFixed(2)}%)`;
+  } catch (e) {
+    out.value = e.message;
+    meta.innerHTML = `<span class="err">${e.message}</span>`;
+  }
+}
+
+async function gpResidualDecode() {
+  const out = el('gpResOut'); const meta = el('gpResMeta'); out.value = 'loading...';
+  try {
+    const d = await api('POST', '/api/geopixel/residual-decode', {
+      blob_b64: el('gpResIn').value.trim(),
+    });
+    out.value = d.data_b64;
+    meta.innerHTML = `decoded ${d.output_bytes}B from residual blob`;
+  } catch (e) {
+    out.value = e.message;
+    meta.innerHTML = `<span class="err">${e.message}</span>`;
+  }
+}
+
+// ─── Container Format ───
+async function loadContainer() {
+  try {
+    el('containerStatus').textContent = 'online';
+    el('containerStatus').className = 'status-tag online';
+    el('containerGauges').innerHTML =
+      gaugeCard(`<div class="num">GPR1</div><div class="desc">residual codec</div>`) +
+      gaugeCard(`<div class="num">GPX4</div><div class="desc">multi-layer</div>`);
+  } catch { el('containerStatus').textContent = 'offline'; el('containerStatus').className = 'status-tag offline'; }
+}
+
+// GPR1 Encode
+function conGpr1Encode() {
+  el('conGpr1FileInput').click();
+}
+async function conGpr1HandleFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const status = el('conGpr1Status');
+  const result = el('conGpr1Result');
+  status.innerHTML = `Encoding <strong>${file.name}</strong>...`;
+  result.innerHTML = '';
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('chunk_size', el('conGpr1Chunk').value);
+    fd.append('workers', el('conGpr1Workers').value);
+    const d = await fetch(API + '/api/container/gpr1/encode', { method: 'POST', body: fd }).then(r => r.json());
+    if (d.error || d.detail) throw new Error(d.detail || d.error);
+    const ratio = (d.ratio * 100).toFixed(1);
+    status.innerHTML = `<span class="ok">Encoded ${file.name}</span> &mdash; ${d.input_bytes}B &rarr; ${d.output_bytes}B (${ratio}%)`;
+    result.innerHTML = `<a href="${d.download_url}" class="btn btn-gold" style="font-size:.6rem;padding:4px 12px;text-decoration:none;" download>&#x2B07; Download .gpr1</a>`;
+  } catch (e) {
+    status.innerHTML = `<span class="err">Error:</span> ${e.message}`;
+  }
+  event.target.value = '';
+}
+
+// GPR1 Decode
+function conGpr1Decode() {
+  el('conGpr1DecodeInput').click();
+}
+async function conGpr1HandleDecode(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const status = el('conGpr1Status');
+  const result = el('conGpr1Result');
+  status.innerHTML = `Decoding <strong>${file.name}</strong>...`;
+  result.innerHTML = '';
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const d = await fetch(API + '/api/container/gpr1/decode', { method: 'POST', body: fd }).then(r => r.json());
+    if (d.error || d.detail) throw new Error(d.detail || d.error);
+    status.innerHTML = `<span class="ok">Decoded ${file.name}</span> &mdash; ${d.input_bytes}B &rarr; ${d.output_bytes}B`;
+    result.innerHTML = `<a href="${d.download_url}" class="btn btn-gold" style="font-size:.6rem;padding:4px 12px;text-decoration:none;" download>&#x2B07; Download decoded</a>`;
+  } catch (e) {
+    status.innerHTML = `<span class="err">Error:</span> ${e.message}`;
+  }
+  event.target.value = '';
+}
+
+// GPR1 Info
+async function conGpr1Info() {
+  const status = el('conGpr1Status');
+  const result = el('conGpr1Result');
+  status.innerHTML = 'Info: upload a .gpr1 file to inspect';
+  result.innerHTML = '';
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.onchange = async (ev) => {
+    const file = ev.target.files[0];
+    if (!file) return;
+    status.innerHTML = `Reading <strong>${file.name}</strong>...`;
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      // Use the decode endpoint which reads header - then show info
+      const d = await fetch(API + '/api/container/gpr1/decode', { method: 'POST', body: fd }).then(r => r.json());
+      if (d.error || d.detail) throw new Error(d.detail || d.error);
+      const ratio = (d.input_bytes / d.output_bytes * 100).toFixed(1);
+      result.innerHTML = `<table class="data-table" style="font-size:.55rem;">
+        <tr><td>File size</td><td>${d.input_bytes}B</td></tr>
+        <tr><td>Decoded size</td><td>${d.output_bytes}B</td></tr>
+        <tr><td>Ratio</td><td>${ratio}%</td></tr>
+      </table>`;
+      status.innerHTML = `<span class="ok">${file.name}</span> — ${d.input_bytes}B .gpr1 → ${d.output_bytes}B original`;
+    } catch (e) {
+      status.innerHTML = `<span class="err">Error:</span> ${e.message}`;
+    }
+  };
+  input.click();
+}
+
+// GPX4 Inspect
+function conGpx4Inspect() {
+  el('conGpx4FileInput').click();
+}
+async function conGpx4HandleFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const status = el('conGpx4Status');
+  const result = el('conGpx4Result');
+  status.innerHTML = `Inspecting <strong>${file.name}</strong>...`;
+  result.innerHTML = '';
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const d = await fetch(API + '/api/container/gpx4/inspect-upload', { method: 'POST', body: fd }).then(r => r.json());
+    if (d.error || d.detail) throw new Error(d.detail || d.error);
+    let html = `<table class="data-table" style="font-size:.55rem;">
+      <tr><td>Layers</td><td>${d.n_layers}</td></tr>
+      <tr><td>Tiles</td><td>${d.tile_grid} = ${d.n_tiles}</td></tr>
+      <tr><td>File size</td><td>${d.file_size}B</td></tr>
+    </table><div style="margin-top:6px;font-size:.55rem;">`;
+    d.layers.forEach((l, i) => {
+      html += `<div style="border:1px solid var(--border);padding:4px 6px;margin:2px 0;">
+        <strong>[${i}]</strong> ${l.type} <code>${l.name}</code> ${l.size}B ${l.has_tile_table ? `tiles=${l.tile_count}` : 'no tiles'}
+      </div>`;
+    });
+    html += '</div>';
+    result.innerHTML = html;
+    status.innerHTML = `<span class="ok">Inspected ${file.name}</span> — ${d.n_layers} layers, ${d.n_tiles} tiles`;
+  } catch (e) {
+    status.innerHTML = `<span class="err">Error:</span> ${e.message}`;
+  }
+  event.target.value = '';
+}
+
+// GPX4 Info by path
+async function conGpx4Info() {
+  const status = el('conGpx4Status');
+  const result = el('conGpx4Result');
+  const path = prompt('Enter path to .gpx4 file:');
+  if (!path) return;
+  status.innerHTML = 'Loading...'; result.innerHTML = '';
+  try {
+    const d = await api('POST', '/api/container/gpx4/info', { path });
+    let html = `<table class="data-table" style="font-size:.55rem;">
+      <tr><td>Layers</td><td>${d.n_layers}</td></tr>
+      <tr><td>Tiles</td><td>${d.tile_grid} = ${d.n_tiles}</td></tr>
+      <tr><td>File size</td><td>${d.file_size}B</td></tr>
+    </table><div style="margin-top:6px;font-size:.55rem;">`;
+    d.layers.forEach((l, i) => {
+      html += `<div style="border:1px solid var(--border);padding:4px 6px;margin:2px 0;">
+        <strong>[${i}]</strong> ${l.type} <code>${l.name}</code> ${l.size}B ${l.has_tile_table ? `tiles=${l.tile_count}` : 'no tiles'}
+      </div>`;
+    });
+    html += '</div>';
+    result.innerHTML = html;
+    status.innerHTML = `<span class="ok">Inspected ${path}</span>`;
+  } catch (e) {
+    status.innerHTML = `<span class="err">Error:</span> ${e.message}`;
+  }
+}
+
+// GPX4 Timeline
+async function conGpx4Timeline() {
+  const status = el('conGpx4TimelineStatus');
+  const framesDiv = el('conGpx4TimelineFrames');
+  const prevDiv = el('conGpx4TimelinePreview');
+  const path = prompt('Enter path to .gpx4 file:');
+  if (!path) return;
+  status.innerHTML = 'Loading timeline...'; framesDiv.innerHTML = ''; prevDiv.innerHTML = '';
+  try {
+    const d = await api('POST', '/api/container/gpx4/timeline', { path });
+    if (!d.frames || d.frames.length === 0) {
+      status.innerHTML = 'No animation frames found.';
+      return;
+    }
+    let html = `<table class="data-table" style="font-size:.55rem;width:100%;">
+      <tr><th>#</th><th>Type</th><th>Name</th><th>Size</th><th>Tiles</th><th>Preview</th></tr>`;
+    d.frames.forEach((f, i) => {
+      const sz = f.size;
+      const tileStr = f.tiles ? `${f.tiles.present}/${f.tiles.n_tiles}` : '—';
+      html += `<tr>
+        <td>${f.index}</td>
+        <td>${f.type === 'keyframe' ? '<span class="ok">KF</span>' : '<span style="color:#888">D</span>'}</td>
+        <td><code>${f.name}</code></td>
+        <td>${sz}B</td>
+        <td>${tileStr}</td>
+        <td><button class="btn btn-outline" style="font-size:.5rem;padding:2px 8px;" onclick="conGpx4ShowPreview(${i},'${f.name}')">show</button></td>
+      </tr>`;
+    });
+    html += '</table>';
+    // Add animation header info if present
+    if (d.animation_header) {
+      const ah = d.animation_header;
+      html += `<div style="margin-top:4px;border:1px solid var(--border);padding:4px 6px;">
+        <strong>Animation:</strong> ${ah.n_frames}fps=${ah.fps} keyframeInterval=${ah.keyframe_interval} size=${ah.width_px}×${ah.height_px}
+      </div>`;
+    }
+    // Store frames data globally for preview
+    window._gpx4TimelineData = d;
+    framesDiv.innerHTML = html;
+    status.innerHTML = `<span class="ok">Timeline:</span> ${d.frames.length} frames, ${d.n_layers} layers, ${d.n_tiles} tiles`;
+  } catch (e) {
+    status.innerHTML = `<span class="err">Error:</span> ${e.message}`;
+  }
+}
+async function conGpx4ShowPreview(idx, name) {
+  const prevDiv = el('conGpx4TimelinePreview');
+  const d = window._gpx4TimelineData;
+  if (!d || !d.frames[idx]) return;
+  const f = d.frames[idx];
+  if (!f.preview || !f.preview.decoded || !f.preview.svg) {
+    prevDiv.innerHTML = `<div style="border:1px solid var(--border);padding:6px;">Frame ${f.name}: no preview available (${f.preview?.note || 'N/A'})</div>`;
+    return;
+  }
+  prevDiv.innerHTML = `<div style="border:2px solid var(--border);padding:6px;background:#1a1a1a;">
+    <div style="color:var(--gold);font-family:var(--font-headline);font-size:.6rem;font-weight:700;margin-bottom:4px;">
+      ${f.name} — ${f.preview.width}×${f.preview.height} O4 grid
+    </div>
+    ${f.preview.svg}
+  </div>`;
+}
+
+// GPX4 Build Demo
+async function conGpx4BuildDemo() {
+  const status = el('conGpx4TimelineStatus');
+  status.innerHTML = 'Building demo GPX4...';
+  try {
+    const d = await api('POST', '/api/container/gpx4/build-demo');
+    status.innerHTML = `<span class="ok">Demo built:</span> ${d.size}B ${d.note} ` +
+      `<a href="${d.download_url}" class="btn btn-gold" style="font-size:.5rem;padding:2px 8px;text-decoration:none;" download>&#x2B07; Download</a>`;
+  } catch (e) {
+    status.innerHTML = `<span class="err">Error:</span> ${e.message}`;
+  }
+}
+
+// GPX4 Preview O4
+async function conGpx4PreviewO4() {
+  const status = el('conGpx4TimelineStatus');
+  const prevDiv = el('conGpx4TimelinePreview');
+  const path = prompt('Enter path to .gpx4 file with O4 layer:');
+  if (!path) return;
+  status.innerHTML = 'Decoding O4 layer...'; prevDiv.innerHTML = '';
+  try {
+    const d = await api('POST', '/api/container/gpx4/preview-o4', { path });
+    if (!d.decoded || !d.svg) {
+      prevDiv.innerHTML = `<div style="border:1px solid var(--border);padding:6px;">No preview: ${d.note || d.error || 'unknown'}</div>`;
+      status.innerHTML = `<span class="err">Preview failed:</span> ${d.note || d.error}`;
+      return;
+    }
+    prevDiv.innerHTML = `<div style="border:2px solid var(--border);padding:6px;background:#1a1a1a;">
+      <div style="color:var(--gold);font-family:var(--font-headline);font-size:.6rem;font-weight:700;margin-bottom:4px;">
+        ${d.layer_name || 'O4'} — ${d.width}×${d.height} grid (${d.n_pixels} pixels)
+      </div>
+      ${d.svg}
+    </div>`;
+    status.innerHTML = `<span class="ok">O4 decoded:</span> ${d.width}×${d.height}, ${d.n_pixels}px`;
+  } catch (e) {
+    status.innerHTML = `<span class="err">Error:</span> ${e.message}`;
+  }
+}
+
+// ─── Init ───
+document.addEventListener('DOMContentLoaded', async () => {
+  await loadStatus();
+  await Promise.all([loadStore(), loadRouter(), loadGate(), loadPipeline(), loadCBinaries(), loadCodec(), loadGeopixel(), loadContainer()]);
+  startAutoRefresh(15000);
+});
+</script>
+</body>
+</html>

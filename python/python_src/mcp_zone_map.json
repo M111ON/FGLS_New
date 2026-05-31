@@ -1,0 +1,16 @@
+{
+  "zones": [
+    {"zone": 0,  "shape": "I", "model_key": "qwen25coder", "note": "Icosahedron face — qwen2.5-coder-1.5b, dim=1536, code_dim=32"},
+    {"zone": 1,  "shape": "O", "model_key": "qwen25coder", "note": "Octahedron face — qwen2.5-coder-1.5b"},
+    {"zone": 2,  "shape": "S", "model_key": "qwen25coder", "note": "Sphere tile — qwen2.5-coder-1.5b (default coord)"},
+    {"zone": 3,  "shape": "T", "model_key": "qwen25coder", "note": "Tetrahedron edge — qwen2.5-coder-1.5b"},
+    {"zone": 4,  "shape": "I", "model_key": "qwen25",     "note": "Icosahedron face — Qwen2.5-0.5B, dim=896, 24L"},
+    {"zone": 5,  "shape": "Z", "model_key": "qwen25",     "note": "Zenith pole — Qwen2.5-0.5B"},
+    {"zone": 6,  "shape": "I", "model_key": "smollm2",    "note": "Icosahedron face — SmolLM2-360M, llama arch, 32L"},
+    {"zone": 7,  "shape": "L", "model_key": "smollm2",    "note": "Latitude ring — SmolLM2-360M"},
+    {"zone": 8,  "shape": "O", "model_key": "smollm2",    "note": "Octahedron face — SmolLM2-360M"},
+    {"zone": 9,  "shape": "L", "model_key": "qwen25",     "note": "Latitude ring — Qwen2.5-0.5B"},
+    {"zone": 10, "shape": "S", "model_key": "qwen25",     "note": "Sphere tile — Qwen2.5-0.5B"},
+    {"zone": 11, "shape": "T", "model_key": "qwen25",     "note": "Tetrahedron edge — Qwen2.5-0.5B"}
+  ]
+}

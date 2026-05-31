@@ -1,0 +1,12 @@
+{
+  "0:I": {
+    "smollm2": {
+      "similarity": 0.8,
+      "peer_key": "qwen25coder"
+    },
+    "qwen25coder": {
+      "similarity": 0.8,
+      "peer_key": "smollm2"
+    }
+  }
+}
