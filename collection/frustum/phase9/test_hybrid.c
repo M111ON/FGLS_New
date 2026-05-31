@@ -24,8 +24,9 @@ typedef struct {
     TStreamChunk  store[FEC_TOTAL_DATA];
     FECParity     xor_par[FEC_TOTAL_PARITY];       /* 180 */
     FECParity     rs_par[60 * 12];                  /* max fec_n=12 */
-    RewindBuffer  rewind;
-    uint8_t       fec_n;
+    RewindBuffer    rewind;
+    RewindWangLayer wang;
+    uint8_t         fec_n;
 } HCtx;
 
 static void hctx_build(HCtx *h, uint8_t fec_n) {
@@ -41,6 +42,8 @@ static void hctx_build(HCtx *h, uint8_t fec_n) {
         /* populate rewind with enc→chunk mapping */
         rewind_store(&h->rewind, GEO_WALK[i], &h->store[i]);
     }
+
+    wang_init(&h->wang, &h->rewind);
 
     /* encode XOR parity */
     fec_encode_all(h->store, h->xor_par);
@@ -78,7 +81,7 @@ static uint16_t hybrid_block(HCtx *h, uint8_t l, uint8_t b) {
         &h->ring, h->store, l, b,
         &h->xor_par[xidx * FEC_PARITY_PER_BLOCK],
         &h->rs_par[(uint16_t)xidx * h->fec_n],
-        h->fec_n, &h->rewind);
+        h->fec_n, &h->rewind, NULL);
 }
 
 /* ══ TESTS ══ */
@@ -184,7 +187,7 @@ static void t_null_rewind(void) {
     uint16_t rec = fec_hybrid_recover_block(
         &h.ring, h.store, 0, 0,
         &h.xor_par[xidx * FEC_PARITY_PER_BLOCK],
-        &h.rs_par[0], h.fec_n, NULL /* no rewind */);
+        &h.rs_par[0], h.fec_n, NULL /* no rewind */, NULL /* no wang */);
 
     CHECK(rec >= 1 && h.ring.slots[pos].present, "null_rewind_l3_fallback");
 }
@@ -193,7 +196,7 @@ static void t_null_rewind(void) {
 static void t_all_no_loss(void) {
     static HCtx h; hctx_build(&h, 3);
     uint16_t rec = fec_hybrid_recover_all(&h.ring, h.store, h.fec_n,
-                                           h.xor_par, h.rs_par, &h.rewind);
+                                           h.xor_par, h.rs_par, &h.rewind, NULL);
     CHECK(rec == 0, "hybrid_all_no_loss");
 }
 
@@ -208,7 +211,7 @@ static void t_all_one_per_block(void) {
         }
     /* rewind still has all entries from before drop */
     uint16_t rec = fec_hybrid_recover_all(&h.ring, h.store, h.fec_n,
-                                           h.xor_par, h.rs_par, &h.rewind);
+                                           h.xor_par, h.rs_par, &h.rewind, NULL);
     CHECK(rec == 60, "hybrid_all_60_losses_1pp_recovered");
 }
 
@@ -312,7 +315,7 @@ static void t_multi_block_loss(void) {
     memset(h.xor_par, 0, sizeof(h.xor_par));
 
     uint16_t rec = fec_hybrid_recover_all(&h.ring, h.store, h.fec_n,
-                                           h.xor_par, h.rs_par, &h.rewind);
+                                           h.xor_par, h.rs_par, &h.rewind, NULL);
     CHECK(rec == 10, "multi_block_10_losses_recovered");
 }
 
@@ -339,13 +342,49 @@ static void t_isolated_blocks(void) {
     memset(h.xor_par, 0, sizeof(h.xor_par));
 
     fec_hybrid_recover_all(&h.ring, h.store, h.fec_n,
-                            h.xor_par, h.rs_par, &h.rewind);
+                            h.xor_par, h.rs_par, &h.rewind, NULL);
 
     /* all other blocks should remain fully present */
     uint16_t total_gaps = 0;
     for (uint16_t i = 0; i < FEC_TOTAL_DATA; i++)
         if (!h.ring.slots[i].present) total_gaps++;
     CHECK(total_gaps == 0, "isolated_block_no_collateral");
+}
+
+/* T21: Wang gate skips L1 when edge broken — L3 recovers */
+static void t_wang_gate_skips_l1(void) {
+    static HCtx h; hctx_build(&h, 3);
+    uint16_t pos = 5;
+    drop(&h, pos);
+    memset(h.xor_par, 0, sizeof(h.xor_par)); /* L1 would write garbage */
+    /* corrupt all Wang rows so gate sees broken edge */
+    for (uint16_t r = 0; r < WANG_ROW_COUNT; r++)
+        h.wang.rows[r].valid = false;
+
+    uint16_t rec = fec_hybrid_recover_block(
+        &h.ring, h.store, 0, 0,
+        &h.xor_par[0],
+        &h.rs_par[0], h.fec_n, &h.rewind, &h.wang);
+
+    CHECK(rec >= 1 && h.ring.slots[pos].present && verify(&h, pos),
+          "wang_gate_skips_l1_l3_recovers");
+}
+
+/* T22: Wang gate allows L1 when edge intact */
+static void t_wang_gate_edge_ok(void) {
+    static HCtx h; hctx_build(&h, 3);
+    uint16_t pos = 5;
+    drop(&h, pos);
+    /* edge intact (wang was initted), XOR valid */
+    rewind_init(&h.rewind); /* force L2 miss so L1 must fire */
+
+    uint16_t rec = fec_hybrid_recover_block(
+        &h.ring, h.store, 0, 0,
+        &h.xor_par[0],
+        &h.rs_par[0], h.fec_n, &h.rewind, &h.wang);
+
+    CHECK(rec >= 1 && h.ring.slots[pos].present && verify(&h, pos),
+          "wang_gate_edge_ok_l1_succeeds");
 }
 
 int main(void) {
@@ -369,6 +408,8 @@ int main(void) {
     t_multi_block_loss();
     t_l2_l3_combo();
     t_isolated_blocks();
+    t_wang_gate_skips_l1();
+    t_wang_gate_edge_ok();
 
     printf("\n%d/%d PASS\n", _tc-_fail, _tc);
     return _fail ? 1 : 0;

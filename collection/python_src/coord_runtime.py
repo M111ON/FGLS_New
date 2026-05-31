@@ -61,8 +61,17 @@ class CoordRuntime:
         coords = raw.get("coords", [])
         default_coord = raw.get("default_coord")
 
+        valid_keys = {"store_path", "gguf_path", "dim", "gear", "code_dim", "gate_path", "meta_path", "force_cpu"}
         for model_key, spec in models.items():
-            self.pool.register(model_key, ModelSpec(**spec))
+            store_path = spec.get("store_path")
+            if store_path is None:
+                continue
+            filtered = {k: v for k, v in spec.items() if k in valid_keys}
+            try:
+                self.pool.register(model_key, ModelSpec(**filtered))
+            except Exception as e:
+                print(f"[coord_runtime] skip model '{model_key}': {e}")
+                continue
 
         for item in coords:
             coord = GeometryCoord(
@@ -135,6 +144,62 @@ class CoordRuntime:
             raise KeyError("registry has no default_coord or coords")
         model_key = self.pool.resolve_coord(self.default_coord)
         return model_key, self.pool._specs[model_key], self.default_coord
+
+    def plan(self, zone: int, shape: str, ns: str = None) -> Optional[dict]:
+        """
+        Generate ZoneCard — route pre-resolved via cache (no LLM).
+        Returns card dict with pre-resolved route, or None if miss.
+        """
+        try:
+            return self.pool.query_and_plan(GeometryCoord(zone=zone, shape=shape, ns=ns))
+        except KeyError:
+            return None
+
+    def plan_and_resolve(self, zone: int, shape: str,
+                          ns: str = None) -> dict:
+        """Plan + resolve route via cache. Returns {card, route}."""
+        return self.pool.plan_and_resolve(GeometryCoord(zone=zone, shape=shape, ns=ns))
+
+    def route_from_card(self, card_dict: dict) -> dict:
+        """
+        Route resolution via RouteRuleCache (no LLM).
+        Falls back to planner only on cache miss.
+
+        This replaces the old if-else chain with a proper rule engine.
+        """
+        from route_cache import get_cache
+        # Convert dict back to a simple object for the cache
+        class _CardProxy:
+            pass
+        proxy = _CardProxy()
+        proxy.card_type = card_dict.get("card_type", -1)
+        proxy.entropy = card_dict.get("entropy", 128)
+        proxy.locality = card_dict.get("locality", 128)
+        proxy.stability = card_dict.get("stability", 128)
+        proxy.hash_val = card_dict.get("hash_val", 0)
+        if isinstance(proxy.hash_val, str) and proxy.hash_val.startswith("0x"):
+            proxy.hash_val = int(proxy.hash_val, 16)
+        return get_cache().resolve(proxy)
+
+    def execute_plan(self, plan: dict, zone: int, shape: str,
+                     ns: str = None) -> Optional[np.ndarray]:
+        """Execute a route plan. Skips if decision is 'skip'."""
+        decision = plan.get("decision", "fallback")
+        if decision in ("skip", "skip-all", "skip-middle"):
+            return None
+        try:
+            return self.pool.execute_coord(GeometryCoord(zone=zone, shape=shape, ns=ns),
+                                            decision=decision)
+        except KeyError:
+            return None
+
+    def execute_with_plan(self, zone: int, shape: str,
+                          ns: str = None) -> Optional[np.ndarray]:
+        """plan + resolve + execute: all-in-one, no LLM anywhere."""
+        result = self.plan_and_resolve(zone, shape, ns=ns)
+        if result["card"] is None:
+            return None
+        return self.execute_plan(result["route"], zone, shape, ns=ns)
 
     def forward(self, zone: int, shape: str, x, ns: str = None, mode: int = 0,
                 n_layers: int = 1, warm: bool = False, promote_gpu: bool = False):

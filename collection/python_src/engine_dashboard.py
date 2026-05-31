@@ -55,6 +55,17 @@ def build_app() -> "FastAPI":
             feat.error = str(e)
             logger.warning(f"  Route registration failed: {feat.name}: {e}")
 
+    @app.get("/api/exec-cache")
+    def exec_cache_stats():
+        from global_exec_cache import get_exec_cache
+        return get_exec_cache().stats()
+
+    @app.post("/api/exec-cache/reset")
+    def exec_cache_reset():
+        from global_exec_cache import reset_exec_cache
+        reset_exec_cache()
+        return {"status": "reset"}
+
     @app.get("/api/status")
     def engine_status():
         uptime = time.time() - START_TIME

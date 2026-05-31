@@ -167,7 +167,7 @@ static double bench_hybrid_recover(uint8_t fec_n, uint8_t n_loss,
         drop_pattern(n_loss, pat, seed + iter);
         double t0 = now_sec();
         fec_hybrid_recover_all(&ring, store_work, fec_n,
-                               xor_parity, rs_parity, &rewind_buf);
+                               xor_parity, rs_parity, &rewind_buf, NULL);
         total += now_sec() - t0;
     }
     double rec_bytes = (double)n_loss * FEC_LEVELS * FEC_BLOCKS_PER_LEVEL

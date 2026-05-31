@@ -1,20 +1,29 @@
-```
 # Compiled/binary files
 *.o
 *.obj
 *.out
+*.exe
+*.dll
 
-# Executables
-geopixel_final
-geopixel_ultra
-```
-*.gp7
-*.gp8
-*.gp9
-Img_Encoder/geopixel_v9
-Img_Encoder/geopixel_v7
-Img_Encoder/geopixel_v8
-/open-design
-collection/zip/Replit_design/Asset-Creator/
+# Python
 *.pyc
+__pycache__/
+
+# Model weight stores (huge — 100s of MB each)
+*.gsten
+*.gsdat
+*.gsidx
+*.qdat
+
+# Specific build output dirs
+collection/build/qwen25_tensors_raw/
+collection/build/qwen25_coder_tensors_raw/
+collection/build/qwen35_geom_tensors/
+collection/build/qwen25_full_gsten/
+collection/build/smollm2_tensors_raw/
+
+# Open Design cache
+/open-design
+
+# Archives
 collection.zip

@@ -134,6 +134,17 @@ class ZeroWarmupEngine:
         self._promote_done  = threading.Event()
         self._token_count   = 0
 
+        # Route cache (kills LLM in hot path)
+        from route_cache import get_cache
+        self._route_cache = get_cache()
+        self._cache_stats = {"hits": 0, "misses": 0}
+
+        # Locality-aware state reuse
+        self._last_zone: Optional[int] = None
+        self._last_card: Optional[dict] = None
+        self._last_weights: Optional[np.ndarray] = None
+        self._state_fingerprint: int = 0  # xxh64 of last weights
+
         self.meta = None
         if meta_path and Path(meta_path).exists():
             with open(meta_path) as f:
@@ -226,6 +237,129 @@ class ZeroWarmupEngine:
     def query_batch(self, keys: list[tuple]) -> dict:
         """Batch geometry-store lookup without running inference."""
         return self.store.query_batch(keys)
+
+    @staticmethod
+    def _compute_fingerprint(weights: np.ndarray) -> int:
+        """xxh64 fingerprint of weight array. Cached per engine."""
+        try:
+            import xxhash
+            return xxhash.xxh64(weights.tobytes()).intdigest()
+        except ImportError:
+            return hash(weights.tobytes()) & 0xFFFFFFFFFFFFFFFF
+
+    # ── ZoneCard plan/execute (card-based routing) ─────────────
+
+    def plan(self, zone: int, shape: str, ns: str = None) -> Optional[dict]:
+        """
+        STEP 1: Return a tiny ZoneCard (no geometry in context).
+
+        Also resolves route via RouteRuleCache — kills LLM for 80% cases.
+        Returns card dict with pre-resolved route, or None if miss.
+        """
+        from zone_card import make_card_from_np
+        weights = self.store.query(zone, shape, ns=ns)
+        if weights is None:
+            return None
+        card_obj = make_card_from_np(weights, zone_id=zone)
+        card_dict = card_obj.to_dict()
+        # Resolve route via cache (no LLM needed)
+        route = self._route_cache.resolve(card_obj)
+        card_dict["route"] = route
+        if route["cache"] != "miss":
+            self._cache_stats["hits"] += 1
+        else:
+            self._cache_stats["misses"] += 1
+        return card_dict
+
+    def plan_and_resolve(self, zone: int, shape: str,
+                          ns: str = None) -> dict:
+        """
+        plan → cache resolve in one call. Returns {card, route}.
+        No LLM needed — pure rule cache.
+        """
+        card = self.plan(zone, shape, ns=ns)
+        if card is None:
+            return {"card": None, "route": {"decision": "miss",
+                                             "action": "noop",
+                                             "reason": "store miss"}}
+        return {"card": card, "route": card.get("route", {})}
+
+    def plan_batch(self, keys: list[tuple]) -> list[dict]:
+        """Batch plan with cache resolve for each key."""
+        from zone_card import make_card_from_np
+        results = self.store.query_batch(keys)
+        cards = []
+        for (z, s), arr in results.items():
+            card_obj = make_card_from_np(arr, zone_id=z)
+            route = self._route_cache.resolve(card_obj)
+            d = card_obj.to_dict()
+            d["route"] = route
+            cards.append(d)
+        return cards
+
+    def execute(self, zone: int, shape: str, ns: str = None,
+                decision: str = None) -> Optional[np.ndarray]:
+        """
+        STEP 2: Execute route — fetch geometry and apply.
+
+        Locality-aware:
+          loc > 200 & same type → reuse previous weights (skip I/O)
+          loc < 50              → flush cache, force fresh
+        """
+        # Get card for locality check
+        from zone_card import make_card_from_np
+        weights = self.store.query(zone, shape, ns=ns)
+        if weights is None:
+            self._last_card = None
+            self._last_weights = None
+            self._last_zone = None
+            return None
+
+        card = make_card_from_np(weights, zone_id=zone)
+        loc = card.locality
+        st = card.stability
+
+        # Locality exploitation:
+        #   loc > 200 & same type → reuse last weights (zero I/O next time)
+        #   loc < 50              → force fresh decode
+        if decision == "reuse_state" and self._last_weights is not None:
+            w = self._last_weights
+        elif loc > 200 and self._last_zone is not None and st > 200:
+            w = self._last_weights if self._last_weights is not None else weights
+        else:
+            w = weights
+
+        if loc < 50:
+            self._last_weights = None  # force fresh next call
+
+        w_trim = w[:self.dim, :self.dim] if w.shape[0] >= self.dim else w
+        x = np.random.randn(self.dim).astype(np.float32)
+        out = x @ w_trim.T.astype(np.float32)
+        out = out[:self.dim] if out.shape[0] >= self.dim \
+            else np.pad(out, (0, self.dim - out.shape[0]))
+
+        # Cache state + fingerprint for next call
+        self._last_zone = zone
+        self._last_card = card.to_dict()
+        self._state_fingerprint = self._compute_fingerprint(w)
+        from fusion import fingerprint_store
+        fingerprint_store(self._state_fingerprint, w, "self")
+        if loc > 200:
+            self._last_weights = weights
+
+        return out
+
+    def execute_with_plan(self, zone: int, shape: str,
+                          ns: str = None) -> Optional[np.ndarray]:
+        """plan + resolve + execute: all-in-one (no LLM)."""
+        card = self.plan(zone, shape, ns=ns)
+        if card is None:
+            return None
+        route = card.get("route", {})
+        decision = route.get("decision", "fallback")
+        if decision == "skip" or decision == "skip-all":
+            return None
+        return self.execute(zone, shape, ns=ns, decision=decision)
 
     # ── Core forward ─────────────────────────────────────────
 

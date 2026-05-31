@@ -884,14 +884,15 @@ async function storeQuery() {
 }
 
 // ─── Router ───
+function hideSec(id) { const s = document.getElementById(id); if (s) s.style.display = 'none'; }
 async function loadRouter() {
   try {
     const s = await api('GET', '/api/status');
     const f = s.features.find(x => x.name === 'Bermuda Router');
     const el2 = el('routerStatus');
     if (f && f.enabled) { el2.textContent = 'online'; el2.className = 'status-tag online'; }
-    else { el2.textContent = 'offline'; el2.className = 'status-tag offline'; }
-  } catch {}
+    else { el2.textContent = 'offline'; el2.className = 'status-tag offline'; hideSec('secRouter'); }
+  } catch { hideSec('secRouter'); }
 }
 async function routerRoute() {
   const out = el('routerOut'); showLoading(out);
@@ -976,8 +977,8 @@ async function loadGate() {
         gaugeCard(`<div class="num">${d.dim}</div><div class="desc" style="font-family:var(--mono);">in dim</div>`) +
         gaugeCard(`<div class="num">${d.code_dim}</div><div class="desc" style="font-family:var(--mono);">code dim</div>`) +
         gaugeCard(svgGauge(d.code_dim, 1, d.dim, 'compression', 'x', 'var(--gold)'));
-    } else { el2.textContent = 'offline'; el2.className = 'status-tag offline'; }
-  } catch {}
+    } else { el2.textContent = 'offline'; el2.className = 'status-tag offline'; hideSec('secGate'); }
+  } catch { hideSec('secGate'); }
 }
 async function gateForward() {
   const out = el('gateOut'); showLoading(out);
@@ -1085,8 +1086,8 @@ async function loadCodec() {
         gaugeCard(`<div class="num">${d.max_levels_per_cycle}</div><div class="desc">cycle max</div>`) +
         gaugeCard(`<div class="num">8\u00d78</div><div class="desc">frame px</div>`) +
         gaugeCard(`<div class="num">3</div><div class="desc">layers RGB</div>`);
-    } else { el2.textContent = 'offline'; el2.className = 'status-tag offline'; }
-  } catch {}
+    } else { el2.textContent = 'offline'; el2.className = 'status-tag offline'; hideSec('secCodec'); }
+  } catch { hideSec('secCodec'); }
 }
 function codecToggleVideo() {
   const isVid = el('cVideo').checked;

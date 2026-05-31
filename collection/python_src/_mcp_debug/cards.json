@@ -1,0 +1,15 @@
+{
+  "test:abc": {
+    "deck": "test",
+    "author": "me",
+    "card_schema_version": "v1",
+    "entropy": 128,
+    "stability": 128,
+    "locality": 128,
+    "fingerprint": 1234,
+    "extensions": {},
+    "version": 1,
+    "parent_version": 0,
+    "server_timestamp": 1780111257
+  }
+}

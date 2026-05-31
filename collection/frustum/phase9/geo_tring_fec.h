@@ -1,6 +1,6 @@
- * tring_fec_recv — RECEIVER: ingest one packet
+ * tring_fec_recv -- RECEIVER: ingest one packet
  *   Wraps tstream_recv_pkt. Returns gap count from ring.
- * ══════════════════════════════════════════════════ */
+ * =================================================== */
 static inline int tring_fec_recv(
     TRingFECCtx     *ctx,
     const TStreamPkt *pkt)

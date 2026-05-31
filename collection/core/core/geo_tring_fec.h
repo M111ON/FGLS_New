@@ -1,5 +1,5 @@
 /*
- * geo_tring_fec.h — TRing + RS-FEC integration helpers
+ * geo_tring_fec.h -- TRing + RS-FEC integration helpers
  * ====================================================
  *
  * A thin operational wrapper over:
@@ -23,12 +23,14 @@
 #include "geo_fec.h"
 #include "geo_fec_rs.h"
 #include "geo_rewind.h"
+#include "geo_rewind_wang.h"
 
 typedef struct {
     TRingCtx      ring;
     TStreamChunk  store[FEC_TOTAL_DATA];
     FECParity     parity_pool[FEC_LEVELS * FEC_BLOCKS_PER_LEVEL * FEC_CHUNKS_PER_BLOCK];
     RewindBuffer  rewind;
+    RewindWangLayer wang;
     uint16_t      n_pkts;
     uint16_t      gaps_before;
     uint16_t      recovered;
@@ -50,6 +52,7 @@ static inline void tring_fec_prepare(TRingFECCtx *ctx, uint8_t fec_n)
     memset(ctx, 0, sizeof(*ctx));
     tring_init(&ctx->ring);
     rewind_init(&ctx->rewind);
+    wang_init(&ctx->wang, &ctx->rewind);
     ctx->fec_n = fec_n;
 }
 
@@ -69,6 +72,7 @@ static inline uint16_t tring_fec_encode(TRingFECCtx     *ctx,
         ctx->ring.slots[i].chunk_id = i;
         ctx->ring.chunk_count++;
         rewind_store(&ctx->rewind, pkts[i].enc, &ctx->store[i]);
+        wang_notify_store(&ctx->wang, pkts[i].enc);
     }
 
     for (uint16_t i = n; i < FEC_TOTAL_DATA; i++) {
@@ -93,8 +97,10 @@ static inline int tring_fec_recv(TRingFECCtx      *ctx,
                                  const TStreamPkt *pkt)
 {
     int rc = tstream_recv_pkt(&ctx->ring, ctx->store, pkt);
-    if (rc >= 0)
+    if (rc >= 0) {
         rewind_store(&ctx->rewind, pkt->enc, &ctx->store[tring_pos(pkt->enc)]);
+        wang_notify_store(&ctx->wang, pkt->enc);
+    }
     return rc;
 }
 

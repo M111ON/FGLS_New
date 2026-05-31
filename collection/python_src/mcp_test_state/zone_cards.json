@@ -1,0 +1,26 @@
+{
+  "0:I:qwen25coder": {
+    "zone": 0,
+    "shape": "I",
+    "model_key": "qwen25coder",
+    "card_type": 2,
+    "entropy": 234,
+    "locality": 128,
+    "stability": 0,
+    "pattern": 16652,
+    "hash_val": 0,
+    "updated_at": 1780095511
+  },
+  "0:I:smollm2": {
+    "zone": 0,
+    "shape": "I",
+    "model_key": "smollm2",
+    "card_type": 2,
+    "entropy": 230,
+    "locality": 120,
+    "stability": 5,
+    "pattern": 0,
+    "hash_val": 0,
+    "updated_at": 1780095516
+  }
+}
