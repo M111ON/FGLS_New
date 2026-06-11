@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 inbox_mcp_server.py — Smart Inbox Manager MCP Server
 
@@ -45,6 +46,8 @@ STATE_FILE = WORKSPACE / ".inbox_state.json"
 ZIP_ARCHIVE = VAULT_DIR / "zips"
 
 MAX_VAULT_PER_FILE = 10
+VAULT_SIZE_LIMIT = 3 * 1024 * 1024  # 3 MB max per file
+VAULT_EXTS = {".c", ".h", ".py", ".md", ".json", ".txt"}
 TEXT_EXTS = {".h", ".c", ".cpp", ".cc", ".py", ".js", ".ts", ".json", ".yaml", ".yml", ".md", ".txt", ".rs", ".go", ".java", ".toml", ".ini", ".cfg"}
 
 DEP_PATTERNS = [
@@ -419,8 +422,12 @@ def _vault_file(rel: str, state: dict):
     """Snapshot existing file to vault before overwrite."""
     fi = state["file_index"].get(rel)
     if not fi: return
+    ext = Path(rel).suffix.lower()
+    if ext not in VAULT_EXTS: return
     src = WORKSPACE / rel
     if not src.exists(): return
+    size = src.stat().st_size
+    if size > VAULT_SIZE_LIMIT: return
     VAULT_DIR.mkdir(parents=True, exist_ok=True)
     content = src.read_bytes()
     h = _sha256(content)
@@ -430,12 +437,12 @@ def _vault_file(rel: str, state: dict):
         "orig_rel": rel,
         "ts": datetime.now().timestamp(),
         "hash": h,
-        "size": len(content),
+        "size": size,
     }
     state.setdefault("vault", {}).setdefault(base, []).append(vault_entry)
     state["vault"][base] = sorted(state["vault"][base], key=lambda x: x["ts"], reverse=True)[:MAX_VAULT_PER_FILE]
     # physical backup
-    vault_name = f"{base}_v{vault_entry['ts']}.bak"
+    vault_name = f"{base}_v{vault_entry['ts']}.snap"
     (VAULT_DIR / vault_name).write_bytes(content)
 
 
@@ -477,7 +484,7 @@ def rollback(base_name: str, version_index: int = 0) -> str:
     if version_index < 0 or version_index >= len(versions):
         return f"version_index {version_index} out of range (0-{len(versions)-1})"
     v = versions[version_index]
-    vault_name = f"{base_name}_v{v['ts']}.bak"
+    vault_name = f"{base_name}_v{v['ts']}.snap"
     vp = VAULT_DIR / vault_name
     if not vp.exists(): return f"vault file missing: {vault_name}"
     # find original location
@@ -760,6 +767,35 @@ def get_project_index(detail: str = "skeleton") -> str:
             lines.append(f"  {rel}")
         if total > 100:
             lines.append(f"  ... +{total-100} more")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def dashboard_status() -> str:
+    """Show Engine Dashboard status + link. Dashboard exposes inbox state visually."""
+    state = _load_state()
+    total = len(state.get("file_index", {}))
+    vaulted = sum(len(v) for v in state.get("vault", {}).values())
+    pending = [i for i in state.get("incoming", []) if i["status"] in ("new", "update", "conflict", "downgrade")]
+    lines = [
+        "## Engine Dashboard",
+        f"  URL:   http://127.0.0.1:8766/dashboard",
+        f"  API:   http://127.0.0.1:8766/docs",
+        "",
+        f"  Inbox state:  {total} files indexed, {vaulted} vaulted, {len(pending)} pending",
+    ]
+    if pending:
+        for s in ("conflict", "downgrade", "new", "update"):
+            items = [i for i in pending if i["status"] == s]
+            if items:
+                lines.append(f"    {s.upper()}: {len(items)}")
+    # quick check if dashboard is reachable
+    import urllib.request
+    try:
+        urllib.request.urlopen("http://127.0.0.1:8766/api/status", timeout=1.0)
+        lines.append("  Dashboard: RUNNING")
+    except Exception:
+        lines.append("  Dashboard: STOPPED (start with: python collection/python_src/engine_dashboard.py)")
     return "\n".join(lines)
 
 

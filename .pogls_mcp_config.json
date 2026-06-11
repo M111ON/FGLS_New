@@ -1,0 +1,7 @@
+{
+  "project_root": "I:\\FGLS_new",
+  "master_doc": "",
+  "handoff_dir": "",
+  "source_dirs": ["collection", "collection/python_src", "collection/src", "collection/tests"],
+  "notes_dir": "session_notes"
+}

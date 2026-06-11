@@ -1,5 +1,11 @@
 # AGENTS.md — Session Handoff
 
+## ⚠️ ห้ามใช้ git โดยเด็ดขาด
+- **ห้าม run `git` commands ใดๆ ทั้งสิ้น** ไม่ว่า git status, git add, git commit, git push, git clean, git reset, git checkout ฯลฯ
+- หากจำเป็นต้องตรวจสอบประวัติไฟล์ ให้ใช้ Read tool อ่านไฟล์โดยตรงเท่านั้น
+- หาก user ต้องการให้ commit หรือ push เดี๋ยว user จัดการเอง
+- ข้อยกเว้น: ถ้า user สั่งให้ใช้ git โดยตรง (written in stone) เท่านั้น
+
 ## ก่อนสแกน (Pre-scan check)
 - ก่อนเรียก scan() ให้เรียก get_project_index() เพื่อดูสถานะ cache
 - หาก cache มีข้อมูลล่าสุด ให้ใช้ cached data แทนการสแกนใหม่
