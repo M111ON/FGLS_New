@@ -1,29 +1,64 @@
-# Compiled/binary files
+# ── Compiled / binary ──
 *.o
 *.obj
 *.out
 *.exe
 *.dll
+!collection/geo_jump_module/libgeojump.dll
+*.so
+*.bin
 
-# Python
+# ── Python ──
 *.pyc
 __pycache__/
 
-# Model weight stores (huge — 100s of MB each)
+# ── Vault / snapshots (inbox-manager) ──
+*.bak
+*.snap
+**/.vault/
+
+# ── Runtime logs ──
+*.log
+
+# ── Model weight stores (huge — 100s of MB each) ──
 *.gsten
 *.gsdat
 *.gsidx
 *.qdat
+*.pwc
+*.f32
+*.shape
+*.npz
 
-# Specific build output dirs
-collection/build/qwen25_tensors_raw/
-collection/build/qwen25_coder_tensors_raw/
-collection/build/qwen35_geom_tensors/
-collection/build/qwen25_full_gsten/
-collection/build/smollm2_tensors_raw/
-
-# Open Design cache
+# ── Build / temp output ──
+build/
+Temp/
 /open-design
 
-# Archives
+# ── Node / SDK cache ──
+node_modules/
+.opencode/
+
+# ── Archives ──
+*.zip
+*.7z
+*.tar.gz
 collection.zip
+bak_collection.zip
+
+# ── Generated images / docs ──
+*.bmp
+*.webp
+*.jpg
+*.jpeg
+*.png
+*.svg
+*.pdf
+
+# ── Memory store ──
+memory_store/raw/
+
+# ── Inbox state ──
+.inbox_state.json
+.inbox_index.md
+*.bak

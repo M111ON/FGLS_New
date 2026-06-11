@@ -31,7 +31,7 @@
 #define FLOW_MIN_CHUNK    32u
 #define FLOW_MAX_CHUNK    4096u
 #define FLOW_WINDOW       64u
-#define FLOW_ISECT_THRESH 0     /* dead zone = popcnt <= this */
+#define FLOW_ISECT_THRESH 0u    /* dead zone = popcnt <= this */
 
 /* One content-driven segment — v8: 64-bit for large file support */
 typedef struct {
@@ -61,7 +61,7 @@ static inline void flow_derive_coord(uint64_t seed, uint8_t *face, uint8_t *edge
 }
 
 /* Compute isect popcnt at a given byte offset (needs 64B window) */
-static inline int flow_isect_at(const uint8_t *data, size_t data_sz, size_t offset) {
+static inline int64_t flow_isect_at(const uint8_t *data, size_t data_sz, size_t offset) {
     if (offset + FLOW_WINDOW > data_sz) return -1;
     uint64_t seed = flow_derive_seed(data + offset);
     uint8_t face, edge, z;
@@ -102,7 +102,7 @@ static inline int flow_chunk(const uint8_t *data, size_t data_sz,
         if (scan_start > data_sz) scan_start = (uint64_t)data_sz;
 
         for (uint64_t bp = scan_start; bp <= chunk_end && bp + FLOW_WINDOW <= data_sz; bp++) {
-            int isect = flow_isect_at(data, data_sz, (size_t)bp);
+            int64_t isect = flow_isect_at(data, data_sz, (size_t)bp);
             if (isect <= FLOW_ISECT_THRESH) {
                 boundary = bp;
                 break;
