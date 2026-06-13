@@ -3,7 +3,7 @@
   "mcp": {
     "inbox-manager": {
       "type": "local",
-      "command": ["python", "inbox_mcp_server.py"],
+      "command": ["python", "I:/FGLS_new/inbox_mcp_server.py"],
       "enabled": true
     }
   }

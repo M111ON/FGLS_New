@@ -1,8 +1,8 @@
 """
-build_smollm2_store.py — Build geometry store for SmolLM2-360M
-Extracts tensors directly from local GGUF file (no JSON manifest needed).
+build_smollm2_store.py — Build geometry store + TW capture for SmolLM2-360M
+Extracts tensors directly from local GGUF file, computes TW capture results.
 """
-import os, struct, json, time, hashlib, argparse
+import os, struct, json, time, hashlib, argparse, numpy as np
 
 p = argparse.ArgumentParser()
 p.add_argument("--gguf", default="SmolLM2-360M-Instruct.F16.gguf", help="GGUF model path")
@@ -151,6 +151,7 @@ with open(GGUF_PATH, 'rb') as f:
 
         safe_name = name.replace('/', '_')
         out_path = os.path.join(OUT_DIR, f'{safe_name}.qdat')
+        qtype_path = os.path.join(OUT_DIR, f'{safe_name}.qtype')
 
         f.seek(file_offset)
         with open(out_path, 'wb') as out:
@@ -160,6 +161,9 @@ with open(GGUF_PATH, 'rb') as f:
                 if not chunk: break
                 out.write(chunk)
                 remaining -= len(chunk)
+
+        with open(qtype_path, 'wb') as qt:
+            qt.write(struct.pack('<B', t['dtype']))
 
         geo = tensor_geo(name, t['shape'], args.model_name)
         index.append({**t, 'nbytes': nbytes, 'path': out_path, **geo})
@@ -194,7 +198,172 @@ print('Face dist:')
 for face in sorted(face_count):
     print(f'  face {face:2d} {"█"*face_count[face]} {face_count[face]}')
 
+# ── TW Capture: compute zone/slot/resid for each tensor ────────
+print('\n[TW Capture] Computing Triangle Wheel capture for each tensor...')
+
+TW_SCALE = 207360
+TW_N_SECTORS = 10
+TW_SLOTS_PER = 6
+TW_N_SLOTS = 60
+
+# Boundary directions matching tw_capture_int.h
+TW_BOUNDARY_DIR = [
+    (0, 207360), (121883, 167758), (197211, 64078), (197211, -64078),
+    (121883, -167758), (0, -207360), (-121883, -167758), (-197211, -64078),
+    (-197211, 64078), (-121883, 167758),
+]
+
+# 6 slot centroids per sector (x10 sectors), matching C header
+TW_SLOT_LOCAL = [
+    [(0, 238464), (-26937, 222912), (-26937, 191808), (0, 176256), (26937, 191808), (26937, 222912)],
+    [(140166, 192922), (109232, 196172), (90949, 171009), (103601, 142594), (134534, 139342), (152817, 164507)],
+    [(226792, 73689), (203678, 94502), (174097, 84890), (167629, 54466), (190744, 33653), (220326, 43265)],
+    [(226792, -73689), (220326, -43265), (190744, -33653), (167629, -54466), (174097, -84890), (203678, -94502)],
+    [(140166, -192922), (152817, -164507), (134534, -139342), (103601, -142594), (90949, -171009), (109232, -196172)],
+    [(0, -238464), (26937, -222912), (26937, -191808), (0, -176256), (-26937, -191808), (-26937, -222912)],
+    [(-140166, -192922), (-109232, -196172), (-90949, -171009), (-103601, -142594), (-134534, -139342), (-152817, -164507)],
+    [(-226792, -73689), (-203678, -94502), (-174097, -84890), (-167629, -54466), (-190744, -33653), (-220326, -43265)],
+    [(-226792, 73689), (-220326, 43265), (-190744, 33653), (-167629, 54466), (-174097, 84890), (-203678, 94502)],
+    [(-140166, 192922), (-152817, 164507), (-134534, 139342), (-103601, 142594), (-90949, 171009), (-109232, 196172)],
+]
+
+def _tw_cross(ax, ay, bx, by):
+    return ax * by - ay * bx
+
+def _tw_dequant_tensor(raw_bytes, dtype, max_vals=4096):
+    """Dequantize tensor raw bytes → flat float list.
+    dtype 0 = F32, dtype 8 = Q8_0."""
+    if dtype == 0:
+        # F32: raw bytes are float32
+        n = min(len(raw_bytes) // 4, max_vals)
+        arr = struct.unpack(f'<{n}f', raw_bytes[:n*4])
+        return [0.0 if (x != x or abs(x) > 1e10) else x for x in arr]
+    elif dtype == 8:
+        # Q8_0: blocks of 34 bytes (2B f16 scale + 32 int8)
+        n_blocks = len(raw_bytes) // 34
+        out = []
+        for b in range(n_blocks):
+            if len(out) >= max_vals: break
+            block = raw_bytes[b*34:(b+1)*34]
+            scale_bits = struct.unpack('<H', block[0:2])[0]
+            scale_arr = np.frombuffer(struct.pack('<H', scale_bits), dtype=np.float16)
+            scale_f = float(scale_arr[0])
+            if scale_f == 0.0 or not (scale_f > -1e10 and scale_f < 1e10):
+                scale_f = 1.0
+            for i in range(32):
+                if len(out) >= max_vals: break
+                q = block[2 + i]
+                if q >= 128: q -= 256
+                out.append(q * scale_f)
+        return out
+    else:
+        return []
+
+def _tw_capture_float(sig_x, sig_y):
+    """TW capture from float signature → (zone, slot, resid_x, resid_y, drain, drain_zone, drain_slot)"""
+    vx = int(sig_x * TW_SCALE)
+    vy = int(sig_y * TW_SCALE)
+
+    # find sector via cross-product sign test
+    cross = [_tw_cross(bx, by, vx, vy) for (bx, by) in TW_BOUNDARY_DIR]
+    sector = 0
+    mincross = -1
+    for k in range(TW_N_SECTORS):
+        kn = (k + 1) % TW_N_SECTORS
+        if cross[k] <= 0 and cross[kn] >= 0:
+            sector = k
+        a = abs(cross[k])
+        if mincross < 0 or a < mincross:
+            mincross = a
+
+    # pick nearest slot within sector
+    best = 0
+    bd = -1
+    for j in range(TW_SLOTS_PER):
+        cx, cy = TW_SLOT_LOCAL[sector][j]
+        dx = vx - cx
+        dy = vy - cy
+        d = dx*dx + dy*dy
+        if bd < 0 or d < bd:
+            bd = d
+            best = j
+
+    slot = sector * TW_SLOTS_PER + best
+    rx = vx - TW_SLOT_LOCAL[sector][best][0]
+    ry = vy - TW_SLOT_LOCAL[sector][best][1]
+
+    # drain test
+    vmag2 = vx*vx + vy*vy
+    lhs = mincross * mincross * 1000 * 1000
+    rhs = vmag2 * TW_SCALE * TW_SCALE * 9 * 9
+    drain = 1 if (vmag2 > 0 and lhs < rhs) else 0
+    drain_zone = 0
+    drain_slot = 0
+    if drain:
+        cross_prev = _tw_cross(TW_BOUNDARY_DIR[sector][0], TW_BOUNDARY_DIR[sector][1], vx, vy)
+        cross_next = _tw_cross(TW_BOUNDARY_DIR[(sector+1)%TW_N_SECTORS][0],
+                                TW_BOUNDARY_DIR[(sector+1)%TW_N_SECTORS][1], vx, vy)
+        secondary = (sector - 1) % TW_N_SECTORS if abs(cross_prev) < abs(cross_next) else (sector + 1) % TW_N_SECTORS
+        drain_zone = secondary
+        bd2 = -1
+        bj2 = 0
+        for j in range(TW_SLOTS_PER):
+            cx, cy = TW_SLOT_LOCAL[secondary][j]
+            dx = vx - cx
+            dy = vy - cy
+            d = dx*dx + dy*dy
+            if bd2 < 0 or d < bd2:
+                bd2 = d
+                bj2 = j
+        drain_slot = secondary * TW_SLOTS_PER + bj2
+
+    return {'zone': sector, 'slot': slot, 'resid_x': rx, 'resid_y': ry,
+            'drain': drain, 'drain_zone': drain_zone, 'drain_slot': drain_slot,
+            'sig_x': sig_x, 'sig_y': sig_y}
+
+# Dequantize and compute TW for each tensor
+tw_index = []
+tw_zone_counts = [0]*TW_N_SECTORS
+tw_slot_counts = [0]*TW_N_SLOTS
+for e in index:
+    qdat_path = e['path']
+    with open(qdat_path, 'rb') as f:
+        raw = f.read()
+    vals = _tw_dequant_tensor(raw, e['dtype'], max_vals=4096)
+    n = len(vals)
+    if n < 2:
+        tw_result = {'zone': 0, 'slot': 0, 'resid_x': 0, 'resid_y': 0,
+                     'drain': 0, 'drain_zone': 0, 'drain_slot': 0,
+                     'sig_x': 0.0, 'sig_y': 0.0}
+    else:
+        half = n // 2
+        sig_x = sum(vals[:half]) / half
+        sig_y = sum(vals[half:]) / (n - half)
+        tw_result = _tw_capture_float(sig_x, sig_y)
+    tw_index.append({'name': e['name'], **tw_result})
+    tw_zone_counts[tw_result['zone']] += 1
+    tw_slot_counts[tw_result['slot']] += 1
+
+# Write TW index
+TWIDX_PATH = os.path.join(args.out, "smollm2_tw.twidx")
+with open(TWIDX_PATH, 'w') as f:
+    json.dump(tw_index, f, indent=2)
+print(f'\nTW Index: {TWIDX_PATH} ({len(tw_index)} entries)')
+print(f'Tensor count: {len(tw_index)}')
+print(f'Zone distribution: {tw_zone_counts}')
+used_slots = sum(1 for c in tw_slot_counts if c > 0)
+print(f'Active slots: {used_slots}/{TW_N_SLOTS}')
+import math
+total = len(tw_index)
+entropy = 0
+for c in tw_zone_counts:
+    if c > 0:
+        p = c / total
+        entropy -= p * math.log2(p)
+print(f'Zone entropy: {entropy:.4f} bits (max {math.log2(TW_N_SECTORS):.4f})')
+
 print('\n✓ SmolLM2 store ready')
 print(f'  blobs: {OUT_DIR}/')
 print(f'  gsidx: {GSIDX_PATH}')
 print(f'  gsdat: {GSDAT_PATH}')
+print(f'  twidx: {TWIDX_PATH}')

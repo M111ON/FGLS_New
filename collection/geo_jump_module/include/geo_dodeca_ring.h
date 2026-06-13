@@ -3,7 +3,7 @@
  * ══════════════════════════════════════════════════════════════════════════
  *
  * Ring = 5 dodecahedra × 2 flowers × 12 pentagon faces = 120 positions
- *   (×2 globes A/B = 240 total, matching SHELL_TOTAL)
+ *   (×2 globes A/B = 288 total, matching SHELL_TOTAL)
  *
  * Within our shell encoding (face×ring×side):
  *   ring 0-4 = flower 0 (north), ring 5-9 = flower 1 (south)
@@ -24,7 +24,7 @@
 #define RING_DODECA      5u     /* dodecahedra in the ring         */
 #define RING_FLOWERS     2u     /* flowers per dodeca              */
 #define RING_TOTAL     120u     /* 5×2×12 = one globe              */
-#define RING_DUAL      240u     /* ×2 globes = SHELL_TOTAL         */
+#define RING_DUAL      288u     /* ×2 globes = SHELL_TOTAL         */
 
 /* ── Vertex→Faces (20 vertices, each shared by 3 pentagons) ──── */
 static const uint8_t DODECA_VERT_FACES[20][3] = {

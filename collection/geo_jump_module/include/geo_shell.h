@@ -6,8 +6,8 @@
  * Architecture:
  *   Compound A + B (2 dodecahedra, B rotated +36°)
  *   24 global anchors = 12 pentagon centers A + 12 B (fixed forever)
- *   Each anchor has SHELL_RINGS=10 flowers (unfolded 5-dodeca net)
- *   Total: 24 × 10 = SHELL_TOTAL=240 flower positions
+ *   Each anchor has SHELL_RINGS=12 flowers (2×6 dodeca pair rings)
+ *   Total: 24 × 12 = SHELL_TOTAL=288 flower positions (12×12×2)
  *
  * Shell = radial onion layers (12 per dodeca), anchors don't drift
  * Recursive ring replace: each flower → 5-dodeca structure (5ⁿ)
@@ -22,14 +22,14 @@ extern "C" {
 #endif
 
 #define SHELL_FACES         12u   /* pentagon faces per dodecahedron */
-#define SHELL_RINGS         10u   /* flowers per anchor (5 dodeca net) */
+#define SHELL_RINGS         12u   /* flowers per anchor (6-pair ring) */
 #define SHELL_SIDES          2u   /* compound phase: A(0) / B(1) */
-#define SHELL_TOTAL        240u   /* 12 faces × 10 rings × 2 sides = 24×10 */
+#define SHELL_TOTAL        288u   /* 12 faces × 12 rings × 2 sides = 24×12 */
 
 #define SHELL_FULL       20736u   /* GEO_FULL — full sphere nodes */
 #define SHELL_FACE_BLOCK  1728u   /* GEO_FULL / SHELL_FACES */
-#define SHELL_RING_BLOCK   172u   /* SHELL_FACE_BLOCK / SHELL_RINGS = 1728/10 = ring stride within face */
-#define SHELL_SIDE_BLOCK    86u   /* SHELL_RING_BLOCK / SHELL_SIDES = 172/2 = A/B half-ring stride */
+#define SHELL_RING_BLOCK   144u   /* SHELL_FACE_BLOCK / SHELL_RINGS = 1728/12 = GEO_TOWER */
+#define SHELL_SIDE_BLOCK    72u   /* SHELL_RING_BLOCK / SHELL_SIDES = 144/2 = A/B half-ring stride */
 
 #define SHELL_A              0u   /* dodecahedron A (fixed) */
 #define SHELL_B              1u   /* dodecahedron B (rotated +36°) */

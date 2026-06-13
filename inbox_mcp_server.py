@@ -292,7 +292,7 @@ def put_zip(zip_path: str | None = None, zip_b64: str | None = None, dry_run: bo
         ZIP_ARCHIVE.mkdir(parents=True, exist_ok=True)
         (ZIP_ARCHIVE / f"{Path(fname).stem}_{int(datetime.now().timestamp())}.zip").write_bytes(raw)
     _save_state(state)
-    return "\n".join(["ok  ingested {len(entries)} files from {fname}"] + report)
+    return "\n".join([f"ok  ingested {len(entries)} files from {fname}"] + report)
 
 
 def _b64(data: bytes) -> str:
@@ -435,15 +435,61 @@ def _vault_file(rel: str, state: dict):
     vault_entry = {
         "ver": fi.get("parsed", {}).get("ver") or "0",
         "orig_rel": rel,
-        "ts": datetime.now().timestamp(),
+        "ts": int(datetime.now().timestamp()),
         "hash": h,
         "size": size,
     }
     state.setdefault("vault", {}).setdefault(base, []).append(vault_entry)
     state["vault"][base] = sorted(state["vault"][base], key=lambda x: x["ts"], reverse=True)[:MAX_VAULT_PER_FILE]
     # physical backup
-    vault_name = f"{base}_v{vault_entry['ts']}.snap"
+    vault_name = f"{base}_v{vault_entry['ts']}.bak"
     (VAULT_DIR / vault_name).write_bytes(content)
+
+
+def _rebuild_vault_index(state: dict) -> int:
+    """Scan physical vault files and rebuild JSON vault index."""
+    if not VAULT_DIR.exists(): return 0
+    vault = state.setdefault("vault", {})
+    prev = len(vault)
+    for vf in sorted(VAULT_DIR.iterdir()):
+        if vf.suffix not in (".bak", ".snap") or not vf.is_file(): continue
+        name = vf.stem
+        # parse base name + timestamp from patterns: base_vTS or base.v_TS
+        ts = 0
+        base = name
+        if "_v" in name:
+            base, ts_str = name.rsplit("_v", 1)
+            try: ts = int(float(ts_str))
+            except: ts = 0
+        elif ".v_" in name:
+            base, ts_str = name.rsplit(".v_", 1)
+            try: ts = int(float(ts_str))
+            except: ts = 0
+        if not ts: continue
+        vault.setdefault(base, [])
+        # avoid duplicates
+        existing = {e.get("ts") for e in vault[base]}
+        if ts in existing: continue
+        entry = {
+            "ver": "0",
+            "orig_rel": "",
+            "ts": ts,
+            "hash": _sha256(vf.read_bytes()) if vf.stat().st_size < 10_000_000 else "",
+            "size": vf.stat().st_size,
+        }
+        vault[base].append(entry)
+        vault[base] = sorted(vault[base], key=lambda x: x["ts"], reverse=True)[:MAX_VAULT_PER_FILE]
+    return len(vault) - prev
+
+
+@mcp.tool()
+def vault_rebuild_index() -> str:
+    """Scan physical .vault/ directory and rebuild JSON vault index."""
+    state = _load_state()
+    n = _rebuild_vault_index(state)
+    _save_state(state)
+    total = sum(len(v) for v in state.get("vault", {}).values())
+    return f"ok  rebuilt vault index: {n} new entries, {total} total"
 
 
 @mcp.tool()
@@ -484,9 +530,20 @@ def rollback(base_name: str, version_index: int = 0) -> str:
     if version_index < 0 or version_index >= len(versions):
         return f"version_index {version_index} out of range (0-{len(versions)-1})"
     v = versions[version_index]
-    vault_name = f"{base_name}_v{v['ts']}.snap"
+    vault_name = f"{base_name}_v{v['ts']}.bak"
     vp = VAULT_DIR / vault_name
-    if not vp.exists(): return f"vault file missing: {vault_name}"
+    if not vp.exists():
+        vault_name_old = f"{base_name}_v{v['ts']}.snap"
+        vp = VAULT_DIR / vault_name_old
+        if not vp.exists():
+            # fallback: glob for any matching vault file
+            import glob
+            pat = str(VAULT_DIR / f"{base_name}_v*")
+            matches = sorted(glob.glob(pat))
+            if matches:
+                vp = Path(matches[0])
+            else:
+                return f"vault file missing: {vault_name}"
     # find original location
     orig_rel = v.get("orig_rel")
     if not orig_rel:
@@ -725,6 +782,15 @@ def incoming_summary() -> str:
 
 
 @mcp.tool()
+def incoming_purge_stale() -> str:
+    """Remove incoming items with null content_b64 (can never be applied)."""
+    state = _load_state()
+    n = _cleanup_stale_incoming(state)
+    _save_state(state)
+    return f"ok  purged {n} stale incoming items"
+
+
+@mcp.tool()
 def get_project_index(detail: str = "skeleton") -> str:
     """Return cached project index without re-scanning.
     detail: skeleton (default) | full"""
@@ -799,16 +865,32 @@ def dashboard_status() -> str:
     return "\n".join(lines)
 
 
+# ── startup helpers ──────────────────────────────────────────────────
+def _cleanup_stale_incoming(state: dict) -> int:
+    """Remove incoming items with null content_b64 that can never be applied."""
+    incoming = state.get("incoming", [])
+    before = len(incoming)
+    state["incoming"] = [i for i in incoming if i.get("content_b64") is not None or i["status"] == "done"]
+    return before - len(state["incoming"])
+
+
 # ── run ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     VAULT_DIR.mkdir(parents=True, exist_ok=True)
     ZIP_ARCHIVE.mkdir(parents=True, exist_ok=True)
-    # auto-load cached index if it exists
-    if STATE_FILE.exists():
-        try:
-            state = json.loads(STATE_FILE.read_text("utf-8"))
-            if state.get("last_scan_ts", 0) > 0 and state.get("file_index"):
-                print(f"[inbox] loaded cached index: {state.get('project_name', '?')} ({len(state['file_index'])} files)", flush=True)
-        except:
-            pass
+    # load or init state
+    state = _load_state()
+    # rebuild vault index if JSON is empty but physical vault has files
+    n_vault = _rebuild_vault_index(state)
+    if n_vault:
+        print(f"[inbox] rebuilt vault index: {n_vault} entries from physical .vault/", flush=True)
+        _save_state(state)
+    # clean up stale incoming (null content_b64)
+    n_stale = _cleanup_stale_incoming(state)
+    if n_stale:
+        print(f"[inbox] purged {n_stale} stale incoming items (null content_b64)", flush=True)
+        _save_state(state)
+    # auto-load cached index
+    if state.get("last_scan_ts", 0) > 0 and state.get("file_index"):
+        print(f"[inbox] loaded cached index: {state.get('project_name', '?')} ({len(state['file_index'])} files)", flush=True)
     mcp.run()

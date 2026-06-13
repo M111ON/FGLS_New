@@ -20,6 +20,7 @@ typedef struct {
     char    name[RB_NAME_MAX];
     void   *data;
     size_t  size;
+    int     dtype;       /* GGML quantization type: 0=F32, 8=Q8_0, etc */
     int     occupied;
 } RBEntry;
 
@@ -167,6 +168,24 @@ int rb_load(RawBridge *rb, const char *dir_path) {
         rb->entries[idx].data = buf;
         rb->entries[idx].size = got;
         rb->entries[idx].occupied = 1;
+        rb->entries[idx].dtype = 8; /* default Q8_0 */
+
+        /* Try loading .qtype sidecar */
+        char qtype_path[1024];
+        snprintf(qtype_path, sizeof(qtype_path), "%s\\%s.qtype", dir_path, ffd.cFileName);
+        /* strip .qdat from cFileName */
+        char *dot_qdat = strstr(qtype_path, ".qdat");
+        if (dot_qdat) {
+            memcpy(dot_qdat, ".qtype", 6);
+            dot_qdat[6] = 0;
+        }
+        FILE *qtf = fopen(qtype_path, "rb");
+        if (qtf) {
+            int dtype_byte = fgetc(qtf);
+            if (dtype_byte != EOF) rb->entries[idx].dtype = dtype_byte;
+            fclose(qtf);
+        }
+
         rb->n_entries++;
     } while (FindNextFileA(hFind, &ffd) != 0);
 
@@ -211,6 +230,23 @@ int rb_load(RawBridge *rb, const char *dir_path) {
         rb->entries[idx].data = buf;
         rb->entries[idx].size = got;
         rb->entries[idx].occupied = 1;
+        rb->entries[idx].dtype = 8; /* default Q8_0 */
+
+        /* Try loading .qtype sidecar */
+        char qtype_path[1024];
+        snprintf(qtype_path, sizeof(qtype_path), "%s/%s.qtype", dir_path, entry->d_name);
+        char *dot_qdat = strstr(qtype_path, ".qdat");
+        if (dot_qdat) {
+            memcpy(dot_qdat, ".qtype", 6);
+            dot_qdat[6] = 0;
+        }
+        FILE *qtf = fopen(qtype_path, "rb");
+        if (qtf) {
+            int dtype_byte = fgetc(qtf);
+            if (dtype_byte != EOF) rb->entries[idx].dtype = dtype_byte;
+            fclose(qtf);
+        }
+
         rb->n_entries++;
     }
     closedir(d);
