@@ -142,9 +142,9 @@ int main(void) {
     printf("\nS00: shell constants\n");
     {
         CHECK(SHELL_FACES == 12,     "SHELL_FACES == 12");
-        CHECK(SHELL_RINGS == 10,     "SHELL_RINGS == 10");
+        CHECK(SHELL_RINGS == 12,     "SHELL_RINGS == 12");
         CHECK(SHELL_SIDES == 2,      "SHELL_SIDES == 2");
-        CHECK(SHELL_TOTAL == 240,    "SHELL_TOTAL == 240");
+        CHECK(SHELL_TOTAL == 288,    "SHELL_TOTAL == 288");
         CHECK(SHELL_FULL == GEO_FULL,  "SHELL_FULL == GEO_FULL");
         CHECK(SHELL_FACE_BLOCK * SHELL_FACES == SHELL_FULL, "12*1728=20736");
     }
@@ -167,7 +167,7 @@ int main(void) {
                 }
             }
         }
-        printf("  PASS  encode/decode roundtrip all 240 coords\n");
+        printf("  PASS  encode/decode roundtrip all 288 coords\n");
         _pass++;
         shell_done:;
     }
@@ -199,7 +199,7 @@ int main(void) {
             uint32_t r  = geo_shell_ring(node);
             uint32_t s  = geo_shell_side(node);
             CHECK(f < SHELL_FACES, "face < 12");
-            CHECK(r < SHELL_RINGS, "ring < 10");
+            CHECK(r < SHELL_RINGS, "ring < 12");
             CHECK(s < SHELL_SIDES, "side < 2");
             uint32_t sid = geo_shell_encode(f, r, s);
             CHECK(geo_node_to_shell(node) == sid, "node_to_shell matches encode");
@@ -219,7 +219,23 @@ int main(void) {
         _pass++;
     }
 
-    printf("\n=== Batch routing tests ===\n");
+    printf("\nS05: shell alignment verification (RING_BLOCK=144=GEO_TOWER)\n");
+    {
+        /* RING_BLOCK=144=GEO_TOWER → 1 ring = 1 geo layer, tail_gap=0.
+         * Shell coord is a COARSE ZONE LABEL (face, ring, side) — not a bijection.
+         * Round-trip survivors = nodes where (n % SHELL_RING_BLOCK) % SHELL_SIDE_BLOCK == 0
+         * = entry points of each side = SHELL_TOTAL = 288 nodes.
+         * All other nodes quantize to same zone but back-project to entry point. */
+        uint32_t tail_gap = SHELL_FACE_BLOCK - SHELL_RING_BLOCK * SHELL_RINGS;
+        uint32_t survivors = 0;
+        for (uint32_t n = 0; n < SHELL_FULL; n++)
+            if (geo_shell_to_node(geo_node_to_shell(n)) == n) survivors++;
+        CHECK(SHELL_RING_BLOCK == 144u,                           "RING_BLOCK == GEO_TOWER == 144");
+        CHECK(SHELL_RING_BLOCK * SHELL_RINGS == SHELL_FACE_BLOCK, "ring stride×rings == FACE_BLOCK (exact, no tail gap)");
+        CHECK(tail_gap == 0u,                                     "tail gap = 0");
+        CHECK(SHELL_RINGS == GEO_SHELL_TICK,                      "SHELL_RINGS == GEO_SHELL_TICK == 12");
+        CHECK(survivors == SHELL_TOTAL,                           "288 entry-point nodes round-trip exactly");
+    }
     printf("\nB01: geo_jump_batch single type\n");
     {
         uint32_t in[5] = {0, 10, 100, 1000, 20000};
