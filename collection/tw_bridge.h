@@ -10,6 +10,7 @@
  *     tw_to_ring_state() → ring_state(0-119) for ring_classify()
  *     tw_to_node()     → geo_jump node_id
  *     tw_to_shell_id() → shell_id for geo_shell_encode()
+ *     tw_to_tring_pos() → TRing position (0-719) for 12-face system
  *
  *   Shell 2 (Residual):
  *     tw_resid_to_cell() → {floor, col, row} within metatron
@@ -17,16 +18,16 @@
  *   Shell 3 (Frozen):
  *     tw_is_frozen()  → true if drain + tick >= barrier
  *
- * SCALE NOTE: TW_SCALE=248832 (12^5) does NOT divide TRing=720.
- * Residual normalization uses TW_SCALE directly — no TRing conversion.
- * If TRing alignment needed, change TW_SCALE to 138240 (LCM).
+ * SCALE NOTE: TW_SCALE=207360 (12^4*10) divides TRing=720.
+ * TRing = 720 = 12 faces × 60 slots. Full dodecahedral mapping.
  *
  * Depends on: tw_capture_int.h, lc_tantrix.h, geo_jump.h,
  *             geo_shell.h, geo_field_ring.h, geo_dodeca_ring.h
  *
- * Geometry: 10 sectors × 6 slots = 60 positions
- *   zone 0-9  → ring 0-9, face in dodeca ring
- *   slot 0-5  → local face index (×2 for 12-face ring state)
+ * Geometry: 12 faces × 10 sectors × 6 slots = 720 positions
+ *   face 0-11  → dodecahedron face
+ *   zone 0-9   → sector within face (pentagon-pair)
+ *   slot 0-5   → child slot within sector
  *
  * No malloc. No float. Frozen.
  * ══════════════════════════════════════════════════════════════
@@ -123,6 +124,25 @@ static inline uint8_t tw_to_ring_state(uint8_t zone, uint8_t slot) {
     uint8_t ring  = zone % (RING_DODECA * RING_FLOWERS);  /* 0-9 */
     uint8_t face  = (local * 2u) % DODECA_FACES;          /* 0-11 */
     return (uint8_t)(ring * DODECA_FACES + face);
+}
+
+/* ── Shell 1: TW → TRing Position (0-719) ──────────────────── */
+
+/*
+ * Convert TW face+zone+slot → TRing position (0-719).
+ *
+ * face:  0-11 (dodecahedron face)
+ * zone:  0-9  (sector within face)
+ * slot:  0-5  (local slot within sector)
+ *
+ * TRing = 12 faces × 60 slots = 720 positions.
+ * Mapping: face × 60 + zone × 6 + slot.
+ */
+static inline uint16_t tw_to_tring_pos(uint8_t face, uint8_t zone, uint8_t slot) {
+    if (face >= 12u) face = face % 12u;
+    if (zone >= TW_N_SECTORS) zone = zone % TW_N_SECTORS;
+    if (slot >= TW_SLOTS_PER) slot = slot % TW_SLOTS_PER;
+    return (uint16_t)(face * 60u + zone * TW_SLOTS_PER + slot);
 }
 
 /* ── Shell 1: TW → geo_jump node_id ─────────────────────────── */
@@ -286,6 +306,8 @@ typedef struct {
     TantrixTile    drain_tile;    /* secondary tile (MERGE or NULL)   */
     uint32_t       shell_id;      /* shell_id for shell system        */
     uint8_t        ring_state;    /* ring_state for ring_classify     */
+    uint8_t        face;          /* dodecahedron face (0-11)         */
+    uint16_t       tring_pos;     /* TRing position (0-719)           */
     uint8_t        frozen;        /* 1 if Shell 3 freeze active       */
     uint32_t       freeze_addr;   /* POGLS wallet address (if frozen) */
     RingClassified ring;          /* full ring classification         */
@@ -293,10 +315,15 @@ typedef struct {
 
 /*
  * Master bridge: TWCaptureInt → TWBridgeResult.
- * Caller supplies density, is_temporal, layer, tick, seed_node.
+ * Caller supplies face, density, is_temporal, layer, tick, seed_node.
+ *
+ * face: 0-11, which dodecahedron face this capture belongs to.
+ *       For single-face operation, use face=0.
+ *       For 12-face iteration, pass the face index.
  */
 static inline TWBridgeResult tw_bridge(
     const TWCaptureInt *cap,
+    uint8_t  face,
     uint8_t  density,
     uint8_t  is_temporal,
     uint8_t  layer,
@@ -312,6 +339,10 @@ static inline TWBridgeResult tw_bridge(
     r.drain_tile = tw_drain_to_tantrix(cap);
     r.shell_id   = tw_to_shell_id(cap);
     r.ring_state = tw_to_ring_state(cap->zone, cap->slot);
+
+    /* 12-face: face and TRing position */
+    r.face      = face;
+    r.tring_pos = tw_to_tring_pos(face, cap->zone, cap->slot);
 
     /* Shell 1: full pipeline */
     r.ring = tw_to_ring_classified(cap, density, is_temporal, layer, tick);
