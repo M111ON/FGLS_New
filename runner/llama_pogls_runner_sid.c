@@ -1,6 +1,6 @@
 /*
  * llama_pogls_runner_sid.c — SID-coordinate inference runner
- * Build: gcc -O2 -I. -I<llama_inc> -o $@ $< llama.dll ggml.dll ... -lm
+ * Build: gcc -O2 -I. -I../collection -I<includes> -L<dll_dir> -lllama -lggml -lggml-base -lggml-cpu -o $@ $< -lm
  * Usage: llama_pogls_runner_sid.exe model.gguf [options]
  */
 
@@ -22,12 +22,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <stdbool.h>
 #include "llama.h"
-#include "ggml-backend.h"
 #include "gguf.h"
 
-#define SID_IMPLEMENTATION
-#include "../collection/sid.h"
 #include "gguf_index.h"
 #include "sid_loader.h"
 #include "sid_cache.h"
@@ -41,8 +39,15 @@ typedef struct{
     int tokens[MAX_TOKENS_CACHE],count;
 }Sampler;
 
-static int sample_token(const float*L,int n,Sampler*sp){
-    float*p=(float*)malloc(n*4);memcpy(p,L,n*4);
+typedef struct{float p;int idx;}SIDProbPair;
+
+static int prob_cmp_desc(const void*a,const void*b){
+    float x=((const SIDProbPair*)a)->p,y=((const SIDProbPair*)b)->p;
+    return (x>y)?-1:(x<y)?1:0;
+}
+
+static int sample_token(const float*raw,int n,Sampler*sp){
+    float*p=(float*)malloc((size_t)n*4);memcpy(p,raw,(size_t)n*4);
     if(sp->repeat_penalty!=1.0f&&sp->count>0){
         int s=sp->count>sp->repeat_last_n?sp->count-sp->repeat_last_n:0;
         for(int i=s;i<sp->count;i++){int t=sp->tokens[i];
@@ -51,30 +56,17 @@ static int sample_token(const float*L,int n,Sampler*sp){
     float mx=p[0];for(int i=1;i<n;i++)if(p[i]>mx)mx=p[i];
     float s=0;for(int i=0;i<n;i++){p[i]=expf(p[i]-mx);s+=p[i];}
     if(s>0)for(int i=0;i<n;i++)p[i]/=s;
-    int k=sp->top_k>0&&sp->top_k<n,p=sp->top_p<1;
-    ProbPair *pairs = NULL;
-    int do_k = (sp->top_k > 0 && sp->top_k < n);
-    int do_p = (sp->top_p < 1.0f);
-    if (do_k || do_p) {
-        pairs = (ProbPair*)malloc(n * sizeof(ProbPair));
-        for (int i = 0; i < n; i++) { pairs[i].p = probs[i]; pairs[i].idx = i; }
-        qsort(pairs, n, sizeof(ProbPair), prob_cmp_desc);
-        if (do_k) {
-            float kth = pairs[sp->top_k - 1].p;
-            for (int i = 0; i < n; i++) if (probs[i] < kth) probs[i] = 0;
-            float sum2 = 0; for (int i = 0; i < n; i++) sum2 += probs[i];
-            if (sum2 > 0) for (int i = 0; i < n; i++) probs[i] /= sum2;
-        }
-        if (do_p) {
-            float cum = 0;
-            for (int i = 0; i < n; i++) {
-                if (cum >= sp->top_p) { for (int j = i; j < n; j++) probs[pairs[j].idx] = 0; break; }
-                cum += pairs[i].p;
-            }
-            float sum2 = 0; for (int i = 0; i < n; i++) sum2 += probs[i];
-            if (sum2 > 0) for (int i = 0; i < n; i++) probs[i] /= sum2;
-        }
-        free(pairs);
+    int do_k=sp->top_k>0&&sp->top_k<n;
+    int do_p=sp->top_p<1.0f;
+    if(do_k||do_p){
+        SIDProbPair*a=(SIDProbPair*)malloc((size_t)n*sizeof(SIDProbPair));
+        for(int i=0;i<n;i++){a[i].p=p[i];a[i].idx=i;}
+        qsort(a,(size_t)n,sizeof(SIDProbPair),prob_cmp_desc);
+        if(do_k){float kt=a[sp->top_k-1].p;for(int i=0;i<n;i++)if(p[i]<kt)p[i]=0;
+            s=0;for(int i=0;i<n;i++)s+=p[i];if(s>0)for(int i=0;i<n;i++)p[i]/=s;}
+        if(do_p){float c=0;for(int i=0;i<n;i++){if(c>=sp->top_p){for(int j=i;j<n;j++)p[a[j].idx]=0;break;}c+=a[i].p;}
+            s=0;for(int i=0;i<n;i++)s+=p[i];if(s>0)for(int i=0;i<n;i++)p[i]/=s;}
+        free(a);
     }
     float r=(float)rand()/(float)RAND_MAX,c=0;int tok=0;
     for(int i=0;i<n;i++){c+=p[i];if(r<c){tok=i;break;}}free(p);
@@ -83,14 +75,14 @@ static int sample_token(const float*L,int n,Sampler*sp){
 }
 
 typedef struct{
-    SIDLoaderCtx*loader;SIDCache*cache;SIDStore*twidx;
+    SIDLoaderCtx*loader;SIDCache*cache;
     uint64_t bytes_read,tensors_set;
     uint8_t*read_buf;size_t read_buf_sz;
 }SidRunnerCtx;
 
 static void set_tensor_sid_cb(struct ggml_tensor*t,void*ud){
     SidRunnerCtx*rc=(SidRunnerCtx*)ud;if(!t||!t->name[0]||!t->data)return;
-    size_t sz=ggml_nbytes(t);
+    size_t sz=(size_t)ggml_nbytes(t);
     if(sz>rc->read_buf_sz){rc->read_buf=(uint8_t*)realloc(rc->read_buf,sz);rc->read_buf_sz=sz;}
     uint8_t*s;size_t ss;
     if(sid_loader_load(rc->loader,t->name,rc->read_buf,&s,&ss)==0){
@@ -98,15 +90,22 @@ static void set_tensor_sid_cb(struct ggml_tensor*t,void*ud){
         rc->tensors_set++;rc->bytes_read+=ss;}
 }
 
+static char*chat_format_qwen(const char*roles[],const char*content[],int cc,size_t*out_len){
+    size_t total=0;for(int i=0;i<cc;i++)total+=64+strlen(content[i]);
+    char*fmt=(char*)calloc(total+128,1);size_t pos=0;
+    for(int i=0;i<cc;i++)pos+=sprintf(fmt+pos,"<|im_start|>%s\n%s<|im_end|>\n",roles[i],content[i]);
+    pos+=sprintf(fmt+pos,"<|im_start|>assistant\n");
+    *out_len=pos;return fmt;
+}
+
 int main(int argc,char**argv){
-    if(argc<2){fprintf(stderr,"Usage: %s model.gguf [--twidx model.twidx] [--chat] [options]\n",argv[0]);return 1;}
-    const char*gguf_path=NULL,*twidx_path=NULL,*opt_prompt=NULL;
+    if(argc<2){fprintf(stderr,"Usage: %s model.gguf [--chat] [--ngl N] [options]\n",argv[0]);return 1;}
+    const char*gguf_path=NULL,*opt_prompt=NULL;
     int opt_ngl=0,opt_max_new=256,opt_chat=0;
-    Sampler sp={.7f,.9f,1.1f,40,64};
+    Sampler sp={.temp=.7f,.top_p=.9f,.repeat_penalty=1.1f,.top_k=40,.repeat_last_n=64};
     uint64_t cache_mb=256;
     for(int i=1;i<argc;i++){
-        if(!strcmp(argv[i],"--twidx")&&i+1<argc)twidx_path=argv[++i];
-        else if(!strcmp(argv[i],"--ngl")&&i+1<argc)opt_ngl=atoi(argv[++i]);
+        if(!strcmp(argv[i],"--ngl")&&i+1<argc)opt_ngl=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--temp")&&i+1<argc)sp.temp=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--top-p")&&i+1<argc)sp.top_p=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--top-k")&&i+1<argc)sp.top_k=atoi(argv[++i]);
@@ -115,7 +114,7 @@ int main(int argc,char**argv){
         else if(!strcmp(argv[i],"--prompt")&&i+1<argc)opt_prompt=argv[++i];
         else if(!strcmp(argv[i],"--chat"))opt_chat=1;
         else if(!strcmp(argv[i],"--cache")&&i+1<argc)cache_mb=(uint64_t)atol(argv[++i]);
-        else if(!strcmp(argv[i],"-h")){fprintf(stderr,"See --help\n");return 0;}
+        else if(!strcmp(argv[i],"-h")||!strcmp(argv[i],"--help")){fprintf(stderr,"Usage: ...\n");return 0;}
         else if(!gguf_path)gguf_path=argv[i];
     }
     if(!gguf_path){fprintf(stderr,"ERROR: missing model.gguf\n");return 1;}
@@ -123,37 +122,36 @@ int main(int argc,char**argv){
     SIDCache cache;sid_cache_init(&cache,cache_mb*1024*1024);
     SIDLoaderCtx loader;
     if(sid_loader_open(&loader,gguf_path,&cache)!=0){fprintf(stderr,"ERROR: open GGUF\n");return 1;}
-    SIDStore twidx;memset(&twidx,0,sizeof(twidx));
-    if(twidx_path&&sid_read(twidx_path,&twidx)<=0)fprintf(stderr,"WARN: no .twidx\n");
-    SidRunnerCtx rc;memset(&rc,0,sizeof(rc));rc.loader=&loader;rc.cache=&cache;rc.twidx=&twidx;
+    SidRunnerCtx rc;memset(&rc,0,sizeof(rc));rc.loader=&loader;rc.cache=&cache;
 
-    llama_backend_init();ggml_backend_load_all();
-    struct ggml_init_params gp={.mem_size=128*1024*1024,.mem_buffer=NULL};
-    struct ggml_context*gc=ggml_init(gp);
-    struct gguf_init_params gpar={.no_alloc=true,.ctx=&gc};
+    llama_backend_init();
+    ggml_backend_load("I:/llama/llama-b9528-bin-win-vulkan-x64/ggml-cpu-sse42.dll");
+    ggml_backend_load("I:/llama/llama-b9528-bin-win-vulkan-x64/ggml-vulkan.dll");
+    struct gguf_init_params gpar={.no_alloc=true,.ctx=NULL};
     struct gguf_context*gctx=gguf_init_from_file(gguf_path,gpar);
     if(!gctx){fprintf(stderr,"ERROR: gguf_init\n");return 1;}
-    struct llama_model_params mp=llama_model_default_params();mp.n_gpu_layers=opt_ngl;
+    struct llama_model_params mp=llama_model_default_params();
+    mp.n_gpu_layers=opt_ngl;mp.use_mmap=false;
     PoglsTime t0,t1;clock_gettime(CLOCK_MONOTONIC,&t0);
     struct llama_model*model=llama_model_init_from_user(gctx,set_tensor_sid_cb,&rc,mp);
     if(!model){fprintf(stderr,"ERROR: model init\n");return 1;}
     clock_gettime(CLOCK_MONOTONIC,&t1);
     double lms=(t1.tv_sec-t0.tv_sec)*1000.0+(t1.tv_nsec-t0.tv_nsec)/1e6;
     fprintf(stderr,"\n[load] %llu tensors, %.0f ms, file=%llu cache=%llu\n",
-        (unsigned long long)rc.tensors_set,lms,(unsigned long long)loader.file_hits,cache.hits);
+        (unsigned long long)rc.tensors_set,lms,(unsigned long long)loader.file_hits,(unsigned long long)cache.hits);
 
     struct llama_context_params cp=llama_context_default_params();
-    cp.n_ctx=2048;cp.n_threads=4;cp.n_threads_batch=4;
+    cp.n_ctx=256;cp.n_threads=4;cp.n_threads_batch=4;cp.n_batch=128;cp.n_ubatch=64;
     struct llama_context*lctx=llama_init_from_model(model,cp);
     if(!lctx){fprintf(stderr,"ERROR: context\n");return 1;}
     const struct llama_vocab*v=llama_model_get_vocab(model);
-    int nv=llama_vocab_n_tokens(v),eos=llama_vocab_eos(v);
-    if(eos==-1)eos=151645;
+    int nv=llama_vocab_n_tokens(v);
+    int eos=llama_vocab_eos(v);if(eos==-1)eos=151645;
 
-    if(opt_chat){ /* interactive chat mode */
+    if(opt_chat){
         char*roles[MAX_CHAT_HISTORY],*content[MAX_CHAT_HISTORY];int cc=0;
         roles[0]="system";content[0]="You are a helpful assistant.";cc=1;
-        printf("\n=== SID Chat ===\n/exit /clear\n\n");
+        printf("\n=== SID Chat (Qwen format) ===\n/exit  /clear\n\n");
         char line[MAX_LINE];
         while(1){
             printf(">>> ");fflush(stdout);
@@ -162,15 +160,13 @@ int main(int argc,char**argv){
             if(ll==0)continue;
             if(!strcmp(line,"/exit"))break;
             if(!strcmp(line,"/clear")){cc=0;roles[0]="system";content[0]="You are a helpful assistant.";cc=1;printf("Cleared.\n");continue;}
-            roles[cc]="user";content[cc]=_strdup(line);cc++;
-            size_t total=0;for(int j=0;j<cc;j++)total+=64+strlen(content[j]);
-            char*fmt=(char*)calloc(total+128,1);size_t pos=0;
-            for(int j=0;j<cc;j++)pos+=sprintf(fmt+pos,"<|im_start|>%s\n%s<|im_end|>\n",roles[j],content[j]);
-            pos+=sprintf(fmt+pos,"<|im_start|>assistant\n");
-            int nr=llama_tokenize(v,fmt,strlen(fmt),NULL,0,false,false);
-            int nt=nr<0?-nr:nr;if(nt<=0||nt>2048-64){free(fmt);continue;}
-            int*toks=(int*)malloc(nt*4);
-            llama_tokenize(v,fmt,strlen(fmt),toks,nt,false,false);
+            roles[cc]="user";content[cc]=strdup(line);cc++;
+            size_t flen=0;char*fmt=chat_format_qwen((const char**)roles,(const char**)content,cc,&flen);
+            int ntokens=llama_tokenize(v,fmt,flen,NULL,0,false,false);
+            int nt=ntokens<0?-ntokens:ntokens;
+            if(nt<=0||nt>2048-64){free(fmt);continue;}
+            int*toks=(int*)malloc((size_t)nt*4);
+            llama_tokenize(v,fmt,flen,toks,nt,false,false);
             free(fmt);
             struct llama_batch pb=llama_batch_init(nt,0,1);pb.n_tokens=nt;
             for(int j=0;j<nt;j++){pb.token[j]=toks[j];pb.pos[j]=j;pb.n_seq_id[j]=1;pb.seq_id[j][0]=0;pb.logits[j]=j==nt-1?1:0;}
@@ -192,9 +188,10 @@ int main(int argc,char**argv){
     }
 
     if(opt_prompt){
-        int nr=llama_tokenize(v,opt_prompt,strlen(opt_prompt),NULL,0,true,false);
-        int nt=nr<0?-nr:nr;if(nt<=0){fprintf(stderr,"tokenize fail\n");return 1;}
-        int*toks=(int*)malloc(nt*4);
+        int ntokens=llama_tokenize(v,opt_prompt,strlen(opt_prompt),NULL,0,true,false);
+        int nt=ntokens<0?-ntokens:ntokens;
+        if(nt<=0){fprintf(stderr,"tokenize fail\n");return 1;}
+        int*toks=(int*)malloc((size_t)nt*4);
         llama_tokenize(v,opt_prompt,strlen(opt_prompt),toks,nt,true,false);
         struct llama_batch pb=llama_batch_init(nt,0,1);pb.n_tokens=nt;
         for(int j=0;j<nt;j++){pb.token[j]=toks[j];pb.pos[j]=j;pb.n_seq_id[j]=1;pb.seq_id[j][0]=0;pb.logits[j]=j==nt-1?1:0;}
@@ -213,10 +210,10 @@ int main(int argc,char**argv){
         llama_batch_free(gb);printf("\n");free(toks);
     }
 
-    llama_free(lctx);llama_model_free(model);gguf_free(gctx);ggml_free(gc);
+    llama_free(lctx);llama_model_free(model);gguf_free(gctx);
     fprintf(stderr,"\n[stats] file=%llu cache=%llu evict=%llu pool=%llu/%llu\n",
-        (unsigned long long)loader.file_hits,cache.hits,cache.evictions,
-        (unsigned long long)cache.pool_used,(unsigned long long)cache.pool_size);
+        (unsigned long long)loader.file_hits,(unsigned long long)cache.hits,
+        (unsigned long long)cache.evictions,(unsigned long long)cache.pool_used,(unsigned long long)cache.pool_size);
     sid_loader_close(&loader);sid_cache_clear(&cache);free(rc.read_buf);llama_backend_free();
     return 0;
 }

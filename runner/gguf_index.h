@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define GGUF_MAGIC       0x46554747u
+#define GGUF_MAGIC_LOCAL 0x46554747u
 #define GGUF_F32         0u
 #define GGUF_F16         1u
 #define GGUF_Q8_0        8u
@@ -35,7 +35,7 @@ static int gguf_idx_open(const char *path, GGUFTensorIndex *idx) {
     if (fread(&magic,4,1,f)!=1||fread(&version,4,1,f)!=1||
         fread(&idx->n_tensors,8,1,f)!=1||fread(&n_kv,8,1,f)!=1)
         { fclose(f); return -1; }
-    if (magic != GGUF_MAGIC) { fclose(f); return -1; }
+    if (magic != GGUF_MAGIC_LOCAL) { fclose(f); return -1; }
 
     for (uint64_t i = 0; i < n_kv; i++) {
         uint64_t klen; fread(&klen,8,1,f); fseek(f,klen,SEEK_CUR);
