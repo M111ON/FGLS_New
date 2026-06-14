@@ -48,15 +48,6 @@
       "root_idx": 0,
       "rel": "Hfolder/AGENTS.md"
     },
-    "Hfolder/Goldberg sphere geometry projection \u0e41\u0e25\u0e30 pentagon seam mapping.zip": {
-      "name": "Goldberg sphere geometry projection \u0e41\u0e25\u0e30 pentagon seam mapping.zip",
-      "size": 253145,
-      "mtime": 1780606040.1210797,
-      "hash": "cf590af47adf16f9",
-      "parsed": null,
-      "root_idx": 0,
-      "rel": "Hfolder/Goldberg sphere geometry projection \u0e41\u0e25\u0e30 pentagon seam mapping.zip"
-    },
     "Hfolder/POGLS_Master_Architecture.docx": {
       "name": "POGLS_Master_Architecture.docx",
       "size": 20578,
@@ -623,6 +614,69 @@
       "root_idx": 0,
       "rel": "Hfolder/goldberg_entropy_test.html"
     },
+    "Hfolder/goldberg_sphere_projection/entropy_comparison.html": {
+      "name": "entropy_comparison.html",
+      "size": 7141,
+      "mtime": 1777820744.0,
+      "hash": "1edbc0ff00d7e22f",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "Hfolder/goldberg_sphere_projection/entropy_comparison.html"
+    },
+    "Hfolder/goldberg_sphere_projection/gen_goldberg_o11.c": {
+      "name": "gen_goldberg_o11.c",
+      "size": 14644,
+      "mtime": 1777797196.0,
+      "hash": "f6bdda905eda033e",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "Hfolder/goldberg_sphere_projection/gen_goldberg_o11.c"
+    },
+    "Hfolder/goldberg_sphere_projection/gp20_both.bmp": {
+      "name": "gp20_both.bmp",
+      "size": 393270,
+      "mtime": 1777797196.0,
+      "hash": "39f5f8ce09f245c0",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "Hfolder/goldberg_sphere_projection/gp20_both.bmp"
+    },
+    "Hfolder/goldberg_sphere_projection/gp20_equirect.bmp": {
+      "name": "gp20_equirect.bmp",
+      "size": 196662,
+      "mtime": 1777797196.0,
+      "hash": "b5b2f038d457849a",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "Hfolder/goldberg_sphere_projection/gp20_equirect.bmp"
+    },
+    "Hfolder/goldberg_sphere_projection/gp20_gnomonic.bmp": {
+      "name": "gp20_gnomonic.bmp",
+      "size": 196662,
+      "mtime": 1777797196.0,
+      "hash": "f8da166ff1b3d75b",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "Hfolder/goldberg_sphere_projection/gp20_gnomonic.bmp"
+    },
+    "Hfolder/goldberg_sphere_projection/o11_seam_analysis.html": {
+      "name": "o11_seam_analysis.html",
+      "size": 11396,
+      "mtime": 1777797196.0,
+      "hash": "724f2ee5457a6ad8",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "Hfolder/goldberg_sphere_projection/o11_seam_analysis.html"
+    },
+    "Hfolder/goldberg_sphere_projection.zip": {
+      "name": "goldberg_sphere_projection.zip",
+      "size": 253145,
+      "mtime": 1780606040.1210797,
+      "hash": "cf590af47adf16f9",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "Hfolder/goldberg_sphere_projection.zip"
+    },
     "Hfolder/gpx4_container.h": {
       "name": "gpx4_container.h",
       "size": 13687,
@@ -820,6 +874,15 @@
       "parsed": null,
       "root_idx": 0,
       "rel": "Makefile.integration"
+    },
+    "SESSION-SUMMARY-June13-contd.md": {
+      "name": "SESSION-SUMMARY-June13-contd.md",
+      "size": 4312,
+      "mtime": 1781358728.9705107,
+      "hash": "cfbe454af234e63d",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "SESSION-SUMMARY-June13-contd.md"
     },
     "active_updates/HANDOFF_2026-05-09.md": {
       "name": "HANDOFF_2026-05-09.md",
@@ -2029,6 +2092,15 @@
       "root_idx": 0,
       "rel": "active_updates/tgw_tri5_wire.h"
     },
+    "analyze_smolvlm.py": {
+      "name": "analyze_smolvlm.py",
+      "size": 6009,
+      "mtime": 1781349050.0014362,
+      "hash": "03a9a702bd300d07",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "analyze_smolvlm.py"
+    },
     "bermuda_export.c": {
       "name": "bermuda_export.c",
       "size": 1835,
@@ -2369,9 +2441,9 @@
     },
     "build_smollm2_store.py": {
       "name": "build_smollm2_store.py",
-      "size": 7477,
-      "mtime": 1780606040.3920786,
-      "hash": "f96a55c1a3600430",
+      "size": 14253,
+      "mtime": 1781318643.2336278,
+      "hash": "c9f1493fd9253130",
       "parsed": null,
       "root_idx": 0,
       "rel": "build_smollm2_store.py"
@@ -2817,6 +2889,24 @@
       "parsed": null,
       "root_idx": 0,
       "rel": "colabpack"
+    },
+    "convert_bf16_to_qdat.py": {
+      "name": "convert_bf16_to_qdat.py",
+      "size": 5702,
+      "mtime": 1781349589.185438,
+      "hash": "076130c101b3a19c",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "convert_bf16_to_qdat.py"
+    },
+    "convert_bf16_to_qdat_fast.py": {
+      "name": "convert_bf16_to_qdat_fast.py",
+      "size": 6278,
+      "mtime": 1781350096.6885614,
+      "hash": "87ef7fca3a415f83",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "convert_bf16_to_qdat_fast.py"
     },
     "coord_real_registry.json": {
       "name": "coord_real_registry.json",
@@ -11029,9 +11119,9 @@
     },
     "geom_raw_bridge.h": {
       "name": "geom_raw_bridge.h",
-      "size": 14162,
-      "mtime": 1780606041.100077,
-      "hash": "4eade25303a475f9",
+      "size": 15460,
+      "mtime": 1781317972.767041,
+      "hash": "22e673e36603e461",
       "parsed": null,
       "root_idx": 0,
       "rel": "geom_raw_bridge.h"
@@ -17215,6 +17305,24 @@
       "root_idx": 0,
       "rel": "session-ses_14de.md"
     },
+    "sid.h": {
+      "name": "sid.h",
+      "size": 15558,
+      "mtime": 1781396595.0928755,
+      "hash": "776491a29e0d5610",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "sid.h"
+    },
+    "sid_cross_arch.py": {
+      "name": "sid_cross_arch.py",
+      "size": 10728,
+      "mtime": 1781349218.634569,
+      "hash": "01acf7f8e54a0204",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "sid_cross_arch.py"
+    },
     "sparse_jump_test": {
       "name": "sparse_jump_test",
       "size": 16072,
@@ -17972,6 +18080,15 @@
       "root_idx": 0,
       "rel": "tests/_validate_store.py"
     },
+    "tests/analyze_sid_clusters.c": {
+      "name": "analyze_sid_clusters.c",
+      "size": 10737,
+      "mtime": 1781396674.2109268,
+      "hash": "69adfe1149f4e03c",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "tests/analyze_sid_clusters.c"
+    },
     "tests/bench_bond_tgw.c": {
       "name": "bench_bond_tgw.c",
       "size": 8863,
@@ -18068,6 +18185,15 @@
       "parsed": null,
       "root_idx": 0,
       "rel": "tests/c_gsten_encode.exe"
+    },
+    "tests/demo_sid_runtime.c": {
+      "name": "demo_sid_runtime.c",
+      "size": 16032,
+      "mtime": 1781396684.1289253,
+      "hash": "7c23caf092582ee9",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "tests/demo_sid_runtime.c"
     },
     "tests/exp_bj_dice_dp.c": {
       "name": "exp_bj_dice_dp.c",
@@ -18283,6 +18409,31 @@
       "root_idx": 0,
       "rel": "tests/test_cpu_pipeline.c"
     },
+    "tests/test_cross_arch.c": {
+      "name": "test_cross_arch.c",
+      "size": 14347,
+      "mtime": 1781350415.3243458,
+      "hash": "ec24c18312f068ab",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "tests/test_cross_arch.c"
+    },
+    "tests/test_cross_arch_v2.c": {
+      "name": "test_cross_arch_v2.c",
+      "size": 14666,
+      "mtime": 1781396658.8489285,
+      "hash": "fe6fe733ab299120",
+      "parsed": {
+        "base": "test_cross_arch",
+        "ver": "2",
+        "ver_parts": [
+          2
+        ],
+        "ext": ".c"
+      },
+      "root_idx": 0,
+      "rel": "tests/test_cross_arch_v2.c"
+    },
     "tests/test_ctd_basic.exe": {
       "name": "test_ctd_basic.exe",
       "size": 60615,
@@ -18335,6 +18486,24 @@
       "root_idx": 0,
       "rel": "tests/test_fts_route.c"
     },
+    "tests/test_full_pipeline.c": {
+      "name": "test_full_pipeline.c",
+      "size": 13473,
+      "mtime": 1781321104.3169584,
+      "hash": "7fed511c2d88fe40",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "tests/test_full_pipeline.c"
+    },
+    "tests/test_full_pipeline.exe": {
+      "name": "test_full_pipeline.exe",
+      "size": 93648,
+      "mtime": 1781321112.0159545,
+      "hash": "82fd6382ceb94daa",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "tests/test_full_pipeline.exe"
+    },
     "tests/test_fusion.py": {
       "name": "test_fusion.py",
       "size": 12023,
@@ -18362,6 +18531,15 @@
       "root_idx": 0,
       "rel": "tests/test_geo_hex_layer.c"
     },
+    "tests/test_geo_hex_layer.exe": {
+      "name": "test_geo_hex_layer.exe",
+      "size": 61294,
+      "mtime": 1781313648.985931,
+      "hash": "6fd54ba9daa7d680",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "tests/test_geo_hex_layer.exe"
+    },
     "tests/test_geo_jump_gear.exe": {
       "name": "test_geo_jump_gear.exe",
       "size": 56449,
@@ -18380,6 +18558,15 @@
       "root_idx": 0,
       "rel": "tests/test_geo_minimal.c"
     },
+    "tests/test_geo_minimal.exe": {
+      "name": "test_geo_minimal.exe",
+      "size": 61822,
+      "mtime": 1781313775.6171105,
+      "hash": "ac053e9b3ff56f14",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "tests/test_geo_minimal.exe"
+    },
     "tests/test_geo_shell.exe": {
       "name": "test_geo_shell.exe",
       "size": 58877,
@@ -18397,6 +18584,24 @@
       "parsed": null,
       "root_idx": 0,
       "rel": "tests/test_geo_store_reader.c"
+    },
+    "tests/test_geo_summon.c": {
+      "name": "test_geo_summon.c",
+      "size": 18114,
+      "mtime": 1781342568.9061306,
+      "hash": "f91b5283ebd25d61",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "tests/test_geo_summon.c"
+    },
+    "tests/test_geo_summon.exe": {
+      "name": "test_geo_summon.exe",
+      "size": 39712,
+      "mtime": 1781342585.7776513,
+      "hash": "19bcf5f5348fdc4c",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "tests/test_geo_summon.exe"
     },
     "tests/test_geom_bridge.c": {
       "name": "test_geom_bridge.c",
@@ -18442,6 +18647,15 @@
       "parsed": null,
       "root_idx": 0,
       "rel": "tests/test_geopixel_residual.py"
+    },
+    "tests/test_gguf_capture.c": {
+      "name": "test_gguf_capture.c",
+      "size": 10663,
+      "mtime": 1781396617.3118758,
+      "hash": "3355f121f6c51c33",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "tests/test_gguf_capture.c"
     },
     "tests/test_grb.c": {
       "name": "test_grb.c",
@@ -18505,6 +18719,15 @@
       "parsed": null,
       "root_idx": 0,
       "rel": "tests/test_hex_codec.c"
+    },
+    "tests/test_hex_codec.exe": {
+      "name": "test_hex_codec.exe",
+      "size": 62811,
+      "mtime": 1781313646.5688887,
+      "hash": "391cc8438e82a920",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "tests/test_hex_codec.exe"
     },
     "tests/test_hex_tile.c": {
       "name": "test_hex_tile.c",
@@ -18675,6 +18898,24 @@
       "root_idx": 0,
       "rel": "tests/test_shell_hop.exe"
     },
+    "tests/test_sid.c": {
+      "name": "test_sid.c",
+      "size": 8738,
+      "mtime": 1781396612.7088761,
+      "hash": "d4d429f4ca67161d",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "tests/test_sid.c"
+    },
+    "tests/test_sid.exe": {
+      "name": "test_sid.exe",
+      "size": 39512,
+      "mtime": 1781343829.0301456,
+      "hash": "e2f05f49fbac8a22",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "tests/test_sid.exe"
+    },
     "tests/test_stream_dispatch_simple.c": {
       "name": "test_stream_dispatch_simple.c",
       "size": 8832,
@@ -18738,6 +18979,15 @@
       "root_idx": 0,
       "rel": "tests/test_tgw_stream_dispatch.c"
     },
+    "tests/test_tring_predictor.c": {
+      "name": "test_tring_predictor.c",
+      "size": 10756,
+      "mtime": 1781396622.308874,
+      "hash": "bbf114e7be4f98e4",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "tests/test_tring_predictor.c"
+    },
     "tests/test_tring_walk.c": {
       "name": "test_tring_walk.c",
       "size": 2901,
@@ -18767,18 +19017,18 @@
     },
     "tests/test_tw_bridge.c": {
       "name": "test_tw_bridge.c",
-      "size": 11080,
-      "mtime": 1781311890.5882416,
-      "hash": "016833570e3164b3",
+      "size": 12166,
+      "mtime": 1781336572.3550313,
+      "hash": "8c45bedaed050d45",
       "parsed": null,
       "root_idx": 0,
       "rel": "tests/test_tw_bridge.c"
     },
     "tests/test_tw_bridge.exe": {
       "name": "test_tw_bridge.exe",
-      "size": 77868,
-      "mtime": 1781313048.5719478,
-      "hash": "cd188f8135d104e8",
+      "size": 79471,
+      "mtime": 1781336582.085023,
+      "hash": "f3da741043a0af25",
       "parsed": null,
       "root_idx": 0,
       "rel": "tests/test_tw_bridge.exe"
@@ -18809,6 +19059,42 @@
       "parsed": null,
       "root_idx": 0,
       "rel": "tests/test_tw_capture.exe"
+    },
+    "tests/test_tw_face_bridge.c": {
+      "name": "test_tw_face_bridge.c",
+      "size": 20321,
+      "mtime": 1781352792.8432336,
+      "hash": "55314d0041cfbbc1",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "tests/test_tw_face_bridge.c"
+    },
+    "tests/test_tw_face_bridge.exe": {
+      "name": "test_tw_face_bridge.exe",
+      "size": 57232,
+      "mtime": 1781352773.4890592,
+      "hash": "c852a90f0d34969d",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "tests/test_tw_face_bridge.exe"
+    },
+    "tests/test_tw_tensor_capture.c": {
+      "name": "test_tw_tensor_capture.c",
+      "size": 4194,
+      "mtime": 1781318910.2318652,
+      "hash": "518c4aa21e371476",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "tests/test_tw_tensor_capture.c"
+    },
+    "tests/test_tw_tensor_capture.exe": {
+      "name": "test_tw_tensor_capture.exe",
+      "size": 73105,
+      "mtime": 1781318921.9133503,
+      "hash": "df65a5648c3b4a6a",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "tests/test_tw_tensor_capture.exe"
     },
     "tests/test_weight_geom_encode.c": {
       "name": "test_weight_geom_encode.c",
@@ -18875,21 +19161,39 @@
     },
     "tw_bridge.h": {
       "name": "tw_bridge.h",
-      "size": 11923,
-      "mtime": 1781311624.336191,
-      "hash": "47ed996dfe15b959",
+      "size": 13120,
+      "mtime": 1781336497.9835148,
+      "hash": "d1f3b53a247918af",
       "parsed": null,
       "root_idx": 0,
       "rel": "tw_bridge.h"
     },
     "tw_capture_int.h": {
       "name": "tw_capture_int.h",
-      "size": 8067,
-      "mtime": 1781313026.8894012,
-      "hash": "188d2b9c138bb5b7",
+      "size": 8031,
+      "mtime": 1781318863.9921496,
+      "hash": "27e71767ad236c5f",
       "parsed": null,
       "root_idx": 0,
       "rel": "tw_capture_int.h"
+    },
+    "tw_face_bridge.h": {
+      "name": "tw_face_bridge.h",
+      "size": 26367,
+      "mtime": 1781352299.6817937,
+      "hash": "6cc6438672029d6b",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "tw_face_bridge.h"
+    },
+    "tw_tensor_capture.h": {
+      "name": "tw_tensor_capture.h",
+      "size": 6554,
+      "mtime": 1781318869.8751493,
+      "hash": "1d161330c368d9f8",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "tw_tensor_capture.h"
     },
     "verification_export.json": {
       "name": "verification_export.json",
@@ -19439,6 +19743,15 @@
       "parsed": null,
       "root_idx": 0,
       "rel": "zip/wallet.zip"
+    },
+    "zone_card_sid.h": {
+      "name": "zone_card_sid.h",
+      "size": 3539,
+      "mtime": 1781393893.5944724,
+      "hash": "6375ed3e2159c7ec",
+      "parsed": null,
+      "root_idx": 0,
+      "rel": "zone_card_sid.h"
     }
   },
   "vault": {
@@ -19850,10 +20163,6 @@
       "imports": [],
       "imported_by": []
     },
-    "Goldberg sphere geometry projection \u0e41\u0e25\u0e30 pentagon seam mapping.zip": {
-      "imports": [],
-      "imported_by": []
-    },
     "POGLS_Master_Architecture.docx": {
       "imports": [],
       "imported_by": []
@@ -19870,13 +20179,13 @@
     },
     "geo_gpx_decode.h": {
       "imports": [
-        "stdio.h",
+        "string.h",
+        "geo_o4_connector.h",
+        "stdlib.h",
         "png.h",
         "zstd.h",
         "stdint.h",
-        "stdlib.h",
-        "geo_o4_connector.h",
-        "string.h"
+        "stdio.h"
       ],
       "imported_by": [
         "SESSION_HANDOFF_O9.md"
@@ -19891,137 +20200,137 @@
     },
     "geo_gpx_anim.h": {
       "imports": [
-        "stdio.h",
+        "string.h",
         "gpx4_container.h",
-        "png.h",
-        "zstd.h",
-        "stdint.h",
-        "stdlib.h",
         "geo_o4_connector.h",
-        "string.h"
+        "stdlib.h",
+        "zstd.h",
+        "png.h",
+        "stdint.h",
+        "stdio.h"
       ],
       "imported_by": [
+        "anim_test.c",
         "geopixel_v20.c",
-        "anim_info_test.c",
-        "anim_test.c"
+        "anim_info_test.c"
       ]
     },
     "stdio.h": {
       "imports": [],
       "imported_by": [
-        "pogls_cli.c",
-        "test_geo_net_wire.c",
-        "pogls_detach_lane.h",
-        "bench_fused_x4.c",
+        "test_tring_goldberg.c",
+        "geo_kv.h",
+        "pogls_mesh.h",
+        "gen_pent_o16.c",
+        "test_roundtrip.c",
+        "pogls_llm_adapter.h",
+        "geo_pipeline_wire.h",
+        "test_gpu_wire.c",
+        "geopixel_v20_o24.c",
+        "test_goldberg_pipeline.c",
+        "pogls_delta.c",
+        "test_coord_wallet.c",
+        "test_s17.c",
+        "pogls_fold.c",
+        "pogls_sdk.h",
+        "pogls_38_split_world.h",
+        "test_fgls_twin_store.c",
+        "geo_gpx_anim.h",
+        "pogls_pipeline_wire.h",
+        "test_tracker.c",
+        "pogls_delta_ext.c",
+        "pogls_38_tails_dna.h",
+        "test_s21.c",
+        "bench_38_hybrid.c",
+        "geopixel_v20_o24_fix.c",
+        "geo_tring_goldberg_wire.h",
+        "bench_api.c",
+        "geo_gpx_decode.h",
+        "geopixel_v20_o24_fixed2.c",
+        "test_chunk_index.c",
+        "geo_vault_fuse.c",
+        "pogls_engine_slice.h",
+        "test_s16.c",
+        "pogls_38_rewind.h",
+        "test_payload_store.c",
+        "gpx4_container_o22.h",
+        "pogls_hydra.c",
+        "test_s18.c",
+        "test_geo_kv.c",
+        "test_thin_integration.c",
+        "geopixel_v20.c",
+        "geopixel_v21_clean.c",
+        "pogls_qrpn_phaseE.h",
+        "geo_kv_bridge.h",
+        "test_fault.c",
+        "geopixel_v20_o24_fixed.c",
         "test_compress_s1.c",
         "gen_pent_o18.c",
-        "test_fgls_twin_store.c",
-        "test_roundtrip.c",
-        "pogls_recon_file.h",
         "pogls_llm_executor.h",
-        "pogls38_fed_bridge.h",
-        "pogls_delta_world_b.c",
-        "test_s16.c",
-        "gen_pent_o19.c",
-        "geopixel_v18.c",
-        "geopixel_v21_o25.c",
-        "pogls_compute_stack.c",
-        "llama_pogls_backend.c",
-        "gen_pent_o17.c",
-        "test_38_giant_shadow.c",
-        "pogls_fold.c",
-        "pogls_38_slice.h",
-        "test_payload_store.c",
-        "test_edge.c",
-        "anim_info_test.c",
-        "bench_api.c",
-        "geo_vault_fuse_old.c",
-        "bench_s20_v2.c",
-        "pogls_38_gpu.h",
-        "test_geo_kv.c",
         "pogls_admin_snapshot.h",
-        "pogls_extensions.c",
-        "geopixel_v20.c",
-        "llama_pogls_runner.c",
-        "kv_bridge_gpu.h",
-        "pogls38_hydra_thin.h",
-        "test_coord_wallet.c",
-        "gen_pent_o22.c",
-        "geo_gpx_anim.h",
-        "bench_38_steal.c",
-        "test_s17.c",
-        "geopixel_v20_o24_fix.c",
-        "gpx4_container_o22.h",
-        "geopixel_v19.c",
-        "pogls_delta_ext.c",
-        "geo_kv.h",
-        "pogls_38_spawn.h",
-        "gpx4_container.h",
-        "geo_vault_test.c",
-        "pogls_model_index.h",
-        "test_twin_bridge.c",
-        "geopixel_v21_clean.c",
-        "geopixel_v21_delta.c",
-        "pogls_mesh.h",
-        "test_s19.c",
-        "bench_weight_stream.c",
-        "bench_38_realistic.c",
-        "geopixel_v20_o24_fixed.c",
-        "pogls_sdk.h",
-        "angular_mapper_v36.c",
-        "gen_pent_o16.c",
-        "pogls_cli_s3.c",
-        "pogls38_giant_shadow (1).h",
-        "test_gpu_wire.c",
-        "geo_kv_bridge.h",
-        "geo_vault_bench.c",
-        "pogls_platform.h",
-        "test_api.c",
-        "test_5world_core.c",
-        "test_thin_integration.c",
-        "test_chunk_index.c",
-        "pogls_38_split_world.h",
-        "pogls_pipeline_wire.h",
-        "pogls_38_tails_dna.h",
+        "geo_vault_fuse_old.c",
         "test_e2e_pipeline.c",
-        "pogls_goldberg_pipeline.h",
-        "geo_thirdeye.h",
-        "geo_vault_io.h",
-        "geopixel_v20_o24_fixed3.c",
-        "geo_tring_goldberg_wire.h",
-        "test_fault.c",
-        "geo_vault_cli.c",
-        "geo_gpx_anim_o23.h",
-        "geo_pipeline_wire.h",
-        "test_llm_integration.c",
-        "test_s21.c",
-        "pogls_38_gpu2.h",
-        "geo_vault_fuse.c",
-        "bench_s4.c",
-        "pogls38_giant_shadow.h",
-        "pogls_delta.c",
-        "gen_pent_o15.c",
-        "pogls_qrpn_phaseE.h",
-        "pogls_audit.c",
-        "test_tracker.c",
-        "pogls_hydra.c",
-        "bench_38_hybrid.c",
-        "geo_cylinder.h",
-        "geopixel_v20_o24_fixed2.c",
-        "pogls_engine_slice.h",
-        "test_s18.c",
-        "pogls_llm_adapter.h",
-        "test_tring_goldberg.c",
-        "geo_gpx_decode.h",
-        "test_reconstruct.c",
-        "test_goldberg_pipeline.c",
-        "bench_ws_scale.c",
-        "gen_pent_o21.c",
+        "bench_38_realistic.c",
+        "pogls_detach_lane.h",
+        "pogls_delta_world_b.c",
         "geopixel_v20_o23.c",
-        "geopixel_v20_o24_fixed4.c",
-        "pogls_38_rewind.h",
+        "test_s19.c",
+        "bench_ws_scale.c",
+        "bench_s4.c",
+        "test_api.c",
+        "gen_pent_o22.c",
+        "bench_38_steal.c",
+        "test_5world_core.c",
+        "pogls_goldberg_pipeline.h",
+        "gen_pent_o15.c",
+        "test_reconstruct.c",
+        "geo_thirdeye.h",
+        "geo_cylinder.h",
+        "geo_vault_cli.c",
+        "llama_pogls_runner.c",
+        "geopixel_v21_o25.c",
+        "pogls38_giant_shadow.h",
+        "pogls_38_gpu.h",
+        "pogls_38_spawn.h",
+        "geo_vault_bench.c",
+        "bench_s20_v2.c",
+        "pogls_38_gpu2.h",
+        "pogls_model_index.h",
+        "gen_pent_o19.c",
         "pogls_lane_rebalance.h",
-        "geopixel_v20_o24.c"
+        "test_twin_bridge.c",
+        "geo_gpx_anim_o23.h",
+        "gen_pent_o21.c",
+        "test_llm_integration.c",
+        "geopixel_v18.c",
+        "test_edge.c",
+        "bench_weight_stream.c",
+        "geopixel_v20_o24_fixed4.c",
+        "pogls38_hydra_thin.h",
+        "geo_vault_test.c",
+        "pogls_recon_file.h",
+        "kv_bridge_gpu.h",
+        "pogls_extensions.c",
+        "geopixel_v19.c",
+        "gen_pent_o17.c",
+        "pogls38_giant_shadow (1).h",
+        "pogls38_fed_bridge.h",
+        "gpx4_container.h",
+        "pogls_cli.c",
+        "test_38_giant_shadow.c",
+        "bench_fused_x4.c",
+        "geopixel_v20_o24_fixed3.c",
+        "pogls_compute_stack.c",
+        "geopixel_v21_delta.c",
+        "pogls_38_slice.h",
+        "test_geo_net_wire.c",
+        "llama_pogls_backend.c",
+        "geo_vault_io.h",
+        "angular_mapper_v36.c",
+        "anim_info_test.c",
+        "pogls_platform.h",
+        "pogls_audit.c",
+        "pogls_cli_s3.c"
       ]
     },
     "anim_preview_0000.bmp": {
@@ -20060,598 +20369,598 @@
     },
     "gen_pent_o15.c": {
       "imports": [
+        "string.h",
         "math.h",
-        "stdio.h",
-        "stdint.h",
         "stdlib.h",
-        "string.h"
+        "stdint.h",
+        "stdio.h"
       ],
       "imported_by": []
+    },
+    "string.h": {
+      "imports": [],
+      "imported_by": [
+        "test_tring_goldberg.c",
+        "pogls_file_index.h",
+        "pogls_node_soa.h",
+        "geo_kv.h",
+        "pogls_stats_out.h",
+        "pogls_mesh.h",
+        "gen_pent_o16.c",
+        "test_roundtrip.c",
+        "geo_dodeca.h",
+        "geo_s11.h",
+        "geo_goldberg_tring_bridge.h",
+        "geo_rs.h",
+        "geo_pipeline_wire.h",
+        "pogls_llm_adapter.h",
+        "test_gpu_wire.c",
+        "geopixel_v20_o24.c",
+        "test_goldberg_pipeline.c",
+        "pogls_delta.c",
+        "test_coord_wallet.c",
+        "pogls_fold.c",
+        "pogls_sdk.h",
+        "pogls_38_split_world.h",
+        "test_fgls_twin_store.c",
+        "geo_gpx_anim.h",
+        "pogls_pipeline_wire.h",
+        "test_tracker.c",
+        "pogls_rubik.h",
+        "pogls_38_repair.h",
+        "geo_kv_rehash.h",
+        "geo_gf256.h",
+        "pogls_delta_ext.c",
+        "pogls_38_tails_dna.h",
+        "test_s21.c",
+        "bench_38_hybrid.c",
+        "geopixel_v20_o24_fix.c",
+        "geo_tring_goldberg_wire.h",
+        "pogls_delta_ext.h",
+        "geo_gpx_decode.h",
+        "bench_api.c",
+        "geo_net_so_s30.c",
+        "geopixel_v20_o24_fixed2.c",
+        "geo_tring_addr.h",
+        "test_chunk_index.c",
+        "lc_twin_gate.h",
+        "geo_vault_fuse.c",
+        "pogls_engine_slice.h",
+        "pogls_entangle.h",
+        "test_s16.c",
+        "fgls_twin_store.h",
+        "pogls_38_rewind.h",
+        "pogls_compute_lut.h",
+        "test_payload_store.c",
+        "gpx4_container_o22.h",
+        "pogls_hydra.c",
+        "pogls_api.h",
+        "pogls_scanner.h",
+        "pogls_mesh_entry.h",
+        "test_s18.c",
+        "test_geo_kv.c",
+        "geopixel_v20.c",
+        "pogls_chunk_index.h",
+        "geopixel_v21_clean.c",
+        "pogls_hydra_v36.h",
+        "kv_bridge.h",
+        "geo_kv_bridge.h",
+        "geo_net_so_s32.c",
+        "pogls_38_world3ring.h",
+        "test_fault.c",
+        "pogls_detach_eject.h",
+        "geo_net.h",
+        "geopixel_v20_o24_fixed.c",
+        "test_compress_s1.c",
+        "gen_pent_o18.c",
+        "pogls_stream.h",
+        "pogls_38_steal.h",
+        "pogls_federation.h",
+        "geo_letter_cube.h",
+        "pogls38_gpu_wire.h",
+        "pogls_admin_snapshot.h",
+        "geo_vault_fuse_old.c",
+        "test_e2e_pipeline.c",
+        "bench_38_realistic.c",
+        "pogls_detach_lane.h",
+        "geo_fec.h",
+        "pogls_delta_world_b.c",
+        "geopixel_v20_o23.c",
+        "bench_ws_scale.c",
+        "bench_s4.c",
+        "pogls_17n_lattice.h",
+        "test_api.c",
+        "gen_pent_o22.c",
+        "pogls_twin_bridge.h",
+        "pogls_detach.c",
+        "bench_38_steal.c",
+        "pogls_exec_window.h",
+        "geo_ops_surface.h",
+        "pogls_goldberg_pipeline.h",
+        "gen_pent_o15.c",
+        "pogls_llm_hook.h",
+        "geo_tring_fec.h",
+        "test_reconstruct.c",
+        "geo_net_patched.h",
+        "geo_giant_array.h",
+        "geo_thirdeye.h",
+        "geo_vault_cli.c",
+        "geo_temporal_ring.h",
+        "llama_pogls_runner.c",
+        "pogls_compress.h",
+        "geopixel_v21_o25.c",
+        "pogls38_giant_shadow.h",
+        "pogls_38_gpu.h",
+        "pogls_38_spawn.h",
+        "geo_p4_bridge.h",
+        "geo_cache.h",
+        "geo_vault_bench.c",
+        "geo_goldberg_tracker.h",
+        "pogls_hydra_scheduler.c",
+        "_geo_net.h",
+        "bench_s20_v2.c",
+        "pogls_model_index.h",
+        "pogls_38_gpu2.h",
+        "pogls_detach.h",
+        "pogls_weight_stream.h",
+        "gen_pent_o19.c",
+        "pogls_lane_rebalance.h",
+        "geo_read.h",
+        "geo_o4_connector.h",
+        "geo_net_so_s29.c",
+        "geo_payload_store.h",
+        "geo_fec_rs.h",
+        "test_twin_bridge.c",
+        "pogls_fold.h",
+        "pogls_compute_lut.c",
+        "geo_goldberg_scan.h",
+        "pogls_38_hydra.h",
+        "geo_goldberg_tile.h",
+        "geo_rewind.h",
+        "geo_gpx_anim_o23.h",
+        "gen_pent_o21.c",
+        "pogls_coord_wallet.h",
+        "test_llm_integration.c",
+        "pogls_38_wiring.h",
+        "geopixel_v18.c",
+        "geo_cube_file_store.h",
+        "test_edge.c",
+        "geo_net_so.c",
+        "pogls_38_temporal.h",
+        "bench_weight_stream.c",
+        "geopixel_v20_o24_fixed4.c",
+        "pogls_bitboard.h",
+        "pogls38_hydra_thin.h",
+        "geo_vault_test.c",
+        "geo_error.h",
+        "geo_p4_batcher.h",
+        "pogls_extensions.c",
+        "geopixel_v19.c",
+        "gen_pent_o17.c",
+        "pogls_snapshot.c",
+        "ts_mirror.h",
+        "pogls38_fed_bridge.h",
+        "pogls38_giant_shadow (1).h",
+        "gpx4_container.h",
+        "pogls_cli.c",
+        "test_38_giant_shadow.c",
+        "bench_fused_x4.c",
+        "geopixel_v20_o24_fixed3.c",
+        "pogls_compute_stack.c",
+        "geo_vault.h",
+        "pogls_reconstruct.h",
+        "geopixel_v21_delta.c",
+        "pogls_38_slice.h",
+        "geo_tring_stream.h",
+        "llama_pogls_backend.c",
+        "geo_pixel.h",
+        "geo_vault_io.h",
+        "angular_mapper_v36.c",
+        "pogls_platform.h",
+        "pogls_audit.c",
+        "pogls_cli_s3.c"
+      ]
     },
     "math.h": {
       "imports": [],
       "imported_by": [
-        "gen_pent_o22.c",
-        "geopixel_v20_o24_fixed2.c",
-        "gen_pent_o18.c",
-        "geopixel_v20_o24_fix.c",
-        "pogls_v3.h",
-        "geopixel_v19.c",
-        "geopixel_v20_o24_fixed3.c",
-        "gen_pent_o19.c",
-        "geopixel_v18.c",
-        "geopixel_v21_o25.c",
-        "geopixel_v21_clean.c",
-        "geopixel_v21_delta.c",
         "pogls_mesh.h",
-        "gen_pent_o17.c",
-        "geopixel_v20_o24_fixed.c",
         "gen_pent_o16.c",
-        "gen_pent_o21.c",
-        "geopixel_v20_o23.c",
-        "geopixel_v20_o24_fixed4.c",
         "gen_pent_o15.c",
-        "geopixel_v20_o24.c",
-        "geopixel_v20.c"
-      ]
-    },
-    "stdint.h": {
-      "imports": [],
-      "imported_by": [
-        "pogls_cli.c",
-        "pogls_detach_lane.h",
-        "pogls_38_repair.h",
-        "bench_fused_x4.c",
-        "geo_lite_field.h",
-        "test_compress_s1.c",
-        "gen_pent_o18.c",
-        "lc_twin_gate.h",
-        "test_fgls_twin_store.c",
-        "test_roundtrip.c",
-        "pogls_v3.h",
-        "pogls_fibo_addr.h",
-        "pogls_morton.h",
-        "geo_net_patched.h",
-        "pogls_recon_file.h",
-        "pogls_llm_executor.h",
-        "pogls38_fed_bridge.h",
-        "test_s16.c",
-        "gen_pent_o19.c",
-        "geo_apex_wire.h",
+        "gen_pent_o21.c",
         "geopixel_v18.c",
-        "pogls38_gpu_wire.h",
+        "geopixel_v20_o24_fixed4.c",
+        "geopixel_v20_o24.c",
         "geopixel_v21_o25.c",
-        "geo_rubik_drive.h",
-        "pogls_ntangle_graph.h",
-        "geo_tring_fec.h",
-        "gen_pent_o17.c",
-        "test_38_giant_shadow.c",
-        "pogls_node_soa.h",
-        "geo_net_so_s29.c",
-        "theta_map.h",
-        "geo_letter_cube.h",
-        "pogls_38_slice.h",
-        "test_payload_store.c",
-        "test_edge.c",
-        "geo_s11.h",
-        "geo_vault_fuse_old.c",
-        "geo_tring_addr.h",
-        "pogls_node_lut.h",
-        "bench_s20_v2.c",
-        "pogls_hydra_v36.h",
-        "geo_goldberg_lut.h",
-        "pogls_38_gpu.h",
-        "pogls_mesh_entry.h",
-        "test_geo_kv.c",
-        "pogls_entangle.h",
-        "geo_pixel.h",
-        "pogls_admin_snapshot.h",
         "geopixel_v20.c",
-        "geo_read.h",
-        "pogls_fold.h",
-        "pogls_rubik.h",
-        "llama_pogls_runner.c",
-        "kv_bridge_gpu.h",
-        "geo_net_so_s30.c",
-        "pogls38_hydra_thin.h",
-        "pogls_chunk_index.h",
-        "test_coord_wallet.c",
-        "gen_pent_o22.c",
-        "geo_gpx_anim.h",
-        "geo_hardening_whe_s54.h",
-        "twin_core_geo_fibo_clock.h",
-        "pogls_detach_eject.h",
-        "pogls_checksum.h",
-        "bench_38_steal.c",
-        "test_s17.c",
-        "geopixel_v20_o24_fix.c",
-        "geo_gf256.h",
-        "geo_payload_store.h",
-        "pogls_38_temporal.h",
-        "gpx4_container_o22.h",
-        "geo_radial_hilbert.h",
-        "geo_cache.h",
-        "geopixel_v19.c",
-        "pogls_detach.h",
-        "pogls_ntacle_graph.h",
-        "geo_kv.h",
-        "pogls_38_spawn.h",
-        "gpx4_container.h",
-        "geo_vault_test.c",
-        "pogls_model_index.h",
-        "pogls_sdk_so.h",
-        "geo_goldberg_tracker.h",
-        "geo_error.h",
-        "pogls_stats_out.h",
-        "test_twin_bridge.c",
-        "geo_rewind.h",
         "geopixel_v21_clean.c",
-        "geopixel_v21_delta.c",
-        "pogls_mesh.h",
-        "pogls_exec_window.h",
-        "test_s19.c",
-        "bench_weight_stream.c",
-        "bench_38_realistic.c",
-        "pogls_38_steal.h",
-        "geo_cube_file_store.h",
+        "geopixel_v19.c",
+        "gen_pent_o17.c",
+        "pogls_v3.h",
         "geopixel_v20_o24_fixed.c",
-        "pogls_sdk.h",
-        "pogls_5world_core.h",
-        "frustum_layout_v1.h",
-        "gen_pent_o16.c",
-        "pogls_coord_wallet.h",
-        "geo_tring_stream.h",
-        "pogls_cli_s3.c",
-        "pogls38_giant_shadow (1).h",
-        "test_gpu_wire.c",
-        "geo_fibo_clock.h",
-        "geo_wire_types.h",
-        "kv_bridge.h",
-        "pogls_twin_bridge.h",
-        "angular_mapper_v36.h",
-        "geo_kv_bridge.h",
-        "geo_vault_bench.c",
-        "pogls_38_hydra.h",
-        "geo_wire_types_s29.h",
-        "entangle_stub2.c",
-        "pogls_platform.h",
-        "test_5world_core.c",
-        "geo_p4_bridge.h",
-        "pogls_38_split_world.h",
-        "pogls_pipeline_wire.h",
-        "pogls_38_tails_dna.h",
-        "test_e2e_pipeline.c",
-        "pogls_stream.h",
-        "pogls_goldberg_pipeline.h",
-        "geo_thirdeye.h",
-        "geo_vault_io.h",
-        "geo_hardening_whe.h",
-        "pogls_exec_window_lf.h",
-        "pogls_38_world3ring.h",
-        "geo_union_mask.h",
+        "gen_pent_o18.c",
         "geopixel_v20_o24_fixed3.c",
-        "pogls_bitboard.h",
-        "geo_ops_surface.h",
-        "geo_dodeca_torus.h",
-        "geo_tring_goldberg_wire.h",
-        "geo_net_so.c",
-        "test_fault.c",
-        "geo_vault_cli.c",
-        "geo_gpx_anim_o23.h",
-        "geo_pipeline_wire.h",
-        "pogls_file_index.h",
-        "test_llm_integration.c",
-        "llama_pogls_backend.h",
-        "geo_rs.h",
-        "test_s21.c",
-        "pogls_38_gpu2.h",
-        "geo_vault_fuse.c",
-        "geo_primitives.h",
-        "geo_fec.h",
-        "geo_whe.h",
-        "bench_s4.c",
-        "pogls38_giant_shadow.h",
-        "pogls_delta.c",
-        "gen_pent_o15.c",
-        "pogls_qrpn_phaseE.h",
-        "geo_giant_array.h",
-        "pogls_goldberg_bridge.h",
-        "pogls_weight_stream.h",
-        "_geo_net.h",
-        "pogls_federation.h",
-        "pogls_compress.h",
-        "pogls_reconstruct.h",
-        "geo_diamond_field.h",
-        "geo_goldberg_scan.h",
-        "pogls_graph_topology.h",
-        "ts_mirror.h",
-        "geo_p4_batcher.h",
-        "bench_38_hybrid.c",
-        "geo_cylinder.h",
+        "geopixel_v20_o24_fix.c",
+        "gen_pent_o19.c",
         "geopixel_v20_o24_fixed2.c",
-        "pogls_engine_slice.h",
-        "geo_temporal_lut.h",
-        "fgls_twin_store.h",
-        "pogls_38_wiring.h",
-        "pogls_entangle_graph.h",
-        "geo_net_so_s32.c",
-        "geo_fec_rs.h",
-        "geo_goldberg_tile.h",
-        "pogls_delta.h",
-        "geo_dodeca.h",
-        "pogls_hydra_scheduler.h",
-        "test_s18.c",
-        "pogls_llm_adapter.h",
-        "geo_temporal_ring.h",
-        "test_tring_goldberg.c",
-        "geo_vault.h",
-        "geo_net.h",
-        "geo_gpx_decode.h",
-        "geo_fast_intersect_avx2.h",
-        "test_reconstruct.c",
-        "pogls_compute_lut.h",
-        "pogls_tentacle_graph.h",
-        "geo_pyramid.h",
-        "geo_goldberg_tring_bridge.h",
-        "geomatrix_shared.h",
-        "test_goldberg_pipeline.c",
-        "pogls_17n_lattice.h",
-        "bench_ws_scale.c",
-        "pogls_scanner.h",
-        "gen_pent_o21.c",
+        "geopixel_v21_delta.c",
         "geopixel_v20_o23.c",
-        "geopixel_v20_o24_fixed4.c",
-        "geo_o4_connector.h",
-        "pogls_38_rewind.h",
-        "pogls_lane_rebalance.h",
-        "pogls_api.h",
-        "geopixel_v20_o24.c",
-        "pogls_llm_hook.h"
+        "gen_pent_o22.c"
       ]
     },
     "stdlib.h": {
       "imports": [],
       "imported_by": [
-        "pogls_platform.h",
+        "gen_pent_o16.c",
+        "gen_pent_o15.c",
+        "gen_pent_o21.c",
+        "geo_gpx_anim_o23.h",
+        "test_llm_integration.c",
+        "gpx4_container_o22.h",
+        "geopixel_v18.c",
+        "pogls_delta_world_b.c",
+        "test_reconstruct.c",
+        "pogls_hydra.c",
+        "pogls_llm_adapter.h",
+        "test_edge.c",
+        "geo_vault_cli.c",
+        "geo_net_so.c",
+        "test_gpu_wire.c",
+        "bench_weight_stream.c",
+        "geopixel_v20_o24_fixed4.c",
+        "pogls_audit.c",
+        "geopixel_v20_o24.c",
+        "llama_pogls_runner.c",
+        "geo_vault_test.c",
+        "pogls_delta.c",
+        "geopixel_v21_o25.c",
+        "pogls_38_gpu.h",
+        "kv_bridge_gpu.h",
+        "geo_p4_batcher.h",
+        "geopixel_v20.c",
+        "pogls_extensions.c",
+        "geo_p4_bridge.h",
+        "geopixel_v21_clean.c",
         "test_coord_wallet.c",
+        "geopixel_v19.c",
+        "gen_pent_o17.c",
+        "geo_vault_bench.c",
+        "pogls_fold.c",
+        "pogls_sdk.h",
+        "geo_gpx_anim.h",
+        "geo_net_so_s32.c",
+        "test_fault.c",
+        "gpx4_container.h",
         "pogls_cli.c",
+        "pogls_delta_ext.c",
+        "geopixel_v20_o24_fixed.c",
+        "test_compress_s1.c",
+        "gen_pent_o18.c",
+        "bench_38_hybrid.c",
+        "geopixel_v20_o24_fixed3.c",
+        "pogls_38_gpu2.h",
+        "geopixel_v20_o24_fix.c",
+        "bench_fused_x4.c",
+        "bench_api.c",
+        "geo_gpx_decode.h",
+        "geo_net_so_s30.c",
+        "gen_pent_o19.c",
+        "geopixel_v20_o24_fixed2.c",
+        "geo_vault_fuse_old.c",
+        "test_e2e_pipeline.c",
+        "geopixel_v21_delta.c",
+        "test_chunk_index.c",
+        "bench_38_realistic.c",
+        "geo_dodeca_torus.h",
+        "llama_pogls_backend.c",
+        "geopixel_v20_o23.c",
+        "geo_vault_io.h",
+        "geo_vault_fuse.c",
+        "angular_mapper_v36.c",
+        "bench_ws_scale.c",
+        "geo_net_so_s29.c",
+        "pogls_platform.h",
         "gen_pent_o22.c",
         "test_api.c",
-        "geo_gpx_anim.h",
-        "geo_p4_batcher.h",
-        "bench_38_hybrid.c",
-        "geo_p4_bridge.h",
-        "test_chunk_index.c",
-        "bench_fused_x4.c",
-        "test_compress_s1.c",
-        "geopixel_v20_o24_fixed2.c",
-        "gen_pent_o18.c",
-        "geopixel_v20_o24_fix.c",
-        "test_e2e_pipeline.c",
-        "geo_net_so_s32.c",
-        "gpx4_container_o22.h",
-        "geo_net_so_s30.c",
-        "geopixel_v19.c",
-        "geo_vault_io.h",
-        "test_fault.c",
-        "pogls_delta_ext.c",
-        "pogls_delta_world_b.c",
-        "geopixel_v20_o24_fixed3.c",
-        "gpx4_container.h",
-        "pogls_llm_adapter.h",
-        "gen_pent_o19.c",
-        "geo_vault_test.c",
-        "geo_dodeca_torus.h",
-        "geopixel_v18.c",
-        "geopixel_v21_o25.c",
-        "geo_net_so.c",
-        "geopixel_v21_clean.c",
-        "geopixel_v21_delta.c",
-        "geo_gpx_decode.h",
-        "gen_pent_o17.c",
-        "geo_vault_cli.c",
-        "geo_gpx_anim_o23.h",
-        "test_reconstruct.c",
-        "llama_pogls_backend.c",
-        "bench_weight_stream.c",
-        "geopixel_v20_o24_fixed.c",
-        "geo_net_so_s29.c",
-        "bench_38_realistic.c",
-        "pogls_sdk.h",
-        "angular_mapper_v36.c",
-        "test_llm_integration.c",
-        "pogls_fold.c",
-        "test_edge.c",
-        "bench_ws_scale.c",
-        "gen_pent_o16.c",
-        "geo_vault_fuse.c",
-        "gen_pent_o21.c",
-        "geopixel_v20_o23.c",
-        "geopixel_v20_o24_fixed4.c",
-        "pogls_38_gpu2.h",
-        "bench_api.c",
-        "geo_vault_fuse_old.c",
-        "pogls_cli_s3.c",
-        "test_gpu_wire.c",
-        "pogls_delta.c",
-        "gen_pent_o15.c",
-        "pogls_38_gpu.h",
         "pogls_detach.c",
-        "pogls_audit.c",
-        "pogls_extensions.c",
-        "geopixel_v20_o24.c",
-        "geopixel_v20.c",
-        "geo_vault_bench.c",
-        "llama_pogls_runner.c",
-        "kv_bridge_gpu.h",
-        "pogls_hydra.c"
+        "pogls_cli_s3.c"
       ]
     },
-    "string.h": {
+    "stdint.h": {
       "imports": [],
       "imported_by": [
-        "pogls_cli.c",
-        "pogls_detach_lane.h",
-        "pogls_38_repair.h",
-        "bench_fused_x4.c",
-        "test_compress_s1.c",
-        "lc_twin_gate.h",
-        "gen_pent_o18.c",
-        "test_fgls_twin_store.c",
-        "test_roundtrip.c",
-        "geo_net_patched.h",
-        "pogls38_fed_bridge.h",
-        "pogls_delta_world_b.c",
-        "test_s16.c",
-        "gen_pent_o19.c",
-        "geopixel_v18.c",
-        "pogls38_gpu_wire.h",
-        "geopixel_v21_o25.c",
-        "geo_tring_fec.h",
-        "pogls_compute_stack.c",
-        "llama_pogls_backend.c",
-        "gen_pent_o17.c",
-        "test_38_giant_shadow.c",
-        "pogls_node_soa.h",
-        "geo_net_so_s29.c",
-        "geo_letter_cube.h",
-        "pogls_fold.c",
-        "pogls_38_slice.h",
-        "test_payload_store.c",
-        "test_edge.c",
-        "geo_s11.h",
-        "bench_api.c",
-        "geo_vault_fuse_old.c",
-        "geo_tring_addr.h",
-        "bench_s20_v2.c",
-        "pogls_hydra_v36.h",
-        "pogls_38_gpu.h",
-        "pogls_mesh_entry.h",
-        "test_geo_kv.c",
-        "pogls_entangle.h",
-        "geo_pixel.h",
-        "pogls_admin_snapshot.h",
-        "pogls_extensions.c",
-        "geopixel_v20.c",
-        "geo_read.h",
-        "pogls_fold.h",
-        "pogls_rubik.h",
-        "llama_pogls_runner.c",
-        "geo_net_so_s30.c",
-        "pogls38_hydra_thin.h",
-        "pogls_chunk_index.h",
-        "test_coord_wallet.c",
-        "gen_pent_o22.c",
-        "geo_gpx_anim.h",
-        "pogls_detach_eject.h",
-        "bench_38_steal.c",
-        "geopixel_v20_o24_fix.c",
-        "geo_gf256.h",
-        "geo_payload_store.h",
-        "pogls_38_temporal.h",
-        "gpx4_container_o22.h",
-        "geo_cache.h",
-        "geopixel_v19.c",
-        "pogls_detach.h",
-        "pogls_delta_ext.c",
-        "geo_kv.h",
-        "pogls_38_spawn.h",
-        "gpx4_container.h",
-        "geo_vault_test.c",
-        "pogls_model_index.h",
-        "geo_goldberg_tracker.h",
-        "geo_error.h",
-        "pogls_stats_out.h",
-        "test_twin_bridge.c",
-        "geo_rewind.h",
-        "geopixel_v21_clean.c",
-        "geopixel_v21_delta.c",
-        "pogls_mesh.h",
-        "pogls_exec_window.h",
-        "bench_weight_stream.c",
-        "bench_38_realistic.c",
-        "pogls_38_steal.h",
-        "geo_cube_file_store.h",
-        "geopixel_v20_o24_fixed.c",
-        "pogls_sdk.h",
-        "angular_mapper_v36.c",
-        "gen_pent_o16.c",
-        "pogls_coord_wallet.h",
-        "geo_tring_stream.h",
-        "pogls_cli_s3.c",
-        "pogls38_giant_shadow (1).h",
-        "test_gpu_wire.c",
-        "pogls_detach.c",
-        "kv_bridge.h",
-        "pogls_twin_bridge.h",
-        "geo_kv_bridge.h",
-        "geo_vault_bench.c",
-        "pogls_38_hydra.h",
-        "pogls_platform.h",
-        "test_api.c",
-        "geo_p4_bridge.h",
-        "test_chunk_index.c",
-        "pogls_38_split_world.h",
-        "pogls_pipeline_wire.h",
-        "pogls_38_tails_dna.h",
-        "test_e2e_pipeline.c",
-        "pogls_hydra_scheduler.c",
-        "pogls_stream.h",
-        "pogls_goldberg_pipeline.h",
-        "geo_thirdeye.h",
-        "geo_vault_io.h",
-        "pogls_38_world3ring.h",
-        "pogls_bitboard.h",
-        "geopixel_v20_o24_fixed3.c",
-        "geo_kv_rehash.h",
-        "geo_ops_surface.h",
-        "pogls_compute_lut.c",
-        "geo_tring_goldberg_wire.h",
-        "geo_net_so.c",
-        "test_fault.c",
-        "geo_vault_cli.c",
-        "geo_gpx_anim_o23.h",
-        "geo_pipeline_wire.h",
-        "pogls_file_index.h",
-        "test_llm_integration.c",
-        "geo_rs.h",
-        "test_s21.c",
-        "pogls_38_gpu2.h",
-        "geo_vault_fuse.c",
-        "geo_fec.h",
-        "bench_s4.c",
-        "pogls38_giant_shadow.h",
-        "pogls_delta.c",
-        "gen_pent_o15.c",
-        "geo_giant_array.h",
-        "pogls_weight_stream.h",
-        "_geo_net.h",
-        "pogls_federation.h",
-        "pogls_audit.c",
-        "pogls_snapshot.c",
-        "test_tracker.c",
-        "pogls_compress.h",
-        "pogls_hydra.c",
-        "pogls_reconstruct.h",
-        "pogls_delta_ext.h",
-        "geo_goldberg_scan.h",
-        "ts_mirror.h",
-        "geo_p4_batcher.h",
-        "bench_38_hybrid.c",
-        "geopixel_v20_o24_fixed2.c",
-        "pogls_engine_slice.h",
-        "fgls_twin_store.h",
-        "pogls_38_wiring.h",
-        "geo_net_so_s32.c",
-        "geo_fec_rs.h",
-        "geo_goldberg_tile.h",
-        "test_s18.c",
-        "geo_dodeca.h",
-        "pogls_llm_adapter.h",
-        "geo_temporal_ring.h",
         "test_tring_goldberg.c",
-        "geo_vault.h",
-        "geo_net.h",
-        "geo_gpx_decode.h",
-        "test_reconstruct.c",
-        "pogls_compute_lut.h",
+        "pogls_file_index.h",
+        "pogls_node_soa.h",
+        "geo_kv.h",
+        "pogls_stats_out.h",
+        "llama_pogls_backend.h",
+        "pogls_mesh.h",
+        "gen_pent_o16.c",
+        "test_roundtrip.c",
+        "geo_whe.h",
+        "geo_dodeca.h",
+        "geo_s11.h",
         "geo_goldberg_tring_bridge.h",
-        "test_goldberg_pipeline.c",
-        "pogls_17n_lattice.h",
-        "bench_ws_scale.c",
-        "pogls_scanner.h",
-        "gen_pent_o21.c",
-        "geopixel_v20_o23.c",
-        "geopixel_v20_o24_fixed4.c",
-        "geo_o4_connector.h",
-        "pogls_38_rewind.h",
-        "pogls_lane_rebalance.h",
-        "pogls_api.h",
+        "geo_rs.h",
+        "geo_fast_intersect_avx2.h",
+        "geo_pipeline_wire.h",
+        "pogls_llm_adapter.h",
+        "pogls_exec_window_lf.h",
+        "test_gpu_wire.c",
         "geopixel_v20_o24.c",
-        "pogls_llm_hook.h"
+        "geomatrix_shared.h",
+        "test_goldberg_pipeline.c",
+        "pogls_delta.c",
+        "test_coord_wallet.c",
+        "test_s17.c",
+        "pogls_sdk.h",
+        "pogls_delta.h",
+        "pogls_38_split_world.h",
+        "geo_gpx_anim.h",
+        "pogls_goldberg_bridge.h",
+        "pogls_pipeline_wire.h",
+        "test_fgls_twin_store.c",
+        "pogls_rubik.h",
+        "pogls_38_repair.h",
+        "geo_gf256.h",
+        "pogls_38_tails_dna.h",
+        "geo_pyramid.h",
+        "test_s21.c",
+        "geo_rubik_drive.h",
+        "bench_38_hybrid.c",
+        "geopixel_v20_o24_fix.c",
+        "theta_map.h",
+        "geo_tring_goldberg_wire.h",
+        "pogls_tentacle_graph.h",
+        "geo_gpx_decode.h",
+        "geo_net_so_s30.c",
+        "geopixel_v20_o24_fixed2.c",
+        "geo_tring_addr.h",
+        "geo_fibo_clock.h",
+        "geo_hardening_whe.h",
+        "lc_twin_gate.h",
+        "geo_vault_fuse.c",
+        "pogls_engine_slice.h",
+        "pogls_entangle.h",
+        "test_s16.c",
+        "geo_hardening_whe_s54.h",
+        "fgls_twin_store.h",
+        "geo_wire_types_s29.h",
+        "pogls_38_rewind.h",
+        "pogls_compute_lut.h",
+        "pogls_fibo_addr.h",
+        "test_payload_store.c",
+        "pogls_checksum.h",
+        "gpx4_container_o22.h",
+        "pogls_api.h",
+        "pogls_scanner.h",
+        "pogls_mesh_entry.h",
+        "test_s18.c",
+        "test_geo_kv.c",
+        "geopixel_v20.c",
+        "pogls_chunk_index.h",
+        "geopixel_v21_clean.c",
+        "pogls_hydra_v36.h",
+        "kv_bridge.h",
+        "pogls_qrpn_phaseE.h",
+        "geo_kv_bridge.h",
+        "pogls_sdk_so.h",
+        "geo_net_so_s32.c",
+        "pogls_38_world3ring.h",
+        "test_fault.c",
+        "pogls_ntangle_graph.h",
+        "pogls_v3.h",
+        "pogls_detach_eject.h",
+        "geo_net.h",
+        "geopixel_v20_o24_fixed.c",
+        "test_compress_s1.c",
+        "gen_pent_o18.c",
+        "pogls_llm_executor.h",
+        "pogls_stream.h",
+        "pogls_38_steal.h",
+        "geo_union_mask.h",
+        "pogls_federation.h",
+        "geo_letter_cube.h",
+        "pogls38_gpu_wire.h",
+        "pogls_admin_snapshot.h",
+        "geo_wire_types.h",
+        "geo_vault_fuse_old.c",
+        "test_e2e_pipeline.c",
+        "bench_38_realistic.c",
+        "pogls_detach_lane.h",
+        "geo_fec.h",
+        "geo_dodeca_torus.h",
+        "test_s19.c",
+        "geopixel_v20_o23.c",
+        "bench_ws_scale.c",
+        "bench_s4.c",
+        "pogls_17n_lattice.h",
+        "gen_pent_o22.c",
+        "pogls_twin_bridge.h",
+        "bench_38_steal.c",
+        "pogls_exec_window.h",
+        "test_5world_core.c",
+        "geo_goldberg_lut.h",
+        "geo_ops_surface.h",
+        "pogls_goldberg_pipeline.h",
+        "gen_pent_o15.c",
+        "pogls_llm_hook.h",
+        "geo_tring_fec.h",
+        "test_reconstruct.c",
+        "geo_net_patched.h",
+        "geo_giant_array.h",
+        "geo_thirdeye.h",
+        "geo_cylinder.h",
+        "geo_vault_cli.c",
+        "geo_temporal_ring.h",
+        "llama_pogls_runner.c",
+        "pogls_compress.h",
+        "geopixel_v21_o25.c",
+        "pogls38_giant_shadow.h",
+        "pogls_38_gpu.h",
+        "pogls_38_spawn.h",
+        "geo_p4_bridge.h",
+        "frustum_layout_v1.h",
+        "geo_cache.h",
+        "geo_vault_bench.c",
+        "geo_temporal_lut.h",
+        "pogls_node_lut.h",
+        "geo_apex_wire.h",
+        "geo_goldberg_tracker.h",
+        "_geo_net.h",
+        "bench_s20_v2.c",
+        "pogls_model_index.h",
+        "pogls_38_gpu2.h",
+        "pogls_detach.h",
+        "pogls_weight_stream.h",
+        "gen_pent_o19.c",
+        "pogls_lane_rebalance.h",
+        "geo_read.h",
+        "geo_o4_connector.h",
+        "geo_net_so_s29.c",
+        "geo_payload_store.h",
+        "geo_fec_rs.h",
+        "test_twin_bridge.c",
+        "pogls_fold.h",
+        "pogls_entangle_graph.h",
+        "geo_goldberg_scan.h",
+        "pogls_38_hydra.h",
+        "geo_goldberg_tile.h",
+        "geo_rewind.h",
+        "geo_gpx_anim_o23.h",
+        "gen_pent_o21.c",
+        "pogls_coord_wallet.h",
+        "pogls_hydra_scheduler.h",
+        "test_llm_integration.c",
+        "pogls_38_wiring.h",
+        "geopixel_v18.c",
+        "pogls_5world_core.h",
+        "geo_cube_file_store.h",
+        "test_edge.c",
+        "geo_net_so.c",
+        "pogls_38_temporal.h",
+        "bench_weight_stream.c",
+        "geopixel_v20_o24_fixed4.c",
+        "pogls_bitboard.h",
+        "pogls_graph_topology.h",
+        "pogls38_hydra_thin.h",
+        "geo_vault_test.c",
+        "geo_error.h",
+        "geo_p4_batcher.h",
+        "pogls_recon_file.h",
+        "geo_lite_field.h",
+        "angular_mapper_v36.h",
+        "kv_bridge_gpu.h",
+        "geopixel_v19.c",
+        "gen_pent_o17.c",
+        "geo_diamond_field.h",
+        "ts_mirror.h",
+        "twin_core_geo_fibo_clock.h",
+        "pogls38_fed_bridge.h",
+        "pogls38_giant_shadow (1).h",
+        "gpx4_container.h",
+        "pogls_cli.c",
+        "test_38_giant_shadow.c",
+        "pogls_ntacle_graph.h",
+        "bench_fused_x4.c",
+        "geopixel_v20_o24_fixed3.c",
+        "pogls_morton.h",
+        "geo_radial_hilbert.h",
+        "entangle_stub2.c",
+        "geo_vault.h",
+        "pogls_reconstruct.h",
+        "geopixel_v21_delta.c",
+        "pogls_38_slice.h",
+        "geo_tring_stream.h",
+        "geo_primitives.h",
+        "geo_pixel.h",
+        "geo_vault_io.h",
+        "pogls_platform.h",
+        "pogls_cli_s3.c"
       ]
     },
     "gen_pent_o16.c": {
       "imports": [
+        "string.h",
         "math.h",
-        "stdio.h",
-        "stdint.h",
         "stdlib.h",
-        "string.h"
+        "stdint.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "gen_pent_o17.c": {
       "imports": [
+        "string.h",
         "math.h",
-        "stdio.h",
-        "stdint.h",
         "stdlib.h",
-        "string.h"
+        "stdint.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "gen_pent_o18.c": {
       "imports": [
+        "string.h",
         "math.h",
-        "stdio.h",
-        "stdint.h",
         "stdlib.h",
-        "string.h"
+        "stdint.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "gen_pent_o19.c": {
       "imports": [
+        "string.h",
         "math.h",
-        "stdio.h",
-        "stdint.h",
         "stdlib.h",
-        "string.h"
+        "stdint.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "gen_pent_o21.c": {
       "imports": [
+        "string.h",
         "math.h",
-        "stdio.h",
-        "stdint.h",
         "stdlib.h",
-        "string.h"
+        "stdint.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "gen_pent_o22.c": {
       "imports": [
-        "math.h",
-        "stdio.h",
-        "stdint.h",
         "string.h",
+        "math.h",
         "stdlib.h",
-        "gpx4_container_o22.h"
+        "gpx4_container_o22.h",
+        "stdint.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "gpx4_container_o22.h": {
       "imports": [
         "string.h",
-        "stdlib.h",
         "stdint.h",
+        "stdlib.h",
         "stdio.h"
       ],
       "imported_by": [
-        "gen_pent_o22.c",
-        "geopixel_v20_o24_fixed.c",
-        "geopixel_v20_o24_fixed3.c",
-        "geopixel_v20_o24.c",
-        "geopixel_v20_o24_fix.c",
         "geopixel_v20_o24_fixed2.c",
-        "geopixel_v21_o25.c",
-        "geopixel_v20_o23.c",
         "geopixel_v20_o24_fixed4.c",
-        "geopixel_v21_clean.c",
+        "geopixel_v20_o24.c",
         "geopixel_v21_delta.c",
-        "geo_gpx_anim_o23.h"
+        "geopixel_v21_clean.c",
+        "geopixel_v20_o24_fixed.c",
+        "geo_gpx_anim_o23.h",
+        "geopixel_v20_o23.c",
+        "geopixel_v21_o25.c",
+        "geopixel_v20_o24_fixed3.c",
+        "gen_pent_o22.c",
+        "geopixel_v20_o24_fix.c"
       ]
     },
     "geo_goldberg_Penfield_o15.zip": {
@@ -20664,53 +20973,58 @@
         "stdint.h"
       ],
       "imported_by": [
-        "geopixel_v20_o24_fixed.c",
-        "geopixel_v20_o24_fixed3.c",
-        "geopixel_v20_o24.c",
-        "geopixel_v20_o24_fix.c",
-        "geopixel_v18.c",
         "geopixel_v20_o24_fixed2.c",
-        "geopixel_v20.c",
-        "geopixel_v20_o23.c",
         "geopixel_v20_o24_fixed4.c",
-        "geopixel_v21_o25.c",
-        "geopixel_v21_clean.c",
+        "geopixel_v20_o24.c",
         "geopixel_v21_delta.c",
+        "geopixel_v21_clean.c",
+        "geopixel_v20_o24_fixed.c",
+        "geopixel_v21_o25.c",
+        "geopixel_v20_o23.c",
+        "geopixel_v20.c",
+        "geopixel_v18.c",
+        "geopixel_v20_o24_fixed3.c",
+        "geopixel_v20_o24_fix.c",
         "geopixel_v19.c"
       ]
     },
     "gpx4_container.h": {
       "imports": [
         "string.h",
-        "stdlib.h",
         "stdint.h",
+        "stdlib.h",
         "stdio.h"
       ],
       "imported_by": [
-        "geopixel_v20.c",
         "geo_gpx_anim.h",
-        "geopixel_v19.c"
+        "geopixel_v19.c",
+        "geopixel_v20.c"
       ]
     },
-    "png.h": {
-      "imports": [],
+    "geo_o4_connector.h": {
+      "imports": [
+        "string.h",
+        "stdint.h",
+        "geo_tring_addr.h",
+        "geo_pixel.h"
+      ],
       "imported_by": [
-        "geopixel_v20_o24_fixed.c",
         "geo_gpx_anim.h",
-        "geopixel_v20_o24_fixed3.c",
-        "geopixel_v20_o24.c",
-        "geopixel_v20_o24_fix.c",
-        "geopixel_v18.c",
         "geopixel_v20_o24_fixed2.c",
-        "geopixel_v20.c",
-        "geopixel_v20_o23.c",
         "geopixel_v20_o24_fixed4.c",
-        "geopixel_v21_o25.c",
-        "geopixel_v21_clean.c",
+        "geopixel_v20_o24.c",
         "geopixel_v21_delta.c",
-        "geo_gpx_decode.h",
+        "geopixel_v21_clean.c",
+        "geopixel_v20_o24_fixed.c",
+        "geo_gpx_anim_o23.h",
+        "geopixel_v20_o23.c",
+        "geopixel_v21_o25.c",
+        "geopixel_v20.c",
+        "geopixel_v18.c",
+        "geopixel_v20_o24_fixed3.c",
+        "geopixel_v20_o24_fix.c",
         "geopixel_v19.c",
-        "geo_gpx_anim_o23.h"
+        "geo_gpx_decode.h"
       ]
     },
     "zstd.h": {
@@ -20718,74 +21032,69 @@
         "stddef.h"
       ],
       "imported_by": [
-        "geo_vault_io.h",
-        "geopixel_v20_o24_fixed.c",
         "geo_gpx_anim.h",
-        "geopixel_v20_o24_fixed3.c",
-        "geo_vault_test.c",
-        "geopixel_v20_o24.c",
-        "geopixel_v20_o24_fix.c",
-        "geopixel_v18.c",
         "geopixel_v20_o24_fixed2.c",
-        "geopixel_v20.c",
-        "geopixel_v20_o23.c",
         "geopixel_v20_o24_fixed4.c",
-        "geopixel_v21_o25.c",
-        "geopixel_v21_clean.c",
+        "geopixel_v20_o24.c",
         "geopixel_v21_delta.c",
-        "geo_gpx_decode.h",
+        "geopixel_v21_clean.c",
+        "geo_vault_test.c",
+        "geopixel_v20_o24_fixed.c",
+        "geo_gpx_anim_o23.h",
+        "geopixel_v20_o23.c",
+        "geo_vault_io.h",
+        "geopixel_v21_o25.c",
+        "geopixel_v20.c",
+        "geopixel_v18.c",
+        "geopixel_v20_o24_fixed3.c",
+        "geopixel_v20_o24_fix.c",
         "geopixel_v19.c",
-        "geo_gpx_anim_o23.h"
+        "geo_gpx_decode.h"
       ]
     },
-    "geo_o4_connector.h": {
-      "imports": [
-        "geo_pixel.h",
-        "string.h",
-        "geo_tring_addr.h",
-        "stdint.h"
-      ],
+    "png.h": {
+      "imports": [],
       "imported_by": [
-        "geopixel_v20_o24_fixed.c",
         "geo_gpx_anim.h",
-        "geopixel_v20_o24_fixed3.c",
-        "geopixel_v20_o24.c",
-        "geopixel_v20_o24_fix.c",
-        "geopixel_v18.c",
         "geopixel_v20_o24_fixed2.c",
-        "geopixel_v20.c",
-        "geopixel_v20_o23.c",
         "geopixel_v20_o24_fixed4.c",
-        "geopixel_v21_o25.c",
-        "geopixel_v21_clean.c",
+        "geopixel_v20_o24.c",
         "geopixel_v21_delta.c",
-        "geo_gpx_decode.h",
+        "geopixel_v21_clean.c",
+        "geopixel_v20_o24_fixed.c",
+        "geo_gpx_anim_o23.h",
+        "geopixel_v20_o23.c",
+        "geopixel_v21_o25.c",
+        "geopixel_v20.c",
+        "geopixel_v18.c",
+        "geopixel_v20_o24_fixed3.c",
+        "geopixel_v20_o24_fix.c",
         "geopixel_v19.c",
-        "geo_gpx_anim_o23.h"
+        "geo_gpx_decode.h"
       ]
     },
     "geo_gpx_anim_o23.h": {
       "imports": [
-        "stdio.h",
-        "png.h",
-        "gpx4_container_o22.h",
-        "zstd.h",
-        "stdint.h",
-        "stdlib.h",
+        "string.h",
         "geo_o4_connector.h",
-        "string.h"
+        "stdlib.h",
+        "zstd.h",
+        "gpx4_container_o22.h",
+        "png.h",
+        "stdint.h",
+        "stdio.h"
       ],
       "imported_by": [
-        "geopixel_v20_o24_fixed.c",
-        "geopixel_v20_o24_fixed3.c",
         "geopixel_v20_o24_fixed2.c",
-        "geopixel_v20_o24_fix.c",
+        "geopixel_v20_o24_fixed4.c",
         "geopixel_v20_o24.c",
+        "geopixel_v21_delta.c",
+        "geopixel_v21_clean.c",
+        "geopixel_v20_o24_fixed.c",
         "geopixel_v21_o25.c",
         "geopixel_v20_o23.c",
-        "geopixel_v20_o24_fixed4.c",
-        "geopixel_v21_clean.c",
-        "geopixel_v21_delta.c"
+        "geopixel_v20_o24_fixed3.c",
+        "geopixel_v20_o24_fix.c"
       ]
     },
     "geo_gpx_visualizer.html": {
@@ -20798,19 +21107,19 @@
         "stdint.h"
       ],
       "imported_by": [
-        "geopixel_v20_o24_fixed.c",
-        "geopixel_v21_clean.c",
-        "geopixel_v20_o24_fixed3.c",
-        "geopixel_v20_o24.c",
-        "geopixel_v20_o24_fix.c",
-        "geopixel_v18.c",
         "geopixel_v20_o24_fixed2.c",
-        "geopixel_v20.c",
-        "geopixel_v20_o23.c",
         "geopixel_v20_o24_fixed4.c",
-        "geopixel_v21_o25.c",
-        "geo_o4_connector.h",
+        "geopixel_v20_o24.c",
         "geopixel_v21_delta.c",
+        "geopixel_v21_clean.c",
+        "geopixel_v20_o24_fixed.c",
+        "geopixel_v21_o25.c",
+        "geopixel_v20_o23.c",
+        "geo_o4_connector.h",
+        "geopixel_v20.c",
+        "geopixel_v18.c",
+        "geopixel_v20_o24_fixed3.c",
+        "geopixel_v20_o24_fix.c",
         "geopixel_v19.c"
       ]
     },
@@ -20825,30 +21134,30 @@
     },
     "geo_vault.h": {
       "imports": [
-        "string.h",
         "stddef.h",
-        "stdint.h"
+        "stdint.h",
+        "string.h"
       ],
       "imported_by": [
-        "geo_vault_io.h",
+        "geo_vault_fuse_old.c",
         "geo_vault_test.c",
+        "geo_vault_io.h",
         "geo_vault_fuse.c",
         "geo_vault_bench.c",
-        "geo_vault_fuse_old.c",
         "geo_vault_cli.c"
       ]
     },
     "stddef.h": {
       "imports": [],
       "imported_by": [
-        "pogls_delta.h",
-        "pogls_checksum.h",
-        "zstd.h",
-        "frustum_layout_v1.h",
-        "pogls_17n_lattice.h",
         "geo_vault.h",
         "pogls_v3.h",
-        "pogls_llm_hook.h"
+        "pogls_llm_hook.h",
+        "pogls_checksum.h",
+        "zstd.h",
+        "pogls_17n_lattice.h",
+        "frustum_layout_v1.h",
+        "pogls_delta.h"
       ]
     },
     "geo_vault.zip": {
@@ -20861,121 +21170,43 @@
     },
     "geo_vault_bench.c": {
       "imports": [
-        "geo_vault_io.h",
-        "types.h",
-        "stdio.h",
-        "time.h",
-        "errno.h",
-        "stdint.h",
-        "stdlib.h",
-        "geo_vault.h",
-        "fcntl.h",
-        "stat.h",
         "string.h",
-        "unistd.h"
+        "errno.h",
+        "geo_vault.h",
+        "stat.h",
+        "unistd.h",
+        "geo_vault_io.h",
+        "stdlib.h",
+        "types.h",
+        "stdint.h",
+        "time.h",
+        "fcntl.h",
+        "stdio.h"
       ],
       "imported_by": []
-    },
-    "geo_vault_io.h": {
-      "imports": [
-        "file.h",
-        "stdio.h",
-        "zstd.h",
-        "stdint.h",
-        "stdlib.h",
-        "geo_vault.h",
-        "string.h",
-        "unistd.h"
-      ],
-      "imported_by": [
-        "geo_vault_cli.c",
-        "geo_vault_fuse.c",
-        "geo_vault_fuse_old.c",
-        "geo_vault_bench.c"
-      ]
-    },
-    "types.h": {
-      "imports": [],
-      "imported_by": [
-        "pogls_platform.h",
-        "geo_vault_bench.c"
-      ]
-    },
-    "time.h": {
-      "imports": [],
-      "imported_by": [
-        "pogls_detach_lane.h",
-        "bench_38_hybrid.c",
-        "bench_38_steal.c",
-        "bench_fused_x4.c",
-        "geopixel_v20_o24_fixed2.c",
-        "geopixel_v20_o24_fix.c",
-        "pogls_38_temporal.h",
-        "pogls_hydra_scheduler.c",
-        "geopixel_v19.c",
-        "geopixel_v20_o24_fixed3.c",
-        "geopixel_v18.c",
-        "geopixel_v21_o25.c",
-        "geopixel_v21_clean.c",
-        "geopixel_v21_delta.c",
-        "pogls_exec_window.h",
-        "test_s19.c",
-        "bench_weight_stream.c",
-        "bench_38_realistic.c",
-        "geopixel_v20_o24_fixed.c",
-        "bench_ws_scale.c",
-        "pogls_38_gpu2.h",
-        "geopixel_v20_o23.c",
-        "geopixel_v20_o24_fixed4.c",
-        "bench_api.c",
-        "bench_s4.c",
-        "pogls_38_rewind.h",
-        "bench_s20_v2.c",
-        "pogls_audit.c",
-        "pogls_admin_snapshot.h",
-        "geopixel_v20_o24.c",
-        "geopixel_v20.c",
-        "geo_vault_bench.c",
-        "llama_pogls_runner.c",
-        "pogls_snapshot.c",
-        "pogls_hydra.c"
-      ]
     },
     "errno.h": {
       "imports": [],
       "imported_by": [
-        "pogls_cli.c",
-        "pogls_delta.c",
-        "pogls_delta_ext.c",
-        "pogls_delta_world_b.c",
-        "geo_vault_fuse.c",
-        "geo_vault_bench.c",
         "geo_vault_fuse_old.c",
-        "pogls_cli_s3.c",
-        "geo_vault_cli.c"
-      ]
-    },
-    "fcntl.h": {
-      "imports": [],
-      "imported_by": [
-        "pogls_platform.h",
-        "pogls_delta.c",
+        "pogls_cli.c",
         "pogls_delta_ext.c",
+        "pogls_delta.c",
         "pogls_delta_world_b.c",
-        "angular_mapper_v36.c",
         "geo_vault_fuse.c",
+        "pogls_cli_s3.c",
         "geo_vault_bench.c",
-        "geo_vault_fuse_old.c"
+        "geo_vault_cli.c"
       ]
     },
     "stat.h": {
       "imports": [],
       "imported_by": [
-        "pogls_platform.h",
-        "pogls_delta.c",
         "pogls_delta_ext.c",
+        "pogls_delta.c",
         "pogls_delta_world_b.c",
         "angular_mapper_v36.c",
+        "pogls_platform.h",
         "geo_vault_bench.c",
         "geo_vault_cli.c"
       ]
@@ -20983,31 +21214,109 @@
     "unistd.h": {
       "imports": [],
       "imported_by": [
-        "pogls_platform.h",
-        "geo_vault_io.h",
-        "pogls_delta.c",
         "pogls_delta_ext.c",
+        "pogls_delta.c",
+        "pogls_delta_world_b.c",
+        "geo_vault_io.h",
+        "angular_mapper_v36.c",
+        "pogls_hydra.c",
+        "pogls_platform.h",
+        "pogls_detach.c",
+        "pogls_audit.c",
+        "pogls_compute_stack.c",
+        "pogls_exec_window.h",
+        "geo_vault_bench.c"
+      ]
+    },
+    "geo_vault_io.h": {
+      "imports": [
+        "string.h",
+        "geo_vault.h",
+        "unistd.h",
+        "stdlib.h",
+        "zstd.h",
+        "stdint.h",
+        "file.h",
+        "stdio.h"
+      ],
+      "imported_by": [
+        "geo_vault_fuse.c",
+        "geo_vault_bench.c",
+        "geo_vault_fuse_old.c",
+        "geo_vault_cli.c"
+      ]
+    },
+    "types.h": {
+      "imports": [],
+      "imported_by": [
+        "geo_vault_bench.c",
+        "pogls_platform.h"
+      ]
+    },
+    "time.h": {
+      "imports": [],
+      "imported_by": [
+        "pogls_38_rewind.h",
+        "pogls_hydra.c",
+        "geopixel_v18.c",
+        "pogls_38_temporal.h",
+        "bench_weight_stream.c",
+        "geopixel_v20_o24_fixed4.c",
+        "geopixel_v20_o24.c",
+        "llama_pogls_runner.c",
+        "geopixel_v21_o25.c",
+        "geopixel_v20.c",
+        "geopixel_v21_clean.c",
+        "geopixel_v19.c",
+        "pogls_snapshot.c",
+        "geo_vault_bench.c",
+        "geopixel_v20_o24_fixed.c",
+        "pogls_hydra_scheduler.c",
+        "bench_s20_v2.c",
+        "bench_38_hybrid.c",
+        "geopixel_v20_o24_fixed3.c",
+        "pogls_38_gpu2.h",
+        "geopixel_v20_o24_fix.c",
+        "bench_fused_x4.c",
+        "bench_api.c",
+        "geopixel_v20_o24_fixed2.c",
+        "pogls_admin_snapshot.h",
+        "geopixel_v21_delta.c",
+        "bench_38_realistic.c",
+        "pogls_detach_lane.h",
+        "test_s19.c",
+        "geopixel_v20_o23.c",
+        "bench_ws_scale.c",
+        "bench_s4.c",
+        "pogls_audit.c",
+        "bench_38_steal.c",
+        "pogls_exec_window.h"
+      ]
+    },
+    "fcntl.h": {
+      "imports": [],
+      "imported_by": [
+        "geo_vault_fuse_old.c",
+        "pogls_delta_ext.c",
+        "pogls_delta.c",
         "pogls_delta_world_b.c",
         "angular_mapper_v36.c",
-        "pogls_detach.c",
-        "pogls_hydra.c",
-        "pogls_audit.c",
-        "geo_vault_bench.c",
-        "pogls_compute_stack.c",
-        "pogls_exec_window.h"
+        "geo_vault_fuse.c",
+        "pogls_platform.h",
+        "geo_vault_bench.c"
       ]
     },
     "geo_vault_cli.c": {
       "imports": [
-        "geo_vault_io.h",
-        "stdio.h",
+        "string.h",
         "errno.h",
-        "stdint.h",
-        "dirent.h",
-        "stdlib.h",
         "geo_vault.h",
         "stat.h",
-        "string.h"
+        "geo_vault_io.h",
+        "stdlib.h",
+        "dirent.h",
+        "stdint.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
@@ -21020,42 +21329,18 @@
     },
     "geo_vault_fuse.c": {
       "imports": [
-        "geo_vault_io.h",
-        "stdio.h",
+        "string.h",
         "errno.h",
-        "stdint.h",
-        "pthread.h",
-        "fuse.h",
-        "stdlib.h",
         "geo_vault.h",
+        "geo_vault_io.h",
+        "stdlib.h",
+        "pthread.h",
+        "stdint.h",
+        "fuse.h",
         "fcntl.h",
-        "string.h"
+        "stdio.h"
       ],
       "imported_by": []
-    },
-    "pthread.h": {
-      "imports": [],
-      "imported_by": [
-        "pogls_platform.h",
-        "pogls_detach_lane.h",
-        "geopixel_v20_o24_fixed2.c",
-        "geopixel_v20_o24_fix.c",
-        "geopixel_v19.c",
-        "pogls_hydra_scheduler.h",
-        "geopixel_v20_o24_fixed3.c",
-        "pogls_llm_adapter.h",
-        "geopixel_v18.c",
-        "geopixel_v21_o25.c",
-        "geopixel_v21_clean.c",
-        "geopixel_v21_delta.c",
-        "geopixel_v20_o24_fixed.c",
-        "geo_vault_fuse.c",
-        "geopixel_v20_o23.c",
-        "geopixel_v20_o24_fixed4.c",
-        "geo_vault_fuse_old.c",
-        "geopixel_v20_o24.c",
-        "geopixel_v20.c"
-      ]
     },
     "fuse.h": {
       "imports": [],
@@ -21064,18 +21349,42 @@
         "geo_vault_fuse_old.c"
       ]
     },
+    "pthread.h": {
+      "imports": [],
+      "imported_by": [
+        "pogls_hydra_scheduler.h",
+        "geopixel_v18.c",
+        "pogls_llm_adapter.h",
+        "geopixel_v20_o24_fixed4.c",
+        "geopixel_v20_o24.c",
+        "geopixel_v21_o25.c",
+        "geopixel_v20.c",
+        "geopixel_v21_clean.c",
+        "geopixel_v19.c",
+        "geopixel_v20_o24_fixed.c",
+        "geopixel_v20_o24_fixed3.c",
+        "geopixel_v20_o24_fix.c",
+        "geopixel_v20_o24_fixed2.c",
+        "geo_vault_fuse_old.c",
+        "geopixel_v21_delta.c",
+        "pogls_detach_lane.h",
+        "geopixel_v20_o23.c",
+        "geo_vault_fuse.c",
+        "pogls_platform.h"
+      ]
+    },
     "geo_vault_fuse_old.c": {
       "imports": [
-        "geo_vault_io.h",
-        "stdio.h",
+        "string.h",
         "errno.h",
-        "stdint.h",
-        "pthread.h",
-        "fuse.h",
-        "stdlib.h",
         "geo_vault.h",
+        "geo_vault_io.h",
+        "stdlib.h",
+        "pthread.h",
+        "stdint.h",
+        "fuse.h",
         "fcntl.h",
-        "string.h"
+        "stdio.h"
       ],
       "imported_by": []
     },
@@ -21087,12 +21396,12 @@
     },
     "geo_vault_test.c": {
       "imports": [
-        "stdio.h",
+        "string.h",
+        "geo_vault.h",
+        "stdlib.h",
         "zstd.h",
         "stdint.h",
-        "stdlib.h",
-        "geo_vault.h",
-        "string.h"
+        "stdio.h"
       ],
       "imported_by": []
     },
@@ -21122,139 +21431,139 @@
     },
     "geopixel_v18.c": {
       "imports": [
-        "geo_goldberg_tile.h",
+        "string.h",
+        "geo_tring_addr.h",
         "math.h",
-        "stdio.h",
-        "time.h",
+        "geo_goldberg_tile.h",
+        "stdatomic.h",
+        "geo_o4_connector.h",
+        "stdlib.h",
+        "zstd.h",
         "png.h",
         "stdint.h",
-        "zstd.h",
+        "time.h",
         "pthread.h",
-        "stdatomic.h",
-        "stdlib.h",
-        "geo_o4_connector.h",
-        "string.h",
-        "geo_tring_addr.h"
+        "stdio.h"
       ],
       "imported_by": []
     },
     "stdatomic.h": {
       "imports": [],
       "imported_by": [
-        "pogls_38_repair.h",
-        "pogls_38_split_world.h",
-        "geopixel_v20_o24_fixed2.c",
-        "geopixel_v20_o24_fix.c",
-        "pogls_38_wiring.h",
-        "pogls_38_temporal.h",
         "pogls_entangle_graph.h",
-        "geopixel_v19.c",
-        "pogls_detach.h",
-        "pogls_ntacle_graph.h",
-        "pogls_hydra_scheduler.h",
-        "pogls_exec_window_lf.h",
-        "pogls_38_world3ring.h",
-        "geopixel_v20_o24_fixed3.c",
-        "geopixel_v18.c",
+        "pogls_38_hydra.h",
         "pogls_stats_out.h",
-        "geopixel_v21_o25.c",
-        "pogls_ntangle_graph.h",
-        "geopixel_v21_clean.c",
-        "geopixel_v21_delta.c",
-        "pogls_exec_window.h",
-        "test_38_giant_shadow.c",
-        "geopixel_v20_o24_fixed.c",
-        "pogls_tentacle_graph.h",
-        "geopixel_v20_o23.c",
+        "pogls_hydra_scheduler.h",
+        "pogls_38_wiring.h",
+        "geopixel_v18.c",
+        "pogls_exec_window_lf.h",
+        "pogls_38_temporal.h",
         "geopixel_v20_o24_fixed4.c",
-        "pogls38_giant_shadow (1).h",
-        "pogls38_giant_shadow.h",
-        "pogls_qrpn_phaseE.h",
-        "kv_bridge.h",
-        "pogls_entangle.h",
-        "pogls_federation.h",
-        "pogls_admin_snapshot.h",
         "geopixel_v20_o24.c",
+        "geopixel_v21_o25.c",
+        "pogls38_giant_shadow.h",
         "geopixel_v20.c",
-        "pogls_38_hydra.h"
+        "geopixel_v21_clean.c",
+        "geopixel_v19.c",
+        "kv_bridge.h",
+        "pogls_qrpn_phaseE.h",
+        "pogls_38_split_world.h",
+        "pogls_38_world3ring.h",
+        "pogls38_giant_shadow (1).h",
+        "pogls_ntangle_graph.h",
+        "pogls_38_repair.h",
+        "geopixel_v20_o24_fixed.c",
+        "test_38_giant_shadow.c",
+        "pogls_ntacle_graph.h",
+        "geopixel_v20_o24_fixed3.c",
+        "geopixel_v20_o24_fix.c",
+        "pogls_detach.h",
+        "pogls_federation.h",
+        "pogls_tentacle_graph.h",
+        "geopixel_v20_o24_fixed2.c",
+        "pogls_admin_snapshot.h",
+        "geopixel_v21_delta.c",
+        "geopixel_v20_o23.c",
+        "pogls_entangle.h",
+        "pogls_exec_window.h"
       ]
     },
     "geopixel_v19.c": {
       "imports": [
-        "geo_goldberg_tile.h",
+        "string.h",
+        "geo_tring_addr.h",
         "math.h",
-        "stdio.h",
-        "time.h",
         "gpx4_container.h",
+        "geo_goldberg_tile.h",
+        "stdatomic.h",
+        "geo_o4_connector.h",
+        "stdlib.h",
+        "zstd.h",
         "png.h",
         "stdint.h",
-        "zstd.h",
+        "time.h",
         "pthread.h",
-        "stdatomic.h",
-        "stdlib.h",
-        "geo_o4_connector.h",
-        "string.h",
-        "geo_tring_addr.h"
+        "stdio.h"
       ],
       "imported_by": []
     },
     "geopixel_v20.c": {
       "imports": [
-        "geo_goldberg_tile.h",
-        "math.h",
         "geo_gpx_anim.h",
-        "stdio.h",
-        "time.h",
+        "string.h",
+        "geo_tring_addr.h",
+        "math.h",
         "gpx4_container.h",
+        "geo_goldberg_tile.h",
+        "stdatomic.h",
+        "geo_o4_connector.h",
+        "stdlib.h",
+        "zstd.h",
         "png.h",
         "stdint.h",
-        "zstd.h",
+        "time.h",
         "pthread.h",
-        "stdatomic.h",
-        "stdlib.h",
-        "geo_o4_connector.h",
-        "string.h",
-        "geo_tring_addr.h"
+        "stdio.h"
       ],
       "imported_by": []
     },
     "geopixel_v20_o23.c": {
       "imports": [
-        "geo_goldberg_tile.h",
-        "math.h",
-        "stdio.h",
-        "time.h",
-        "png.h",
-        "gpx4_container_o22.h",
-        "stdint.h",
-        "zstd.h",
-        "pthread.h",
-        "stdatomic.h",
-        "stdlib.h",
-        "geo_o4_connector.h",
         "string.h",
         "geo_tring_addr.h",
-        "geo_gpx_anim_o23.h"
+        "math.h",
+        "geo_goldberg_tile.h",
+        "stdatomic.h",
+        "geo_gpx_anim_o23.h",
+        "geo_o4_connector.h",
+        "stdlib.h",
+        "zstd.h",
+        "gpx4_container_o22.h",
+        "png.h",
+        "stdint.h",
+        "time.h",
+        "pthread.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "geopixel_v20_o24.c": {
       "imports": [
-        "geo_goldberg_tile.h",
-        "math.h",
-        "stdio.h",
-        "time.h",
-        "png.h",
-        "gpx4_container_o22.h",
-        "stdint.h",
-        "zstd.h",
-        "pthread.h",
-        "stdatomic.h",
-        "stdlib.h",
-        "geo_o4_connector.h",
         "string.h",
         "geo_tring_addr.h",
-        "geo_gpx_anim_o23.h"
+        "math.h",
+        "geo_goldberg_tile.h",
+        "stdatomic.h",
+        "geo_gpx_anim_o23.h",
+        "geo_o4_connector.h",
+        "stdlib.h",
+        "zstd.h",
+        "gpx4_container_o22.h",
+        "png.h",
+        "stdint.h",
+        "time.h",
+        "pthread.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
@@ -21264,170 +21573,170 @@
     },
     "geopixel_v20_o24_fix.c": {
       "imports": [
-        "geo_goldberg_tile.h",
-        "math.h",
-        "stdio.h",
-        "time.h",
-        "png.h",
-        "gpx4_container_o22.h",
-        "stdint.h",
-        "zstd.h",
-        "pthread.h",
-        "stdatomic.h",
-        "stdlib.h",
-        "geo_o4_connector.h",
         "string.h",
         "geo_tring_addr.h",
-        "geo_gpx_anim_o23.h"
+        "math.h",
+        "geo_goldberg_tile.h",
+        "stdatomic.h",
+        "geo_gpx_anim_o23.h",
+        "geo_o4_connector.h",
+        "stdlib.h",
+        "zstd.h",
+        "gpx4_container_o22.h",
+        "png.h",
+        "stdint.h",
+        "time.h",
+        "pthread.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "geopixel_v20_o24_fixed.c": {
       "imports": [
-        "geo_goldberg_tile.h",
-        "math.h",
-        "stdio.h",
-        "time.h",
-        "assert.h",
-        "png.h",
-        "stdint.h",
-        "zstd.h",
-        "pthread.h",
-        "stdatomic.h",
-        "gpx4_container_o22.h",
-        "stdlib.h",
-        "geo_o4_connector.h",
         "string.h",
         "geo_tring_addr.h",
-        "geo_gpx_anim_o23.h"
+        "math.h",
+        "assert.h",
+        "geo_goldberg_tile.h",
+        "stdatomic.h",
+        "geo_gpx_anim_o23.h",
+        "geo_o4_connector.h",
+        "stdlib.h",
+        "zstd.h",
+        "gpx4_container_o22.h",
+        "png.h",
+        "stdint.h",
+        "time.h",
+        "pthread.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "assert.h": {
       "imports": [],
       "imported_by": [
-        "test_coord_wallet.c",
-        "test_geo_net_wire.c",
+        "test_payload_store.c",
+        "test_roundtrip.c",
+        "test_llm_integration.c",
+        "test_reconstruct.c",
+        "test_gpu_wire.c",
+        "test_goldberg_pipeline.c",
+        "test_s18.c",
+        "test_geo_kv.c",
         "test_thin_integration.c",
-        "test_chunk_index.c",
+        "test_coord_wallet.c",
+        "test_s17.c",
+        "geo_kv_bridge.h",
+        "geopixel_v20_o24_fixed.c",
+        "test_s21.c",
         "test_compress_s1.c",
         "geopixel_v20_o24_fixed2.c",
-        "test_s17.c",
-        "test_roundtrip.c",
-        "test_s18.c",
+        "test_chunk_index.c",
+        "test_geo_net_wire.c",
+        "test_s19.c",
         "test_s16.c",
         "test_twin_bridge.c",
-        "test_reconstruct.c",
-        "test_s19.c",
-        "geopixel_v20_o24_fixed.c",
-        "test_llm_integration.c",
-        "test_goldberg_pipeline.c",
-        "test_payload_store.c",
-        "test_s21.c",
-        "test_gpu_wire.c",
-        "pogls_detach.c",
-        "test_geo_kv.c",
-        "geo_kv_bridge.h"
+        "pogls_detach.c"
       ]
     },
     "geopixel_v20_o24_fixed2.c": {
       "imports": [
-        "geo_goldberg_tile.h",
-        "math.h",
-        "stdio.h",
-        "time.h",
-        "assert.h",
-        "png.h",
-        "stdint.h",
-        "zstd.h",
-        "pthread.h",
-        "stdatomic.h",
-        "gpx4_container_o22.h",
-        "stdlib.h",
-        "geo_o4_connector.h",
         "string.h",
         "geo_tring_addr.h",
-        "geo_gpx_anim_o23.h"
+        "math.h",
+        "assert.h",
+        "geo_goldberg_tile.h",
+        "stdatomic.h",
+        "geo_gpx_anim_o23.h",
+        "geo_o4_connector.h",
+        "stdlib.h",
+        "zstd.h",
+        "gpx4_container_o22.h",
+        "png.h",
+        "stdint.h",
+        "time.h",
+        "pthread.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "geopixel_v20_o24_fixed3.c": {
       "imports": [
-        "geo_goldberg_tile.h",
-        "math.h",
-        "stdio.h",
-        "time.h",
-        "png.h",
-        "gpx4_container_o22.h",
-        "stdint.h",
-        "zstd.h",
-        "pthread.h",
-        "stdatomic.h",
-        "stdlib.h",
-        "geo_o4_connector.h",
         "string.h",
         "geo_tring_addr.h",
-        "geo_gpx_anim_o23.h"
+        "math.h",
+        "geo_goldberg_tile.h",
+        "stdatomic.h",
+        "geo_gpx_anim_o23.h",
+        "geo_o4_connector.h",
+        "stdlib.h",
+        "zstd.h",
+        "gpx4_container_o22.h",
+        "png.h",
+        "stdint.h",
+        "time.h",
+        "pthread.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "geopixel_v20_o24_fixed4.c": {
       "imports": [
-        "geo_goldberg_tile.h",
-        "math.h",
-        "stdio.h",
-        "time.h",
-        "png.h",
-        "gpx4_container_o22.h",
-        "stdint.h",
-        "zstd.h",
-        "pthread.h",
-        "stdatomic.h",
-        "stdlib.h",
-        "geo_o4_connector.h",
         "string.h",
         "geo_tring_addr.h",
-        "geo_gpx_anim_o23.h"
+        "math.h",
+        "geo_goldberg_tile.h",
+        "stdatomic.h",
+        "geo_gpx_anim_o23.h",
+        "geo_o4_connector.h",
+        "stdlib.h",
+        "zstd.h",
+        "gpx4_container_o22.h",
+        "png.h",
+        "stdint.h",
+        "time.h",
+        "pthread.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "geopixel_v21_clean.c": {
       "imports": [
-        "geo_goldberg_tile.h",
-        "math.h",
-        "stdio.h",
-        "time.h",
-        "png.h",
-        "gpx4_container_o22.h",
-        "stdint.h",
-        "zstd.h",
-        "pthread.h",
-        "stdatomic.h",
-        "stdlib.h",
-        "geo_o4_connector.h",
         "string.h",
         "geo_tring_addr.h",
-        "geo_gpx_anim_o23.h"
+        "math.h",
+        "geo_goldberg_tile.h",
+        "stdatomic.h",
+        "geo_gpx_anim_o23.h",
+        "geo_o4_connector.h",
+        "stdlib.h",
+        "zstd.h",
+        "gpx4_container_o22.h",
+        "png.h",
+        "stdint.h",
+        "time.h",
+        "pthread.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "geopixel_v21_delta.c": {
       "imports": [
-        "geo_goldberg_tile.h",
-        "math.h",
-        "stdio.h",
-        "time.h",
-        "png.h",
-        "gpx4_container_o22.h",
-        "stdint.h",
-        "zstd.h",
-        "pthread.h",
-        "stdatomic.h",
-        "stdlib.h",
-        "geo_o4_connector.h",
         "string.h",
         "geo_tring_addr.h",
-        "geo_gpx_anim_o23.h"
+        "math.h",
+        "geo_goldberg_tile.h",
+        "stdatomic.h",
+        "geo_gpx_anim_o23.h",
+        "geo_o4_connector.h",
+        "stdlib.h",
+        "zstd.h",
+        "gpx4_container_o22.h",
+        "png.h",
+        "stdint.h",
+        "time.h",
+        "pthread.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
@@ -21437,25 +21746,49 @@
     },
     "geopixel_v21_o25.c": {
       "imports": [
-        "geo_goldberg_tile.h",
-        "math.h",
-        "stdio.h",
-        "time.h",
-        "png.h",
-        "gpx4_container_o22.h",
-        "stdint.h",
-        "zstd.h",
-        "pthread.h",
-        "stdatomic.h",
-        "stdlib.h",
-        "geo_o4_connector.h",
         "string.h",
         "geo_tring_addr.h",
-        "geo_gpx_anim_o23.h"
+        "math.h",
+        "geo_goldberg_tile.h",
+        "stdatomic.h",
+        "geo_gpx_anim_o23.h",
+        "geo_o4_connector.h",
+        "stdlib.h",
+        "zstd.h",
+        "gpx4_container_o22.h",
+        "png.h",
+        "stdint.h",
+        "time.h",
+        "pthread.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "goldberg_entropy_test.html": {
+      "imports": [],
+      "imported_by": []
+    },
+    "gen_goldberg_o11.c": {
+      "imports": [],
+      "imported_by": []
+    },
+    "gp20_both.bmp": {
+      "imports": [],
+      "imported_by": []
+    },
+    "gp20_equirect.bmp": {
+      "imports": [],
+      "imported_by": []
+    },
+    "gp20_gnomonic.bmp": {
+      "imports": [],
+      "imported_by": []
+    },
+    "o11_seam_analysis.html": {
+      "imports": [],
+      "imported_by": []
+    },
+    "goldberg_sphere_projection.zip": {
       "imports": [],
       "imported_by": []
     },
@@ -21535,6 +21868,10 @@
       "imports": [],
       "imported_by": []
     },
+    "SESSION-SUMMARY-June13-contd.md": {
+      "imports": [],
+      "imported_by": []
+    },
     "HANDOFF_2026-05-09.md": {
       "imports": [],
       "imported_by": []
@@ -21605,11 +21942,11 @@
     },
     "fgls_twin_store.h": {
       "imports": [
-        "geo_cube_file_store.h",
+        "string.h",
         "geo_dodeca.h",
-        "geo_giant_array.h",
+        "geo_cube_file_store.h",
         "stdint.h",
-        "string.h"
+        "geo_giant_array.h"
       ],
       "imported_by": [
         "test_fgls_twin_store.c",
@@ -21619,74 +21956,74 @@
     "geo_config.h": {
       "imports": [],
       "imported_by": [
-        "test_geo_net_wire.c",
-        "bench_fused_x4.c",
-        "geo_cylinder.h",
-        "pogls_pipeline_wire.h",
-        "test_roundtrip.c",
-        "geo_payload_store.h",
-        "geo_net_so_s32.c",
-        "geo_radial_hilbert.h",
-        "geo_thirdeye.h",
-        "test_twin_bridge.c",
-        "geo_tring_goldberg_wire.h",
-        "geo_net_so.c",
-        "geo_pipeline_wire.h",
-        "geo_net_so_s29.c",
-        "geo_letter_cube.h",
-        "geomatrix_shared.h",
         "test_payload_store.c",
+        "test_roundtrip.c",
         "geo_whe.h",
-        "pogls_twin_bridge.h",
+        "geo_pipeline_wire.h",
+        "geo_thirdeye.h",
+        "geo_cylinder.h",
+        "geo_net_so.c",
+        "geomatrix_shared.h",
+        "pogls_pipeline_wire.h",
+        "geo_net_so_s32.c",
         "geo_diamond_v5x4.h",
-        "geo_net_so_s30.c"
+        "bench_fused_x4.c",
+        "geo_tring_goldberg_wire.h",
+        "geo_radial_hilbert.h",
+        "geo_net_so_s30.c",
+        "geo_letter_cube.h",
+        "test_geo_net_wire.c",
+        "geo_net_so_s29.c",
+        "geo_payload_store.h",
+        "test_twin_bridge.c",
+        "pogls_twin_bridge.h"
       ]
     },
     "geo_payload_store.h": {
       "imports": [
         "string.h",
-        "geo_config.h",
-        "stdint.h"
+        "stdint.h",
+        "geo_config.h"
       ],
       "imported_by": [
-        "geo_union_mask.h",
         "geo_payload_store_compat.h",
         "geo_payload_wired.h",
+        "geo_union_mask.h",
         "test_payload_store.c"
       ]
     },
     "geo_tring_goldberg_wire.h": {
       "imports": [
-        "pogls_platform.h",
-        "geo_diamond_field.h",
-        "geo_goldberg_scan.h",
-        "geo_config.h",
-        "pogls_pipeline_wire.h",
-        "geo_temporal_lut.h",
-        "geo_radial_hilbert.h",
-        "pogls_goldberg_pipeline.h",
-        "geo_thirdeye.h",
-        "geo_hardening_whe.h",
-        "geo_dodeca.h",
-        "geo_temporal_ring.h",
-        "geo_goldberg_tracker.h",
-        "geo_pipeline_wire.h",
-        "theta_map.h",
-        "geo_goldberg_tring_bridge.h",
-        "geomatrix_shared.h",
-        "stdint.h",
-        "geo_s11.h",
-        "geo_whe.h",
-        "geo_tring_stream.h",
-        "geo_fibo_clock.h",
         "geo_goldberg_lut.h",
+        "geo_goldberg_scan.h",
+        "pogls_goldberg_pipeline.h",
+        "geo_route.h",
+        "geo_whe.h",
+        "geo_dodeca.h",
+        "geo_s11.h",
+        "geo_goldberg_tring_bridge.h",
+        "geo_pipeline_wire.h",
+        "geo_thirdeye.h",
+        "string.h",
+        "geo_temporal_ring.h",
+        "geomatrix_shared.h",
+        "pogls_geomatrix.h",
+        "geo_config.h",
+        "geo_temporal_lut.h",
         "pogls_qrpn_phaseE.h",
         "pogls_goldberg_bridge.h",
+        "geo_diamond_field.h",
+        "pogls_pipeline_wire.h",
+        "geo_goldberg_tracker.h",
+        "theta_map.h",
+        "geo_radial_hilbert.h",
         "stdio.h",
-        "pogls_geomatrix.h",
+        "geo_fibo_clock.h",
+        "geo_hardening_whe.h",
+        "geo_tring_stream.h",
+        "pogls_platform.h",
         "pogls_twin_bridge.h",
-        "geo_route.h",
-        "string.h"
+        "stdint.h"
       ],
       "imported_by": [
         "test_tring_goldberg.c"
@@ -21782,9 +22119,9 @@
         "stdint.h"
       ],
       "imported_by": [
+        "geo_tring_goldberg_wire.h",
         "geo_rewind.h",
-        "geo_temporal_ring.h",
-        "geo_tring_goldberg_wire.h"
+        "geo_temporal_ring.h"
       ]
     },
     "geo_tring_walk.h": {
@@ -21904,6 +22241,10 @@
       "imported_by": []
     },
     "test_dispatch_v2": {
+      "imports": [],
+      "imported_by": []
+    },
+    "analyze_smolvlm.py": {
       "imports": [],
       "imported_by": []
     },
@@ -22225,6 +22566,14 @@
       "imports": [],
       "imported_by": []
     },
+    "convert_bf16_to_qdat.py": {
+      "imports": [],
+      "imported_by": []
+    },
+    "convert_bf16_to_qdat_fast.py": {
+      "imports": [],
+      "imported_by": []
+    },
     "coord_real_registry.json": {
       "imports": [],
       "imported_by": []
@@ -22240,64 +22589,64 @@
     "_geo_net.h": {
       "imports": [
         "string.h",
-        "geo_cylinder.h",
+        "stdint.h",
         "geo_thirdeye.h",
-        "stdint.h"
+        "geo_cylinder.h"
       ],
       "imported_by": []
-    },
-    "geo_cylinder.h": {
-      "imports": [
-        "geomatrix_shared.h",
-        "geo_config.h",
-        "stdint.h",
-        "stdio.h"
-      ],
-      "imported_by": [
-        "geo_net_patched.h",
-        "geo_net_so.c",
-        "geo_net_so_s29.c",
-        "test_geo_net_wire.c",
-        "_geo_net.h",
-        "geo_net.h",
-        "geo_net_so_s32.c",
-        "geo_net_so_s30.c"
-      ]
     },
     "geo_thirdeye.h": {
       "imports": [
         "string.h",
-        "geo_config.h",
         "stdint.h",
+        "geo_config.h",
         "stdio.h"
       ],
       "imported_by": [
-        "geo_net_patched.h",
-        "geo_net_so.c",
-        "geo_net_so_s29.c",
-        "twin_core_geo_fibo_clock.h",
-        "test_geo_net_wire.c",
-        "_geo_net.h",
-        "test_roundtrip.c",
-        "geo_tring_goldberg_wire.h",
-        "test_twin_bridge.c",
-        "geo_net.h",
         "geo_net_so_s32.c",
+        "twin_core_geo_fibo_clock.h",
+        "geo_fibo_clock.h",
+        "test_geo_net_wire.c",
+        "geo_net.h",
+        "test_roundtrip.c",
+        "geo_net_so_s29.c",
+        "_geo_net.h",
+        "test_twin_bridge.c",
+        "geo_net_patched.h",
+        "geo_tring_goldberg_wire.h",
         "geo_net_so_s30.c",
-        "geo_fibo_clock.h"
+        "geo_net_so.c"
+      ]
+    },
+    "geo_cylinder.h": {
+      "imports": [
+        "geomatrix_shared.h",
+        "stdint.h",
+        "geo_config.h",
+        "stdio.h"
+      ],
+      "imported_by": [
+        "geo_net_so_s32.c",
+        "test_geo_net_wire.c",
+        "geo_net.h",
+        "geo_net_so_s29.c",
+        "_geo_net.h",
+        "geo_net_patched.h",
+        "geo_net_so_s30.c",
+        "geo_net_so.c"
       ]
     },
     "angular_mapper_v36.c": {
       "imports": [
-        "mman.h",
-        "stdio.h",
-        "stdlib.h",
-        "pogls_v3.h",
-        "fcntl.h",
-        "stat.h",
         "string.h",
+        "mman.h",
+        "pogls_v3.h",
+        "stat.h",
+        "unistd.h",
         "pogls_fibo_addr.h",
-        "unistd.h"
+        "stdlib.h",
+        "fcntl.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
@@ -22305,23 +22654,23 @@
       "imports": [],
       "imported_by": [
         "angular_mapper_v36.c",
-        "pogls_platform.h",
+        "pogls_hydra.c",
         "pogls_delta.c",
-        "pogls_hydra.c"
+        "pogls_platform.h"
       ]
     },
     "pogls_v3.h": {
       "imports": [
         "stddef.h",
-        "math.h",
-        "stdint.h"
+        "stdint.h",
+        "math.h"
       ],
       "imported_by": [
         "pogls_audit.h",
-        "pogls_snapshot.h",
         "angular_mapper_v36.c",
-        "pogls_extensions.c",
+        "pogls_snapshot.h",
         "angular_mapper_v36.h",
+        "pogls_extensions.c",
         "pogls_hydra.h"
       ]
     },
@@ -22330,13 +22679,13 @@
         "stdint.h"
       ],
       "imported_by": [
-        "pogls_hydra_v36.h",
-        "angular_mapper_v36.c",
-        "geo_giant_array.h",
-        "pogls_5world_core.h",
-        "pogls_entangle.h",
         "geo_apex_wire.h",
-        "geo_rubik_drive.h"
+        "angular_mapper_v36.c",
+        "pogls_entangle.h",
+        "geo_rubik_drive.h",
+        "pogls_5world_core.h",
+        "pogls_hydra_v36.h",
+        "geo_giant_array.h"
       ]
     },
     "angular_mapper_v36.h": {
@@ -22351,16 +22700,16 @@
     },
     "entangle_stub2.c": {
       "imports": [
-        "pogls_ntangle_graph.h",
-        "stdint.h"
+        "stdint.h",
+        "pogls_ntangle_graph.h"
       ],
       "imported_by": []
     },
     "pogls_ntangle_graph.h": {
       "imports": [
-        "stdatomic.h",
         "stdint.h",
-        "pogls_node_soa.h"
+        "pogls_node_soa.h",
+        "stdatomic.h"
       ],
       "imported_by": [
         "entangle_stub2.c"
@@ -22368,24 +22717,13 @@
     },
     "geo_apex_wire.h": {
       "imports": [
-        "geo_letter_cube.h",
+        "stdint.h",
         "geo_primitives.h",
         "pogls_fibo_addr.h",
-        "stdint.h"
+        "geo_letter_cube.h"
       ],
       "imported_by": [
         "geo_giant_array.h"
-      ]
-    },
-    "geo_letter_cube.h": {
-      "imports": [
-        "pogls_platform.h",
-        "geo_config.h",
-        "stdint.h",
-        "string.h"
-      ],
-      "imported_by": [
-        "geo_apex_wire.h"
       ]
     },
     "geo_primitives.h": {
@@ -22393,8 +22731,19 @@
         "stdint.h"
       ],
       "imported_by": [
-        "geo_giant_array.h",
+        "geo_apex_wire.h",
         "geo_rubik_drive.h",
+        "geo_giant_array.h"
+      ]
+    },
+    "geo_letter_cube.h": {
+      "imports": [
+        "string.h",
+        "stdint.h",
+        "geo_config.h",
+        "pogls_platform.h"
+      ],
+      "imported_by": [
         "geo_apex_wire.h"
       ]
     },
@@ -22409,9 +22758,9 @@
     },
     "geo_cube_file_store.h": {
       "imports": [
-        "geo_giant_array.h",
         "string.h",
-        "stdint.h"
+        "stdint.h",
+        "geo_giant_array.h"
       ],
       "imported_by": [
         "fgls_twin_store.h"
@@ -22419,89 +22768,89 @@
     },
     "geo_giant_array.h": {
       "imports": [
-        "geo_apex_wire.h",
-        "stdint.h",
-        "geo_primitives.h",
         "string.h",
-        "pogls_fibo_addr.h"
+        "geo_apex_wire.h",
+        "geo_primitives.h",
+        "pogls_fibo_addr.h",
+        "stdint.h"
       ],
       "imported_by": [
-        "geo_cube_file_store.h",
-        "fgls_twin_store.h"
+        "fgls_twin_store.h",
+        "geo_cube_file_store.h"
       ]
     },
     "geomatrix_shared.h": {
       "imports": [
-        "geo_config.h",
-        "stdint.h"
+        "stdint.h",
+        "geo_config.h"
       ],
       "imported_by": [
-        "pogls_geomatrix.h",
         "geo_tring_goldberg_wire.h",
+        "pogls_geomatrix.h",
         "geo_cylinder.h"
       ]
     },
     "geo_diamond_field.h": {
       "imports": [
-        "pogls_fold.h",
+        "stdint.h",
         "immintrin.h",
-        "stdint.h"
+        "pogls_fold.h"
       ],
       "imported_by": [
+        "geo_diamond_v5x4.h",
         "geo_hardening_whe.h",
-        "geo_hardening_whe_s54.h",
-        "bench_fused_x4.c",
+        "geo_read.h",
         "pogls_twin_bridge.h",
         "test_roundtrip.c",
-        "geo_tring_goldberg_wire.h",
-        "geo_read.h",
+        "bench_fused_x4.c",
         "test_twin_bridge.c",
-        "geo_diamond_v5x4.h"
+        "geo_hardening_whe_s54.h",
+        "geo_tring_goldberg_wire.h"
       ]
     },
     "immintrin.h": {
       "imports": [],
       "imported_by": [
         "geo_diamond_field.h",
-        "geo_hardening_whe_s54.h",
-        "pogls_fold.c",
         "pogls_fold.h",
-        "geo_fast_intersect_avx2.h"
+        "geo_hardening_whe_s54.h",
+        "geo_fast_intersect_avx2.h",
+        "pogls_fold.c"
       ]
     },
     "pogls_fold.h": {
       "imports": [
         "string.h",
-        "immintrin.h",
-        "stdint.h"
+        "stdint.h",
+        "immintrin.h"
       ],
       "imported_by": [
-        "pogls_cli.c",
-        "geo_diamond_field.h",
+        "pogls_file_index.h",
+        "pogls_38_rewind.h",
+        "pogls_coord_wallet.h",
+        "test_reconstruct.c",
+        "pogls_api.h",
+        "pogls_scanner.h",
+        "test_edge.c",
+        "pogls_compress.h",
         "pogls_chunk_index.h",
         "test_coord_wallet.c",
-        "ts_mirror.h",
-        "geo_hardening_whe_s54.h",
-        "twin_core_geo_fibo_clock.h",
-        "pogls_detach_eject.h",
-        "geo_hardening_whe.h",
-        "test_fault.c",
-        "test_reconstruct.c",
-        "pogls_file_index.h",
-        "pogls_fold.c",
-        "test_edge.c",
-        "pogls_coord_wallet.h",
-        "pogls_scanner.h",
-        "pogls_38_rewind.h",
-        "pogls_cli_s3.c",
-        "geo_fibo_clock.h",
         "pogls_hydra_v36.h",
-        "pogls_api.h",
-        "pogls_entangle.h",
-        "geo_read.h",
+        "pogls_fold.c",
+        "geo_diamond_field.h",
+        "test_fault.c",
+        "ts_mirror.h",
         "geo_diamond_v5x4.h",
-        "pogls_compress.h",
-        "pogls_reconstruct.h"
+        "twin_core_geo_fibo_clock.h",
+        "pogls_cli.c",
+        "pogls_detach_eject.h",
+        "geo_fibo_clock.h",
+        "pogls_reconstruct.h",
+        "geo_hardening_whe.h",
+        "geo_read.h",
+        "pogls_entangle.h",
+        "geo_hardening_whe_s54.h",
+        "pogls_cli_s3.c"
       ]
     },
     "geo_dodeca.h": {
@@ -22510,24 +22859,24 @@
         "stdint.h"
       ],
       "imported_by": [
-        "bench_fused_x4.c",
-        "pogls_twin_bridge.h",
-        "test_payload_store.c",
-        "geo_dodeca_torus.h",
         "fgls_twin_store.h",
-        "test_roundtrip.c",
-        "geo_tring_goldberg_wire.h",
+        "geo_diamond_v5x4.h",
         "geo_read.h",
+        "geo_dodeca_torus.h",
+        "test_payload_store.c",
+        "test_roundtrip.c",
+        "bench_fused_x4.c",
         "test_twin_bridge.c",
-        "geo_diamond_v5x4.h"
+        "pogls_twin_bridge.h",
+        "geo_tring_goldberg_wire.h"
       ]
     },
     "geo_dodeca_torus.h": {
       "imports": [
-        "geo_fibo_clock.h",
-        "geo_dodeca.h",
+        "stdint.h",
         "stdlib.h",
-        "stdint.h"
+        "geo_dodeca.h",
+        "geo_fibo_clock.h"
       ],
       "imported_by": [
         "geo_route.h"
@@ -22535,24 +22884,24 @@
     },
     "geo_fibo_clock.h": {
       "imports": [
-        "pogls_fold.h",
+        "stdint.h",
         "geo_thirdeye.h",
-        "stdint.h"
+        "pogls_fold.h"
       ],
       "imported_by": [
-        "bench_fused_x4.c",
-        "pogls_twin_bridge.h",
         "geo_dodeca_torus.h",
         "test_roundtrip.c",
-        "geo_tring_goldberg_wire.h",
-        "test_twin_bridge.c"
+        "bench_fused_x4.c",
+        "test_twin_bridge.c",
+        "pogls_twin_bridge.h",
+        "geo_tring_goldberg_wire.h"
       ]
     },
     "geo_error.h": {
       "imports": [
         "string.h",
-        "stdbool.h",
-        "stdint.h"
+        "stdint.h",
+        "stdbool.h"
       ],
       "imported_by": [
         "geo_ops_surface.h"
@@ -22561,122 +22910,122 @@
     "stdbool.h": {
       "imports": [],
       "imported_by": [
-        "pogls_delta.c",
-        "pogls_delta.h",
-        "pogls_geomatrix.h",
         "pogls_pipeline_wire.h",
+        "geo_rewind.h",
         "geo_error.h",
-        "geo_rewind.h"
+        "pogls_delta.c",
+        "pogls_geomatrix.h",
+        "pogls_delta.h"
       ]
     },
     "geo_fast_intersect_avx2.h": {
       "imports": [
-        "geo_hardening_whe.h",
+        "stdint.h",
         "immintrin.h",
-        "stdint.h"
+        "geo_hardening_whe.h"
       ],
       "imported_by": []
     },
     "geo_hardening_whe.h": {
       "imports": [
         "geo_diamond_field.h",
-        "theta_map.h",
-        "stdint.h",
-        "pogls_fold.h",
-        "geo_whe.h",
+        "geo_read.h",
         "geo_route.h",
-        "geo_read.h"
+        "geo_whe.h",
+        "pogls_fold.h",
+        "theta_map.h",
+        "stdint.h"
       ],
       "imported_by": [
-        "pogls_twin_bridge.h",
-        "test_twin_bridge.c",
         "test_roundtrip.c",
+        "test_twin_bridge.c",
+        "pogls_twin_bridge.h",
         "geo_tring_goldberg_wire.h",
         "geo_fast_intersect_avx2.h"
       ]
     },
     "geo_fec.h": {
       "imports": [
-        "geo_tring_stream.h",
         "string.h",
-        "stdint.h"
+        "stdint.h",
+        "geo_tring_stream.h"
       ],
       "imported_by": [
+        "geo_tring_fec.h",
         "geo_fec_rs.h",
-        "geo_ops_surface.h",
-        "geo_tring_fec.h"
+        "geo_ops_surface.h"
       ]
     },
     "geo_tring_stream.h": {
       "imports": [
         "string.h",
-        "geo_pyramid.h",
+        "stdint.h",
         "geo_temporal_ring.h",
-        "stdint.h"
+        "geo_pyramid.h"
       ],
       "imported_by": [
+        "geo_ops_surface.h",
+        "geo_fec.h",
+        "geo_rewind.h",
+        "geo_tring_fec.h",
         "geo_fec_rs.h",
         "geo_rs.h",
-        "geo_ops_surface.h",
-        "geo_tring_goldberg_wire.h",
-        "geo_fec.h",
-        "geo_tring_fec.h",
-        "geo_rewind.h"
+        "geo_tring_goldberg_wire.h"
       ]
     },
     "geo_fec_rs.h": {
       "imports": [
-        "geo_rs.h",
-        "geo_temporal_ring.h",
-        "stdint.h",
-        "geo_fec.h",
-        "geo_tring_stream.h",
-        "geo_rewind.h",
-        "string.h"
-      ],
-      "imported_by": [
-        "geo_tring_fec.h"
-      ]
-    },
-    "geo_rs.h": {
-      "imports": [
-        "geo_tring_stream.h",
         "string.h",
-        "geo_gf256.h",
+        "geo_temporal_ring.h",
+        "geo_tring_stream.h",
+        "geo_fec.h",
+        "geo_rewind.h",
+        "geo_rs.h",
         "stdint.h"
       ],
       "imported_by": [
-        "geo_fec_rs.h"
+        "geo_tring_fec.h"
       ]
     },
     "geo_temporal_ring.h": {
       "imports": [
-        "geo_temporal_lut.h",
         "string.h",
-        "stdint.h"
+        "stdint.h",
+        "geo_temporal_lut.h"
       ],
       "imported_by": [
-        "geo_fec_rs.h",
-        "geo_pyramid.h",
-        "geo_goldberg_tring_bridge.h",
         "geo_ops_surface.h",
-        "geo_tring_goldberg_wire.h",
+        "geo_tring_stream.h",
+        "geo_pyramid.h",
         "geo_tring_fec.h",
-        "geo_tring_stream.h"
+        "geo_fec_rs.h",
+        "geo_goldberg_tring_bridge.h",
+        "geo_tring_goldberg_wire.h"
       ]
     },
     "geo_rewind.h": {
       "imports": [
+        "string.h",
         "stdbool.h",
-        "stdint.h",
-        "geo_temporal_lut.h",
         "geo_tring_stream.h",
-        "string.h"
+        "stdint.h",
+        "geo_temporal_lut.h"
       ],
       "imported_by": [
+        "geo_tring_fec.h",
         "geo_fec_rs.h",
-        "geo_ops_surface.h",
-        "geo_tring_fec.h"
+        "geo_ops_surface.h"
+      ]
+    },
+    "geo_rs.h": {
+      "imports": [
+        "string.h",
+        "geo_gf256.h",
+        "geo_tring_stream.h",
+        "stdint.h"
+      ],
+      "imported_by": [
+        "geo_fec_rs.h"
       ]
     },
     "geo_gf256.h": {
@@ -22690,9 +23039,9 @@
     },
     "geo_goldberg_scan.h": {
       "imports": [
-        "geo_goldberg_lut.h",
         "string.h",
-        "stdint.h"
+        "stdint.h",
+        "geo_goldberg_lut.h"
       ],
       "imported_by": [
         "geo_tring_goldberg_wire.h",
@@ -22706,66 +23055,54 @@
         "geo_goldberg_tring_bridge.h"
       ],
       "imported_by": [
-        "test_tracker.c",
         "geo_tring_goldberg_wire.h",
-        "pogls_goldberg_pipeline.h"
+        "pogls_goldberg_pipeline.h",
+        "test_tracker.c"
       ]
     },
     "geo_goldberg_tring_bridge.h": {
       "imports": [
         "string.h",
-        "geo_goldberg_scan.h",
+        "stdint.h",
         "geo_temporal_ring.h",
-        "stdint.h"
+        "geo_goldberg_scan.h"
       ],
       "imported_by": [
-        "pogls_goldberg_bridge.h",
+        "geo_tring_goldberg_wire.h",
         "geo_goldberg_tracker.h",
-        "geo_tring_goldberg_wire.h"
+        "pogls_goldberg_bridge.h"
       ]
     },
     "geo_hardening_whe_s54.h": {
       "imports": [
         "geo_diamond_field.h",
-        "theta_map.h",
-        "stdint.h",
-        "pogls_fold.h",
-        "geo_whe.h",
-        "geo_route.h",
         "geo_read.h",
-        "immintrin.h"
+        "immintrin.h",
+        "geo_route.h",
+        "geo_whe.h",
+        "pogls_fold.h",
+        "theta_map.h",
+        "stdint.h"
       ],
       "imported_by": [
         "bench_fused_x4.c"
       ]
     },
-    "theta_map.h": {
+    "geo_read.h": {
       "imports": [
-        "stdint.h"
-      ],
-      "imported_by": [
-        "test_coord_wallet.c",
-        "geo_hardening_whe.h",
-        "geo_hardening_whe_s54.h",
-        "bench_fused_x4.c",
-        "pogls_coord_wallet.h",
-        "pogls_scanner.h",
-        "geo_tring_goldberg_wire.h",
-        "geo_read.h",
+        "string.h",
+        "geo_diamond_field.h",
         "geo_route.h",
-        "geo_whe.h"
-      ]
-    },
-    "geo_whe.h": {
-      "imports": [
-        "geo_config.h",
+        "geo_dodeca.h",
+        "pogls_fold.h",
         "theta_map.h",
         "stdint.h"
       ],
       "imported_by": [
         "geo_hardening_whe.h",
-        "geo_tring_goldberg_wire.h",
+        "test_roundtrip.c",
         "bench_fused_x4.c",
+        "test_twin_bridge.c",
         "geo_hardening_whe_s54.h"
       ]
     },
@@ -22776,28 +23113,40 @@
       ],
       "imported_by": [
         "geo_hardening_whe.h",
-        "geo_hardening_whe_s54.h",
+        "geo_read.h",
         "bench_fused_x4.c",
-        "geo_tring_goldberg_wire.h",
-        "geo_read.h"
+        "geo_hardening_whe_s54.h",
+        "geo_tring_goldberg_wire.h"
       ]
     },
-    "geo_read.h": {
+    "geo_whe.h": {
       "imports": [
-        "geo_diamond_field.h",
-        "geo_dodeca.h",
         "theta_map.h",
         "stdint.h",
-        "pogls_fold.h",
-        "geo_route.h",
-        "string.h"
+        "geo_config.h"
+      ],
+      "imported_by": [
+        "geo_tring_goldberg_wire.h",
+        "geo_hardening_whe.h",
+        "bench_fused_x4.c",
+        "geo_hardening_whe_s54.h"
+      ]
+    },
+    "theta_map.h": {
+      "imports": [
+        "stdint.h"
       ],
       "imported_by": [
         "geo_hardening_whe.h",
-        "geo_hardening_whe_s54.h",
+        "geo_read.h",
+        "geo_route.h",
+        "pogls_coord_wallet.h",
+        "geo_whe.h",
         "bench_fused_x4.c",
-        "test_twin_bridge.c",
-        "test_roundtrip.c"
+        "geo_hardening_whe_s54.h",
+        "geo_tring_goldberg_wire.h",
+        "pogls_scanner.h",
+        "test_coord_wallet.c"
       ]
     },
     "geo_kv.h": {
@@ -22808,9 +23157,9 @@
       ],
       "imported_by": [
         "geo_kv_bridge.h",
-        "geo_kv_rehash.h",
         "test_s21.c",
-        "test_geo_kv.c"
+        "test_geo_kv.c",
+        "geo_kv_rehash.h"
       ]
     },
     "geo_kv_rehash.h": {
@@ -22819,55 +23168,55 @@
         "string.h"
       ],
       "imported_by": [
-        "kv_bridge.h",
-        "test_s17.c"
+        "test_s17.c",
+        "kv_bridge.h"
       ]
     },
     "pogls_platform.h": {
       "imports": [
+        "string.h",
+        "windows.h",
         "mman.h",
+        "stat.h",
+        "unistd.h",
+        "stdlib.h",
         "types.h",
         "direct.h",
-        "stdio.h",
         "io.h",
         "stdint.h",
         "pthread.h",
-        "stdlib.h",
         "fcntl.h",
-        "stat.h",
-        "string.h",
-        "windows.h",
-        "unistd.h"
+        "stdio.h"
       ],
       "imported_by": [
-        "pogls_cli.c",
+        "pogls_file_index.h",
+        "pogls_mesh.h",
+        "test_roundtrip.c",
+        "pogls_coord_wallet.h",
+        "test_reconstruct.c",
+        "pogls_api.h",
+        "pogls_scanner.h",
+        "test_edge.c",
+        "bench_weight_stream.c",
+        "pogls_compress.h",
         "pogls_chunk_index.h",
         "test_coord_wallet.c",
-        "pogls_pipeline_wire.h",
-        "test_roundtrip.c",
-        "test_e2e_pipeline.c",
-        "pogls_stream.h",
-        "federation_design.md",
-        "pogls_model_index.h",
-        "test_twin_bridge.c",
-        "geo_tring_goldberg_wire.h",
-        "pogls_mesh.h",
-        "test_reconstruct.c",
-        "test_fault.c",
-        "bench_weight_stream.c",
-        "pogls_file_index.h",
-        "geo_letter_cube.h",
-        "test_edge.c",
-        "bench_ws_scale.c",
-        "pogls_coord_wallet.h",
-        "pogls_scanner.h",
-        "pogls_cli_s3.c",
-        "pogls_api.h",
         "pogls_qrpn_phaseE.h",
-        "pogls_weight_stream.h",
+        "pogls_pipeline_wire.h",
+        "test_fault.c",
+        "pogls_cli.c",
+        "pogls_model_index.h",
+        "pogls_stream.h",
+        "geo_tring_goldberg_wire.h",
         "pogls_federation.h",
-        "pogls_compress.h",
-        "pogls_reconstruct.h"
+        "pogls_weight_stream.h",
+        "geo_letter_cube.h",
+        "federation_design.md",
+        "pogls_reconstruct.h",
+        "test_e2e_pipeline.c",
+        "bench_ws_scale.c",
+        "test_twin_bridge.c",
+        "pogls_cli_s3.c"
       ]
     },
     "geo_lite_field.h": {
@@ -22879,35 +23228,35 @@
     "geo_net.h": {
       "imports": [
         "string.h",
-        "geo_cylinder.h",
+        "stdint.h",
         "geo_thirdeye.h",
-        "stdint.h"
+        "geo_cylinder.h"
       ],
       "imported_by": [
-        "geo_pipeline_wire.h",
         "test_geo_net_wire.c",
         "test_roundtrip.c",
         "test_twin_bridge.c",
+        "geo_pipeline_wire.h",
         "geo_radial_hilbert.h"
       ]
     },
     "geo_ops_surface.h": {
       "imports": [
-        "geo_pyramid.h",
+        "string.h",
         "geo_temporal_ring.h",
-        "stdint.h",
-        "geo_error.h",
-        "geo_fec.h",
         "geo_tring_stream.h",
+        "geo_fec.h",
         "geo_rewind.h",
-        "string.h"
+        "geo_pyramid.h",
+        "geo_error.h",
+        "stdint.h"
       ],
       "imported_by": []
     },
     "geo_pyramid.h": {
       "imports": [
-        "geo_temporal_ring.h",
-        "stdint.h"
+        "stdint.h",
+        "geo_temporal_ring.h"
       ],
       "imported_by": [
         "geo_tring_stream.h",
@@ -22916,32 +23265,32 @@
     },
     "geo_pipeline_wire.h": {
       "imports": [
-        "stdio.h",
+        "string.h",
+        "geo_net.h",
         "geo_config.h",
         "stdint.h",
-        "geo_net.h",
-        "string.h",
-        "geo_radial_hilbert.h"
+        "geo_radial_hilbert.h",
+        "stdio.h"
       ],
       "imported_by": [
-        "test_geo_net_wire.c",
         "pogls_pipeline_wire.h",
+        "test_geo_net_wire.c",
         "test_roundtrip.c",
-        "geo_tring_goldberg_wire.h",
-        "test_twin_bridge.c"
+        "test_twin_bridge.c",
+        "geo_tring_goldberg_wire.h"
       ]
     },
     "geo_radial_hilbert.h": {
       "imports": [
-        "geo_net.h",
+        "stdint.h",
         "geo_config.h",
-        "stdint.h"
+        "geo_net.h"
       ],
       "imported_by": [
-        "test_twin_bridge.c",
+        "geo_tring_goldberg_wire.h",
         "geo_pipeline_wire.h",
-        "test_roundtrip.c",
-        "geo_tring_goldberg_wire.h"
+        "test_twin_bridge.c",
+        "test_roundtrip.c"
       ]
     },
     "geo_rewind_wang.h": {
@@ -22950,55 +23299,36 @@
     },
     "geo_rubik_drive.h": {
       "imports": [
+        "stdint.h",
         "geo_primitives.h",
-        "pogls_fibo_addr.h",
-        "stdint.h"
+        "pogls_fibo_addr.h"
       ],
       "imported_by": []
     },
     "geo_tring_fec.h": {
       "imports": [
-        "geo_fec_rs.h",
+        "string.h",
         "geo_temporal_ring.h",
-        "stdint.h",
-        "geo_fec.h",
         "geo_tring_stream.h",
+        "geo_fec.h",
         "geo_rewind.h",
-        "string.h"
+        "geo_fec_rs.h",
+        "stdint.h"
       ],
       "imported_by": []
     },
-    "pogls_pipeline_wire.h": {
-      "imports": [
-        "pogls_platform.h",
-        "geo_pipeline_wire.h",
-        "stdio.h",
-        "pogls_qrpn_phaseE.h",
-        "pogls_geomatrix.h",
-        "geo_config.h",
-        "stdbool.h",
-        "stdint.h",
-        "string.h"
-      ],
-      "imported_by": [
-        "test_twin_bridge.c",
-        "test_roundtrip.c",
-        "geo_tring_goldberg_wire.h",
-        "pogls_twin_bridge.h"
-      ]
-    },
     "pogls_goldberg_pipeline.h": {
       "imports": [
-        "stdio.h",
         "pogls_goldberg_bridge.h",
+        "string.h",
+        "geo_goldberg_tracker.h",
         "pogls_twin_bridge.h",
         "stdint.h",
-        "geo_goldberg_tracker.h",
-        "string.h"
+        "stdio.h"
       ],
       "imported_by": [
-        "geo_tring_goldberg_wire.h",
-        "test_goldberg_pipeline.c"
+        "test_goldberg_pipeline.c",
+        "geo_tring_goldberg_wire.h"
       ]
     },
     "geo_s11.h": {
@@ -23011,33 +23341,45 @@
         "pogls_twin_bridge.h"
       ]
     },
+    "pogls_geomatrix.h": {
+      "imports": [
+        "geomatrix_shared.h",
+        "stdbool.h"
+      ],
+      "imported_by": [
+        "pogls_pipeline_wire.h",
+        "geo_tring_goldberg_wire.h",
+        "test_twin_bridge.c",
+        "test_roundtrip.c"
+      ]
+    },
     "pogls_qrpn_phaseE.h": {
       "imports": [
-        "pogls_platform.h",
-        "stdatomic.h",
         "stdint.h",
+        "stdatomic.h",
+        "pogls_platform.h",
         "stdio.h"
       ],
       "imported_by": [
-        "pogls_cli.c",
+        "pogls_file_index.h",
+        "test_roundtrip.c",
+        "pogls_coord_wallet.h",
+        "test_reconstruct.c",
+        "pogls_api.h",
+        "test_edge.c",
+        "bench_weight_stream.c",
+        "pogls_compress.h",
         "pogls_chunk_index.h",
         "test_coord_wallet.c",
         "pogls_pipeline_wire.h",
-        "test_roundtrip.c",
-        "test_e2e_pipeline.c",
-        "test_twin_bridge.c",
-        "geo_tring_goldberg_wire.h",
         "test_fault.c",
-        "test_reconstruct.c",
-        "bench_weight_stream.c",
-        "pogls_file_index.h",
-        "test_edge.c",
+        "pogls_cli.c",
+        "geo_tring_goldberg_wire.h",
+        "pogls_reconstruct.h",
+        "test_e2e_pipeline.c",
         "bench_ws_scale.c",
-        "pogls_coord_wallet.h",
-        "pogls_cli_s3.c",
-        "pogls_api.h",
-        "pogls_compress.h",
-        "pogls_reconstruct.h"
+        "test_twin_bridge.c",
+        "pogls_cli_s3.c"
       ]
     },
     "pogls_goldberg_bridge.h": {
@@ -23046,42 +23388,49 @@
         "geo_goldberg_tring_bridge.h"
       ],
       "imported_by": [
-        "test_tracker.c",
         "geo_tring_goldberg_wire.h",
-        "pogls_goldberg_pipeline.h"
+        "pogls_goldberg_pipeline.h",
+        "test_tracker.c"
       ]
     },
-    "pogls_geomatrix.h": {
+    "pogls_pipeline_wire.h": {
       "imports": [
-        "geomatrix_shared.h",
-        "stdbool.h"
+        "string.h",
+        "stdbool.h",
+        "pogls_qrpn_phaseE.h",
+        "pogls_geomatrix.h",
+        "geo_config.h",
+        "pogls_platform.h",
+        "stdint.h",
+        "geo_pipeline_wire.h",
+        "stdio.h"
       ],
       "imported_by": [
+        "geo_tring_goldberg_wire.h",
         "test_twin_bridge.c",
         "test_roundtrip.c",
-        "geo_tring_goldberg_wire.h",
-        "pogls_pipeline_wire.h"
+        "pogls_twin_bridge.h"
       ]
     },
     "pogls_twin_bridge.h": {
       "imports": [
-        "geo_diamond_field.h",
-        "geo_hardening_whe.h",
-        "geo_dodeca.h",
-        "geo_config.h",
-        "pogls_pipeline_wire.h",
-        "stdint.h",
-        "lc_twin_gate.h",
-        "fgls_twin_store.h",
-        "geo_s11.h",
         "string.h",
-        "geo_fibo_clock.h"
+        "pogls_pipeline_wire.h",
+        "geo_diamond_field.h",
+        "fgls_twin_store.h",
+        "geo_fibo_clock.h",
+        "geo_hardening_whe.h",
+        "lc_twin_gate.h",
+        "geo_config.h",
+        "geo_dodeca.h",
+        "geo_s11.h",
+        "stdint.h"
       ],
       "imported_by": [
-        "test_twin_bridge.c",
-        "test_roundtrip.c",
         "geo_tring_goldberg_wire.h",
-        "pogls_goldberg_pipeline.h"
+        "pogls_goldberg_pipeline.h",
+        "test_twin_bridge.c",
+        "test_roundtrip.c"
       ]
     },
     "geo_union_mask.h": {
@@ -23095,22 +23444,22 @@
     },
     "kv_bridge.h": {
       "imports": [
-        "stdatomic.h",
-        "geo_kv_rehash.h",
         "string.h",
-        "stdint.h"
+        "stdint.h",
+        "stdatomic.h",
+        "geo_kv_rehash.h"
       ],
       "imported_by": [
-        "kv_bridge_gpu.h",
         "test_s18.c",
+        "pogls_sdk.h",
         "test_s21.c",
-        "pogls_sdk.h"
+        "kv_bridge_gpu.h"
       ]
     },
     "pogls_5world_core.h": {
       "imports": [
-        "pogls_fibo_addr.h",
-        "stdint.h"
+        "stdint.h",
+        "pogls_fibo_addr.h"
       ],
       "imported_by": [
         "test_5world_core.c"
@@ -23131,8 +23480,8 @@
       ],
       "imported_by": [
         "pogls_snapshot.c",
-        "pogls_audit.h",
-        "pogls_hydra.h"
+        "pogls_hydra.h",
+        "pogls_audit.h"
       ]
     },
     "pogls_bitboard.h": {
@@ -23152,14 +23501,14 @@
         "stdint.h"
       ],
       "imported_by": [
-        "pogls_ntacle_graph.h",
-        "pogls_hydra_scheduler.h",
-        "pogls_tentacle_graph.h",
-        "pogls_graph_topology.h",
-        "pogls_bitboard.h",
+        "pogls_node_lut.h",
         "pogls_ntangle_graph.h",
         "pogls_entangle_graph.h",
-        "pogls_node_lut.h"
+        "pogls_bitboard.h",
+        "pogls_graph_topology.h",
+        "pogls_hydra_scheduler.h",
+        "pogls_ntacle_graph.h",
+        "pogls_tentacle_graph.h"
       ]
     },
     "pogls_checksum.h": {
@@ -23168,33 +23517,33 @@
         "stdint.h"
       ],
       "imported_by": [
-        "llama_pogls_backend.h",
         "pogls_scanner.h",
         "pogls_model_index.h",
+        "llama_pogls_backend.h",
         "pogls_reconstruct.h"
       ]
     },
     "pogls_compress.h": {
       "imports": [
+        "string.h",
         "pogls_platform.h",
-        "pogls_qrpn_phaseE.h",
-        "stdint.h",
         "pogls_fold.h",
-        "string.h"
+        "stdint.h",
+        "pogls_qrpn_phaseE.h"
       ],
       "imported_by": [
+        "test_fault.c",
+        "bench_weight_stream.c",
+        "test_e2e_pipeline.c",
         "pogls_cli.c",
-        "pogls_chunk_index.h",
-        "pogls_api.h",
         "llama_pogls_backend.h",
         "test_compress_s1.c",
-        "test_edge.c",
         "bench_ws_scale.c",
-        "test_e2e_pipeline.c",
-        "pogls_cli_s3.c",
-        "test_fault.c",
+        "pogls_chunk_index.h",
         "test_reconstruct.c",
-        "bench_weight_stream.c"
+        "pogls_api.h",
+        "pogls_cli_s3.c",
+        "test_edge.c"
       ]
     },
     "pogls_compute_lut.h": {
@@ -23209,24 +23558,24 @@
     },
     "pogls_delta.h": {
       "imports": [
-        "stdbool.h",
         "stddef.h",
-        "stdint.h"
+        "stdint.h",
+        "stdbool.h"
       ],
       "imported_by": [
-        "pogls_delta_ext.h",
-        "pogls_delta.c",
         "federation_design.md",
+        "pogls_delta_world_b.h",
         "pogls_detach_lane.h",
-        "pogls_federation.h",
-        "pogls_delta_world_b.h"
+        "pogls_delta.c",
+        "pogls_delta_ext.h",
+        "pogls_federation.h"
       ]
     },
     "pogls_delta_ext.h": {
       "imports": [
+        "string.h",
         "pogls_delta_world_b.h",
-        "pogls_delta.h",
-        "string.h"
+        "pogls_delta.h"
       ],
       "imported_by": [
         "pogls_delta_ext.c"
@@ -23237,9 +23586,9 @@
         "pogls_delta.h"
       ],
       "imported_by": [
-        "pogls_delta_ext.h",
         "pogls_federation.h",
         "federation_design.md",
+        "pogls_delta_ext.h",
         "pogls_delta_world_b.c"
       ]
     },
@@ -23250,26 +23599,26 @@
         "stdio.h"
       ],
       "imported_by": [
-        "pogls38_giant_shadow (1).h",
-        "pogls_mesh.h",
         "test_38_giant_shadow.c",
-        "pogls38_giant_shadow.h"
+        "pogls38_giant_shadow.h",
+        "pogls38_giant_shadow (1).h",
+        "pogls_mesh.h"
       ]
     },
     "pogls_fold.c": {
       "imports": [
-        "stdio.h",
-        "pogls_fold.h",
+        "string.h",
         "immintrin.h",
         "stdlib.h",
-        "string.h"
+        "pogls_fold.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "pogls_frontier.h": {
       "imports": [
-        "pogls_bitboard.h",
-        "pogls_graph_topology.h"
+        "pogls_graph_topology.h",
+        "pogls_bitboard.h"
       ],
       "imported_by": [
         "pogls_compute_stack.c"
@@ -23287,28 +23636,28 @@
     },
     "pogls_mesh.h": {
       "imports": [
-        "pogls_platform.h",
+        "string.h",
         "math.h",
         "pogls_detach_lane.h",
-        "stdio.h",
-        "stdint.h",
         "pogls_engine_slice.h",
-        "string.h"
+        "pogls_platform.h",
+        "stdint.h",
+        "stdio.h"
       ],
       "imported_by": [
+        "test_38_giant_shadow.c",
         "pogls38_giant_shadow (1).h",
-        "pogls38_giant_shadow.h",
-        "test_38_giant_shadow.c"
+        "pogls38_giant_shadow.h"
       ]
     },
     "pogls_detach_lane.h": {
       "imports": [
-        "pogls_delta.h",
-        "stdio.h",
-        "time.h",
+        "string.h",
         "stdint.h",
+        "time.h",
         "pthread.h",
-        "string.h"
+        "pogls_delta.h",
+        "stdio.h"
       ],
       "imported_by": [
         "pogls_mesh.h"
@@ -23320,9 +23669,9 @@
         "stdint.h"
       ],
       "imported_by": [
+        "test_38_giant_shadow.c",
         "pogls38_giant_shadow (1).h",
-        "pogls38_giant_shadow.h",
-        "test_38_giant_shadow.c"
+        "pogls38_giant_shadow.h"
       ]
     },
     "pogls_morton.h": {
@@ -23340,6 +23689,13 @@
         "pogls_hydra_scheduler.c"
       ]
     },
+    "windows.h": {
+      "imports": [],
+      "imported_by": [
+        "llama_pogls_runner.c",
+        "pogls_platform.h"
+      ]
+    },
     "direct.h": {
       "imports": [],
       "imported_by": [
@@ -23352,100 +23708,93 @@
         "pogls_platform.h"
       ]
     },
-    "windows.h": {
-      "imports": [],
-      "imported_by": [
-        "pogls_platform.h",
-        "llama_pogls_runner.c"
-      ]
-    },
     "pogls_reconstruct.h": {
       "imports": [
-        "pogls_platform.h",
-        "pogls_qrpn_phaseE.h",
+        "string.h",
         "pogls_checksum.h",
-        "stdint.h",
+        "pogls_platform.h",
         "pogls_fold.h",
-        "string.h"
+        "stdint.h",
+        "pogls_qrpn_phaseE.h"
       ],
       "imported_by": [
-        "pogls_cli.c",
-        "pogls_api.h",
-        "llama_pogls_backend.h",
         "S83_HANDOFF_v2.md",
-        "test_edge.c",
-        "bench_ws_scale.c",
-        "test_e2e_pipeline.c",
-        "pogls_cli_s3.c",
         "test_fault.c",
+        "bench_weight_stream.c",
+        "test_e2e_pipeline.c",
+        "pogls_cli.c",
+        "llama_pogls_backend.h",
+        "bench_ws_scale.c",
         "test_reconstruct.c",
-        "bench_weight_stream.c"
+        "pogls_api.h",
+        "pogls_cli_s3.c",
+        "test_edge.c"
       ]
     },
     "pogls_scanner.h": {
       "imports": [
-        "pogls_platform.h",
-        "theta_map.h",
-        "pogls_checksum.h",
-        "stdint.h",
+        "string.h",
         "angular_mapper_v36.h",
+        "pogls_checksum.h",
+        "pogls_platform.h",
         "pogls_fold.h",
-        "string.h"
+        "theta_map.h",
+        "stdint.h"
       ],
       "imported_by": [
-        "pogls_cli.c",
-        "pogls_api.h",
-        "llama_pogls_backend.h",
-        "test_edge.c",
-        "bench_ws_scale.c",
-        "test_e2e_pipeline.c",
-        "pogls_cli_s3.c",
         "test_fault.c",
+        "bench_weight_stream.c",
+        "test_e2e_pipeline.c",
+        "pogls_cli.c",
+        "llama_pogls_backend.h",
+        "bench_ws_scale.c",
         "test_reconstruct.c",
-        "bench_weight_stream.c"
+        "pogls_api.h",
+        "pogls_cli_s3.c",
+        "test_edge.c"
       ]
     },
     "pogls_sdk.h": {
       "imports": [
-        "stdio.h",
-        "kv_bridge.h",
+        "string.h",
         "inttypes.h",
-        "stdint.h",
         "stdlib.h",
-        "string.h"
+        "stdint.h",
+        "kv_bridge.h",
+        "stdio.h"
       ],
       "imported_by": [
-        "bench_s20_v2.c",
-        "pogls_sdk_so.c",
-        "test_s16.c",
-        "test_s17.c",
-        "test_s21.c",
         "pogls_stats_out.h",
-        "test_s19.c"
+        "test_s19.c",
+        "pogls_sdk_so.c",
+        "test_s21.c",
+        "bench_s20_v2.c",
+        "test_s16.c",
+        "test_s17.c"
       ]
     },
     "inttypes.h": {
       "imports": [],
       "imported_by": [
-        "bench_s20_v2.c",
-        "pogls_sdk.h",
-        "test_chunk_index.c",
-        "test_s19.c",
         "pogls_admin_snapshot.h",
-        "test_s21.c",
-        "llama_pogls_runner.c",
-        "bench_s4.c",
-        "llama_pogls_backend.c",
         "pogls38_giant_shadow (1).h",
+        "llama_pogls_runner.c",
+        "test_chunk_index.c",
+        "llama_pogls_backend.c",
         "pogls38_giant_shadow.h",
-        "test_38_giant_shadow.c"
+        "test_s19.c",
+        "test_38_giant_shadow.c",
+        "test_s21.c",
+        "bench_s20_v2.c",
+        "bench_s4.c",
+        "pogls_sdk.h"
       ]
     },
     "pogls_stats_out.h": {
       "imports": [
-        "stdatomic.h",
         "string.h",
         "stdint.h",
+        "stdatomic.h",
         "pogls_sdk.h"
       ],
       "imported_by": [
@@ -23455,29 +23804,29 @@
     },
     "pogls_stream.h": {
       "imports": [
-        "pogls_platform.h",
         "string.h",
-        "stdint.h"
+        "stdint.h",
+        "pogls_platform.h"
       ],
       "imported_by": [
-        "pogls_cli.c",
-        "pogls_api.h",
-        "llama_pogls_backend.h",
-        "test_edge.c",
-        "bench_ws_scale.c",
-        "test_e2e_pipeline.c",
-        "pogls_cli_s3.c",
         "test_fault.c",
-        "bench_weight_stream.c"
+        "bench_weight_stream.c",
+        "test_e2e_pipeline.c",
+        "pogls_cli.c",
+        "llama_pogls_backend.h",
+        "bench_ws_scale.c",
+        "pogls_api.h",
+        "pogls_cli_s3.c",
+        "test_edge.c"
       ]
     },
     "geo_diamond_v5x4.h": {
       "imports": [
         "geo_diamond_field.h",
-        "geo_dodeca.h",
+        "geo_diamond_field5.h",
         "geo_config.h",
-        "pogls_fold.h",
-        "geo_diamond_field5.h"
+        "geo_dodeca.h",
+        "pogls_fold.h"
       ],
       "imported_by": []
     },
@@ -23490,38 +23839,38 @@
     "ts_mirror.h": {
       "imports": [
         "string.h",
-        "pogls_fold.h",
-        "stdint.h"
+        "stdint.h",
+        "pogls_fold.h"
       ],
       "imported_by": []
     },
     "twin_core_geo_fibo_clock.h": {
       "imports": [
-        "pogls_fold.h",
+        "stdint.h",
         "geo_thirdeye.h",
-        "stdint.h"
+        "pogls_fold.h"
       ],
       "imported_by": []
     },
     "bench_s20_v2.c": {
       "imports": [
-        "pogls_sdk.h",
-        "time.h",
-        "stdio.h",
+        "string.h",
         "inttypes.h",
         "stdint.h",
-        "string.h"
+        "time.h",
+        "pogls_sdk.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "geo_kv_bridge.h": {
       "imports": [
-        "stdio.h",
+        "string.h",
         "geo_kv.h",
         "cuda_runtime.h",
         "assert.h",
         "stdint.h",
-        "string.h"
+        "stdio.h"
       ],
       "imported_by": []
     },
@@ -23529,9 +23878,9 @@
       "imports": [],
       "imported_by": [
         "kv_bridge_gpu.h",
-        "geo_kv_bridge.h",
+        "pogls_38_gpu2.h",
         "pogls_38_gpu.h",
-        "pogls_38_gpu2.h"
+        "geo_kv_bridge.h"
       ]
     },
     "geo_kv_gpu.cu": {
@@ -23542,8 +23891,8 @@
     },
     "geo_payload_wired.h": {
       "imports": [
-        "geo_union_mask.h",
-        "geo_payload_store.h"
+        "geo_payload_store.h",
+        "geo_union_mask.h"
       ],
       "imported_by": [
         "geo_pipeline.h"
@@ -23576,23 +23925,23 @@
     },
     "kv_bridge_gpu.h": {
       "imports": [
-        "stdio.h",
         "cuda_runtime.h",
-        "kv_bridge.h",
-        "stdint.h",
+        "geo_kv_gpu.cu",
         "stdlib.h",
-        "geo_kv_gpu.cu"
+        "stdint.h",
+        "kv_bridge.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "pogls_admin_snapshot.h": {
       "imports": [
-        "stdio.h",
-        "time.h",
+        "string.h",
         "inttypes.h",
-        "stdint.h",
         "stdatomic.h",
-        "string.h"
+        "stdint.h",
+        "time.h",
+        "stdio.h"
       ],
       "imported_by": [
         "test_s21.c"
@@ -23600,12 +23949,12 @@
     },
     "pogls_chunk_index.h": {
       "imports": [
-        "pogls_platform.h",
-        "pogls_qrpn_phaseE.h",
-        "stdint.h",
-        "pogls_fold.h",
+        "string.h",
         "pogls_compress.h",
-        "string.h"
+        "pogls_fold.h",
+        "pogls_platform.h",
+        "stdint.h",
+        "pogls_qrpn_phaseE.h"
       ],
       "imported_by": [
         "test_chunk_index.c"
@@ -23613,12 +23962,12 @@
     },
     "pogls_coord_wallet.h": {
       "imports": [
+        "string.h",
         "pogls_platform.h",
-        "theta_map.h",
-        "pogls_qrpn_phaseE.h",
-        "stdint.h",
         "pogls_fold.h",
-        "string.h"
+        "theta_map.h",
+        "stdint.h",
+        "pogls_qrpn_phaseE.h"
       ],
       "imported_by": [
         "test_coord_wallet.c"
@@ -23626,23 +23975,23 @@
     },
     "pogls_file_index.h": {
       "imports": [
+        "string.h",
         "pogls_platform.h",
-        "pogls_qrpn_phaseE.h",
-        "stdint.h",
         "pogls_fold.h",
-        "string.h"
+        "stdint.h",
+        "pogls_qrpn_phaseE.h"
       ],
       "imported_by": [
-        "pogls_cli.c",
-        "pogls_api.h",
-        "llama_pogls_backend.h",
-        "test_edge.c",
-        "bench_ws_scale.c",
-        "test_e2e_pipeline.c",
-        "pogls_cli_s3.c",
         "test_fault.c",
+        "bench_weight_stream.c",
+        "test_e2e_pipeline.c",
+        "pogls_cli.c",
+        "llama_pogls_backend.h",
+        "bench_ws_scale.c",
         "test_reconstruct.c",
-        "bench_weight_stream.c"
+        "pogls_api.h",
+        "pogls_cli_s3.c",
+        "test_edge.c"
       ]
     },
     "pogls_lane_rebalance.h": {
@@ -23657,12 +24006,12 @@
     },
     "pogls_llm_adapter.h": {
       "imports": [
-        "stdio.h",
+        "string.h",
+        "stdlib.h",
+        "curl.h",
         "stdint.h",
         "pthread.h",
-        "stdlib.h",
-        "string.h",
-        "curl.h"
+        "stdio.h"
       ],
       "imported_by": []
     },
@@ -23674,13 +24023,24 @@
     },
     "pogls_llm_executor.h": {
       "imports": [
-        "stdio.h",
-        "stdint.h",
+        "pogls_lane_rebalance.h",
         "pogls_v4_api.h",
         "pogls_llm_hook.h",
-        "pogls_lane_rebalance.h"
+        "stdint.h",
+        "stdio.h"
       ],
       "imported_by": [
+        "test_llm_integration.c"
+      ]
+    },
+    "pogls_llm_hook.h": {
+      "imports": [
+        "stddef.h",
+        "stdint.h",
+        "string.h"
+      ],
+      "imported_by": [
+        "pogls_llm_executor.h",
         "test_llm_integration.c"
       ]
     },
@@ -23690,117 +24050,106 @@
         "pogls_llm_executor.h"
       ]
     },
-    "pogls_llm_hook.h": {
-      "imports": [
-        "string.h",
-        "stddef.h",
-        "stdint.h"
-      ],
-      "imported_by": [
-        "test_llm_integration.c",
-        "pogls_llm_executor.h"
-      ]
-    },
     "pogls_model_index.h": {
       "imports": [
-        "pogls_platform.h",
-        "stdio.h",
+        "string.h",
         "pogls_checksum.h",
+        "pogls_platform.h",
         "stdint.h",
-        "string.h"
+        "stdio.h"
       ],
       "imported_by": [
-        "llama_pogls_backend.h",
-        "S83_HANDOFF.md",
-        "bench_ws_scale.c",
         "S83_HANDOFF_v2.md",
-        "bench_weight_stream.c"
+        "bench_weight_stream.c",
+        "llama_pogls_backend.h",
+        "bench_ws_scale.c",
+        "S83_HANDOFF.md"
       ]
     },
     "pogls_sdk_so.c": {
       "imports": [
-        "pogls_stats_out.h",
         "pogls_sdk_so.h",
-        "pogls_sdk.h"
+        "pogls_sdk.h",
+        "pogls_stats_out.h"
       ],
       "imported_by": []
     },
     "pogls_weight_stream.h": {
       "imports": [
-        "pogls_platform.h",
         "string.h",
-        "stdint.h"
+        "stdint.h",
+        "pogls_platform.h"
       ],
       "imported_by": [
-        "bench_ws_scale.c",
         "S83_HANDOFF.md",
-        "S83_HANDOFF_v2.md",
-        "bench_weight_stream.c"
+        "bench_ws_scale.c",
+        "bench_weight_stream.c",
+        "S83_HANDOFF_v2.md"
       ]
     },
     "test_chunk_index.c": {
       "imports": [
-        "pogls_chunk_index.h",
-        "stdio.h",
-        "inttypes.h",
+        "string.h",
         "assert.h",
+        "inttypes.h",
         "stdlib.h",
-        "string.h"
+        "pogls_chunk_index.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "test_compress_s1.c": {
       "imports": [
-        "stdio.h",
-        "assert.h",
-        "stdint.h",
-        "stdlib.h",
+        "string.h",
         "pogls_compress.h",
-        "string.h"
+        "assert.h",
+        "stdlib.h",
+        "stdint.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "test_coord_wallet.c": {
       "imports": [
+        "string.h",
+        "assert.h",
+        "pogls_coord_wallet.h",
+        "stdlib.h",
+        "pogls_fold.h",
         "pogls_platform.h",
         "theta_map.h",
-        "stdio.h",
-        "pogls_qrpn_phaseE.h",
-        "assert.h",
         "stdint.h",
-        "pogls_coord_wallet.h",
-        "pogls_fold.h",
-        "stdlib.h",
-        "string.h"
+        "pogls_qrpn_phaseE.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "test_llm_integration.c": {
       "imports": [
-        "pogls_llm_executor.h",
-        "stdio.h",
-        "assert.h",
-        "stdint.h",
-        "stdlib.h",
         "string.h",
-        "pogls_llm_hook.h"
+        "assert.h",
+        "pogls_llm_hook.h",
+        "stdlib.h",
+        "pogls_llm_executor.h",
+        "stdint.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "test_reconstruct.c": {
       "imports": [
-        "pogls_platform.h",
+        "string.h",
         "pogls_file_index.h",
-        "stdio.h",
-        "pogls_qrpn_phaseE.h",
+        "pogls_reconstruct.h",
+        "pogls_compress.h",
         "assert.h",
+        "stdlib.h",
+        "pogls_fold.h",
+        "pogls_platform.h",
         "stdint.h",
         "pogls_scanner.h",
-        "pogls_fold.h",
-        "stdlib.h",
-        "pogls_compress.h",
-        "string.h",
-        "pogls_reconstruct.h"
+        "pogls_qrpn_phaseE.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
@@ -23854,11 +24203,11 @@
     },
     "test_goldberg_pipeline.c": {
       "imports": [
-        "stdio.h",
-        "assert.h",
-        "stdint.h",
         "string.h",
-        "pogls_goldberg_pipeline.h"
+        "assert.h",
+        "pogls_goldberg_pipeline.h",
+        "stdint.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
@@ -23873,8 +24222,8 @@
     },
     "test_tring_goldberg.c": {
       "imports": [
-        "geo_tring_goldberg_wire.h",
         "string.h",
+        "geo_tring_goldberg_wire.h",
         "stdint.h",
         "stdio.h"
       ],
@@ -23894,48 +24243,54 @@
     },
     "llama_pogls_backend.c": {
       "imports": [
-        "stdio.h",
-        "llama_pogls_backend.h",
+        "string.h",
         "inttypes.h",
+        "llama_pogls_backend.h",
         "stdlib.h",
-        "string.h"
+        "stdio.h"
       ],
       "imported_by": []
     },
     "llama_pogls_backend.h": {
       "imports": [
         "pogls_file_index.h",
+        "pogls_reconstruct.h",
+        "pogls_compress.h",
         "pogls_checksum.h",
         "pogls_model_index.h",
-        "stdint.h",
-        "pogls_scanner.h",
         "pogls_stream.h",
-        "pogls_compress.h",
-        "pogls_reconstruct.h"
+        "stdint.h",
+        "pogls_scanner.h"
       ],
       "imported_by": [
-        "llama_pogls_backend.c",
-        "llama_pogls_runner.c"
+        "llama_pogls_runner.c",
+        "llama_pogls_backend.c"
       ]
     },
     "llama_pogls_runner.c": {
       "imports": [
-        "ctype.h",
-        "ggml.h",
-        "stdio.h",
-        "time.h",
-        "llama_pogls_backend.h",
-        "llama.h",
-        "inttypes.h",
-        "stdint.h",
-        "stdlib.h",
         "string.h",
         "windows.h",
-        "stdarg.h"
+        "inttypes.h",
+        "llama_pogls_backend.h",
+        "stdarg.h",
+        "stdlib.h",
+        "ggml.h",
+        "llama.h",
+        "stdint.h",
+        "stdio.h",
+        "time.h",
+        "ctype.h"
       ],
       "imported_by": []
     },
     "ctype.h": {
+      "imports": [],
+      "imported_by": [
+        "llama_pogls_runner.c"
+      ]
+    },
+    "stdarg.h": {
       "imports": [],
       "imported_by": [
         "llama_pogls_runner.c"
@@ -23948,12 +24303,6 @@
       ]
     },
     "llama.h": {
-      "imports": [],
-      "imported_by": [
-        "llama_pogls_runner.c"
-      ]
-    },
-    "stdarg.h": {
       "imports": [],
       "imported_by": [
         "llama_pogls_runner.c"
@@ -23981,15 +24330,15 @@
     },
     "S83_HANDOFF.md": {
       "imports": [
-        "pogls_weight_stream.h",
-        "pogls_model_index.h"
+        "pogls_model_index.h",
+        "pogls_weight_stream.h"
       ],
       "imported_by": []
     },
     "S83_HANDOFF_v2.md": {
       "imports": [
-        "pogls_weight_stream.h",
         "pogls_model_index.h",
+        "pogls_weight_stream.h",
         "pogls_reconstruct.h"
       ],
       "imported_by": []
@@ -24061,28 +24410,28 @@
     },
     "geo_net_so_s32.c": {
       "imports": [
-        "geo_net_patched.h",
-        "geo_config.h",
-        "geo_cylinder.h",
-        "stdint.h",
-        "stdlib.h",
         "string.h",
-        "geo_thirdeye.h"
+        "stdlib.h",
+        "geo_config.h",
+        "geo_net_patched.h",
+        "stdint.h",
+        "geo_thirdeye.h",
+        "geo_cylinder.h"
       ],
       "imported_by": []
     },
     "geo_net_patched.h": {
       "imports": [
         "string.h",
-        "geo_cylinder.h",
+        "stdint.h",
         "geo_thirdeye.h",
-        "stdint.h"
+        "geo_cylinder.h"
       ],
       "imported_by": [
-        "geo_net_so.c",
-        "geo_net_so_s32.c",
         "geo_net_so_s29.c",
-        "geo_net_so_s30.c"
+        "geo_net_so_s32.c",
+        "geo_net_so_s30.c",
+        "geo_net_so.c"
       ]
     },
     "rest_server_s32.py": {
@@ -24100,8 +24449,8 @@
     "S20_HANDOFF.md": {
       "imports": [
         "pogls_wallet_device",
-        "pogls_weight_stream",
-        "pogls_mount"
+        "pogls_mount",
+        "pogls_weight_stream"
       ],
       "imported_by": []
     },
@@ -24111,13 +24460,13 @@
         "S20_HANDOFF.md"
       ]
     },
-    "pogls_weight_stream": {
+    "pogls_mount": {
       "imports": [],
       "imported_by": [
         "S20_HANDOFF.md"
       ]
     },
-    "pogls_mount": {
+    "pogls_weight_stream": {
       "imports": [],
       "imported_by": [
         "S20_HANDOFF.md"
@@ -24153,42 +24502,42 @@
     },
     "bench_api.c": {
       "imports": [
-        "pogls_api.h",
-        "stdio.h",
-        "time.h",
+        "string.h",
         "stdlib.h",
-        "string.h"
+        "pogls_api.h",
+        "time.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "pogls_api.h": {
       "imports": [
-        "pogls_platform.h",
+        "string.h",
         "pogls_file_index.h",
-        "pogls_qrpn_phaseE.h",
+        "pogls_reconstruct.h",
+        "pogls_compress.h",
+        "pogls_stream.h",
+        "pogls_fold.h",
+        "pogls_platform.h",
         "stdint.h",
         "pogls_scanner.h",
-        "pogls_fold.h",
-        "pogls_stream.h",
-        "pogls_compress.h",
-        "string.h",
-        "pogls_reconstruct.h"
+        "pogls_qrpn_phaseE.h"
       ],
       "imported_by": [
-        "bench_api.c",
         "pogls_cli.c",
         "test_api.c",
-        "pogls_cli_s3.c"
+        "pogls_cli_s3.c",
+        "bench_api.c"
       ]
     },
     "bench_s4.c": {
       "imports": [
-        "stdio.h",
-        "time.h",
+        "string.h",
         "inttypes.h",
-        "stdint.h",
         "pogls_sdk_s4.h",
-        "string.h"
+        "stdint.h",
+        "time.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
@@ -24200,40 +24549,40 @@
     },
     "bench_weight_stream.c": {
       "imports": [
-        "pogls_platform.h",
-        "pogls_file_index.h",
-        "stdio.h",
-        "time.h",
-        "pogls_qrpn_phaseE.h",
-        "pogls_weight_stream.h",
-        "pogls_model_index.h",
-        "stdint.h",
-        "pogls_scanner.h",
-        "stdlib.h",
-        "pogls_stream.h",
-        "pogls_compress.h",
         "string.h",
-        "pogls_reconstruct.h"
+        "pogls_file_index.h",
+        "pogls_reconstruct.h",
+        "pogls_compress.h",
+        "pogls_qrpn_phaseE.h",
+        "stdlib.h",
+        "pogls_model_index.h",
+        "pogls_platform.h",
+        "pogls_stream.h",
+        "stdint.h",
+        "time.h",
+        "pogls_scanner.h",
+        "pogls_weight_stream.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "bench_ws_scale.c": {
       "imports": [
-        "pogls_platform.h",
-        "pogls_file_index.h",
-        "stdio.h",
-        "time.h",
-        "pogls_qrpn_phaseE.h",
-        "pogls_weight_stream.h",
-        "pogls_model_index.h",
-        "stdint.h",
-        "angular_mapper_v36.h",
-        "pogls_scanner.h",
-        "stdlib.h",
-        "pogls_stream.h",
-        "pogls_compress.h",
         "string.h",
-        "pogls_reconstruct.h"
+        "pogls_file_index.h",
+        "pogls_reconstruct.h",
+        "pogls_compress.h",
+        "pogls_qrpn_phaseE.h",
+        "angular_mapper_v36.h",
+        "stdlib.h",
+        "pogls_model_index.h",
+        "pogls_platform.h",
+        "pogls_stream.h",
+        "stdint.h",
+        "time.h",
+        "pogls_scanner.h",
+        "pogls_weight_stream.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
@@ -24247,39 +24596,39 @@
     },
     "pogls_cli.c": {
       "imports": [
-        "pogls_platform.h",
+        "string.h",
         "pogls_file_index.h",
-        "pogls_api.h",
-        "stdio.h",
-        "pogls_qrpn_phaseE.h",
         "errno.h",
-        "stdint.h",
-        "pogls_scanner.h",
-        "pogls_fold.h",
+        "pogls_reconstruct.h",
+        "pogls_compress.h",
         "stdlib.h",
         "pogls_stream.h",
-        "pogls_compress.h",
-        "string.h",
-        "pogls_reconstruct.h"
+        "pogls_fold.h",
+        "pogls_platform.h",
+        "pogls_api.h",
+        "stdint.h",
+        "pogls_scanner.h",
+        "pogls_qrpn_phaseE.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "pogls_cli_s3.c": {
       "imports": [
-        "pogls_platform.h",
+        "string.h",
         "pogls_file_index.h",
-        "pogls_api.h",
-        "stdio.h",
-        "pogls_qrpn_phaseE.h",
         "errno.h",
-        "stdint.h",
-        "pogls_scanner.h",
-        "pogls_fold.h",
+        "pogls_reconstruct.h",
+        "pogls_compress.h",
         "stdlib.h",
         "pogls_stream.h",
-        "pogls_compress.h",
-        "string.h",
-        "pogls_reconstruct.h"
+        "pogls_fold.h",
+        "pogls_platform.h",
+        "pogls_api.h",
+        "stdint.h",
+        "pogls_scanner.h",
+        "pogls_qrpn_phaseE.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
@@ -24303,37 +24652,37 @@
     },
     "geo_net_so.c": {
       "imports": [
-        "geo_net_patched.h",
-        "geo_config.h",
-        "geo_cylinder.h",
-        "stdint.h",
-        "stdlib.h",
         "string.h",
-        "geo_thirdeye.h"
+        "stdlib.h",
+        "geo_config.h",
+        "geo_net_patched.h",
+        "stdint.h",
+        "geo_thirdeye.h",
+        "geo_cylinder.h"
       ],
       "imported_by": []
     },
     "geo_net_so_s29.c": {
       "imports": [
-        "geo_net_patched.h",
-        "geo_config.h",
-        "geo_cylinder.h",
-        "stdint.h",
-        "stdlib.h",
         "string.h",
-        "geo_thirdeye.h"
+        "stdlib.h",
+        "geo_config.h",
+        "geo_net_patched.h",
+        "stdint.h",
+        "geo_thirdeye.h",
+        "geo_cylinder.h"
       ],
       "imported_by": []
     },
     "geo_net_so_s30.c": {
       "imports": [
-        "geo_net_patched.h",
-        "geo_config.h",
-        "geo_cylinder.h",
-        "stdint.h",
-        "stdlib.h",
         "string.h",
-        "geo_thirdeye.h"
+        "stdlib.h",
+        "geo_config.h",
+        "geo_net_patched.h",
+        "stdint.h",
+        "geo_thirdeye.h",
+        "geo_cylinder.h"
       ],
       "imported_by": []
     },
@@ -24389,46 +24738,46 @@
     },
     "bench_38_hybrid.c": {
       "imports": [
-        "pogls_38_steal.h",
-        "stdio.h",
-        "time.h",
-        "stdint.h",
+        "string.h",
         "stdlib.h",
-        "string.h"
+        "stdint.h",
+        "pogls_38_steal.h",
+        "time.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "pogls_38_steal.h": {
       "imports": [
         "string.h",
-        "pogls_38_hydra.h",
         "stdint.h",
-        "pogls_38_wiring.h"
+        "pogls_38_wiring.h",
+        "pogls_38_hydra.h"
       ],
       "imported_by": [
-        "bench_38_hybrid.c",
+        "bench_38_realistic.c",
         "bench_38_steal.c",
-        "bench_38_realistic.c"
+        "bench_38_hybrid.c"
       ]
     },
     "bench_38_realistic.c": {
       "imports": [
-        "pogls_38_steal.h",
-        "stdio.h",
-        "time.h",
-        "stdint.h",
+        "string.h",
         "stdlib.h",
-        "string.h"
+        "stdint.h",
+        "pogls_38_steal.h",
+        "time.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "bench_38_steal.c": {
       "imports": [
+        "string.h",
         "pogls_38_steal.h",
-        "stdio.h",
-        "time.h",
         "stdint.h",
-        "string.h"
+        "time.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
@@ -24446,8 +24795,8 @@
     },
     "federation_design.md": {
       "imports": [
-        "pogls_platform.h",
         "pogls_delta_world_b.h",
+        "pogls_platform.h",
         "pogls_delta.h"
       ],
       "imported_by": []
@@ -24463,8 +24812,8 @@
     "pogls38_fed_bridge.h": {
       "imports": [
         "string.h",
-        "pogls_federation.h",
         "stdint.h",
+        "pogls_federation.h",
         "stdio.h"
       ],
       "imported_by": [
@@ -24473,12 +24822,12 @@
     },
     "pogls_federation.h": {
       "imports": [
-        "pogls_platform.h",
-        "pogls_delta.h",
-        "stdint.h",
-        "stdatomic.h",
+        "string.h",
         "pogls_delta_world_b.h",
-        "string.h"
+        "stdatomic.h",
+        "pogls_platform.h",
+        "stdint.h",
+        "pogls_delta.h"
       ],
       "imported_by": [
         "pogls38_hydra_thin.h",
@@ -24487,27 +24836,27 @@
     },
     "pogls38_giant_shadow (1).h": {
       "imports": [
-        "pogls_mesh_entry.h",
-        "stdio.h",
-        "inttypes.h",
-        "stdint.h",
-        "pogls_engine_slice.h",
-        "stdatomic.h",
         "string.h",
-        "pogls_mesh.h"
+        "inttypes.h",
+        "stdatomic.h",
+        "pogls_mesh.h",
+        "pogls_mesh_entry.h",
+        "pogls_engine_slice.h",
+        "stdint.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "pogls38_giant_shadow.h": {
       "imports": [
-        "pogls_mesh_entry.h",
-        "stdio.h",
-        "inttypes.h",
-        "stdint.h",
-        "pogls_engine_slice.h",
-        "stdatomic.h",
         "string.h",
-        "pogls_mesh.h"
+        "inttypes.h",
+        "stdatomic.h",
+        "pogls_mesh.h",
+        "pogls_mesh_entry.h",
+        "pogls_engine_slice.h",
+        "stdint.h",
+        "stdio.h"
       ],
       "imported_by": [
         "test_38_giant_shadow.c"
@@ -24529,12 +24878,12 @@
     },
     "pogls_38_wiring.h": {
       "imports": [
-        "pogls_38_observers.h",
+        "string.h",
         "pogls_38_repair.h",
-        "stdint.h",
-        "pogls_17n_lattice.h",
+        "pogls_38_observers.h",
         "stdatomic.h",
-        "string.h"
+        "pogls_17n_lattice.h",
+        "stdint.h"
       ],
       "imported_by": [
         "pogls38_gpu_wire.h",
@@ -24543,54 +24892,54 @@
     },
     "pogls38_hydra_thin.h": {
       "imports": [
+        "string.h",
         "pogls38_fed_bridge.h",
-        "stdio.h",
-        "pogls_federation.h",
         "stdint.h",
-        "string.h"
+        "pogls_federation.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "pogls_17n_lattice.h": {
       "imports": [
-        "string.h",
         "stddef.h",
-        "stdint.h"
+        "stdint.h",
+        "string.h"
       ],
       "imported_by": [
         "pogls_38_world3ring.h",
-        "pogls_38_repair.h",
-        "pogls_38_wiring.h",
         "pogls_38_temporal.h",
-        "pogls_38_hydra.h"
+        "pogls_38_repair.h",
+        "pogls_38_hydra.h",
+        "pogls_38_wiring.h"
       ]
     },
     "pogls_38_gpu.h": {
       "imports": [
-        "stdio.h",
+        "string.h",
         "cuda_runtime.h",
-        "stdint.h",
         "stdlib.h",
-        "string.h"
+        "stdint.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "pogls_38_gpu2.h": {
       "imports": [
-        "stdio.h",
-        "time.h",
+        "string.h",
         "cuda_runtime.h",
-        "stdint.h",
         "stdlib.h",
-        "string.h"
+        "stdint.h",
+        "time.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "pogls_38_hydra.h": {
       "imports": [
-        "stdatomic.h",
         "string.h",
         "stdint.h",
+        "stdatomic.h",
         "pogls_17n_lattice.h"
       ],
       "imported_by": [
@@ -24600,9 +24949,9 @@
     },
     "pogls_38_repair.h": {
       "imports": [
-        "stdatomic.h",
         "string.h",
         "stdint.h",
+        "stdatomic.h",
         "pogls_17n_lattice.h"
       ],
       "imported_by": [
@@ -24611,20 +24960,20 @@
     },
     "pogls_38_rewind.h": {
       "imports": [
-        "stdio.h",
-        "time.h",
-        "stdint.h",
+        "string.h",
         "pogls_38_tails_dna.h",
         "pogls_fold.h",
-        "string.h"
+        "stdint.h",
+        "time.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "pogls_38_tails_dna.h": {
       "imports": [
-        "pogls_38_world3ring.h",
         "string.h",
         "stdint.h",
+        "pogls_38_world3ring.h",
         "stdio.h"
       ],
       "imported_by": [
@@ -24633,8 +24982,8 @@
     },
     "pogls_38_slice.h": {
       "imports": [
-        "pogls_38_engine.h",
         "string.h",
+        "pogls_38_engine.h",
         "stdint.h",
         "stdio.h"
       ],
@@ -24649,19 +24998,19 @@
     "pogls_38_spawn.h": {
       "imports": [
         "string.h",
-        "pogls_38_hydra.h",
         "stdint.h",
+        "pogls_38_hydra.h",
         "stdio.h"
       ],
       "imported_by": []
     },
     "pogls_38_split_world.h": {
       "imports": [
-        "stdio.h",
+        "string.h",
+        "stdatomic.h",
         "pogls_38_engine_bridge.h",
         "stdint.h",
-        "stdatomic.h",
-        "string.h"
+        "stdio.h"
       ],
       "imported_by": []
     },
@@ -24673,9 +25022,9 @@
     },
     "pogls_38_world3ring.h": {
       "imports": [
-        "stdatomic.h",
         "string.h",
         "stdint.h",
+        "stdatomic.h",
         "pogls_17n_lattice.h"
       ],
       "imported_by": [
@@ -24684,11 +25033,11 @@
     },
     "pogls_38_temporal.h": {
       "imports": [
-        "time.h",
-        "stdint.h",
-        "pogls_17n_lattice.h",
+        "string.h",
         "stdatomic.h",
-        "string.h"
+        "pogls_17n_lattice.h",
+        "stdint.h",
+        "time.h"
       ],
       "imported_by": []
     },
@@ -24704,26 +25053,26 @@
     },
     "test_38_giant_shadow.c": {
       "imports": [
-        "pogls_mesh.h",
-        "pogls_mesh_entry.h",
-        "stdio.h",
-        "inttypes.h",
-        "stdint.h",
-        "pogls_engine_slice.h",
-        "stdatomic.h",
         "string.h",
-        "pogls38_giant_shadow.h"
+        "inttypes.h",
+        "stdatomic.h",
+        "pogls38_giant_shadow.h",
+        "pogls_mesh.h",
+        "pogls_engine_slice.h",
+        "stdint.h",
+        "stdio.h",
+        "pogls_mesh_entry.h"
       ],
       "imported_by": []
     },
     "test_gpu_wire.c": {
       "imports": [
-        "stdio.h",
-        "assert.h",
-        "stdint.h",
+        "string.h",
         "pogls38_gpu_wire.h",
+        "assert.h",
         "stdlib.h",
-        "string.h"
+        "stdint.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
@@ -24789,13 +25138,13 @@
     },
     "test_geo_net_wire.c": {
       "imports": [
-        "geo_pipeline_wire.h",
-        "stdio.h",
-        "geo_config.h",
         "assert.h",
-        "geo_cylinder.h",
         "geo_net.h",
-        "geo_thirdeye.h"
+        "geo_config.h",
+        "geo_pipeline_wire.h",
+        "geo_thirdeye.h",
+        "geo_cylinder.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
@@ -24840,51 +25189,51 @@
     },
     "test_e2e_pipeline.c": {
       "imports": [
-        "pogls_platform.h",
+        "string.h",
         "pogls_file_index.h",
-        "stdio.h",
-        "pogls_qrpn_phaseE.h",
-        "stdint.h",
-        "pogls_scanner.h",
+        "pogls_reconstruct.h",
+        "pogls_compress.h",
         "stdlib.h",
         "pogls_stream.h",
-        "pogls_compress.h",
-        "string.h",
-        "pogls_reconstruct.h"
+        "pogls_platform.h",
+        "stdint.h",
+        "pogls_scanner.h",
+        "pogls_qrpn_phaseE.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "test_edge.c": {
       "imports": [
-        "pogls_platform.h",
+        "string.h",
         "pogls_file_index.h",
-        "stdio.h",
-        "pogls_qrpn_phaseE.h",
-        "stdint.h",
-        "pogls_scanner.h",
-        "pogls_fold.h",
+        "pogls_reconstruct.h",
+        "pogls_compress.h",
         "stdlib.h",
         "pogls_stream.h",
-        "pogls_compress.h",
-        "string.h",
-        "pogls_reconstruct.h"
+        "pogls_fold.h",
+        "pogls_platform.h",
+        "stdint.h",
+        "pogls_scanner.h",
+        "pogls_qrpn_phaseE.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "test_fault.c": {
       "imports": [
-        "pogls_platform.h",
+        "string.h",
         "pogls_file_index.h",
-        "stdio.h",
-        "pogls_qrpn_phaseE.h",
-        "stdint.h",
-        "pogls_scanner.h",
-        "pogls_fold.h",
+        "pogls_reconstruct.h",
+        "pogls_compress.h",
         "stdlib.h",
         "pogls_stream.h",
-        "pogls_compress.h",
-        "string.h",
-        "pogls_reconstruct.h"
+        "pogls_fold.h",
+        "pogls_platform.h",
+        "stdint.h",
+        "pogls_scanner.h",
+        "pogls_qrpn_phaseE.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
@@ -24894,20 +25243,20 @@
     },
     "bench_fused_x4.c": {
       "imports": [
+        "string.h",
         "geo_diamond_field.h",
-        "geo_dodeca.h",
-        "geo_hardening_whe_s54.h",
-        "theta_map.h",
-        "stdio.h",
-        "time.h",
-        "geo_config.h",
-        "stdint.h",
+        "geo_fibo_clock.h",
         "geo_read.h",
         "geo_route.h",
-        "geo_whe.h",
         "stdlib.h",
-        "string.h",
-        "geo_fibo_clock.h"
+        "geo_config.h",
+        "geo_dodeca.h",
+        "geo_whe.h",
+        "geo_hardening_whe_s54.h",
+        "theta_map.h",
+        "stdint.h",
+        "time.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
@@ -24921,12 +25270,12 @@
     },
     "pogls_audit.c": {
       "imports": [
-        "pogls_audit.h",
-        "stdio.h",
-        "time.h",
-        "stdlib.h",
         "string.h",
-        "unistd.h"
+        "pogls_audit.h",
+        "unistd.h",
+        "stdlib.h",
+        "time.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
@@ -24939,24 +25288,18 @@
     },
     "pogls_compute_stack.c": {
       "imports": [
-        "pogls_compute_lut.h",
-        "stdio.h",
-        "pogls_bitboard.h",
-        "pogls_frontier.h",
-        "pogls_win32_compat.h",
-        "pogls_rubik.h",
-        "pogls_wal_mmap.h",
         "string.h",
+        "pogls_rubik.h",
+        "pogls_bitboard.h",
+        "pogls_compute_lut.h",
+        "pogls_frontier.h",
+        "unistd.h",
         "pogls_exec_window.h",
-        "unistd.h"
+        "pogls_win32_compat.h",
+        "pogls_wal_mmap.h",
+        "stdio.h"
       ],
       "imported_by": []
-    },
-    "pogls_win32_compat.h": {
-      "imports": [],
-      "imported_by": [
-        "pogls_compute_stack.c"
-      ]
     },
     "pogls_rubik.h": {
       "imports": [
@@ -24968,40 +25311,46 @@
         "pogls_detach_eject.h"
       ]
     },
+    "pogls_exec_window.h": {
+      "imports": [
+        "string.h",
+        "unistd.h",
+        "stdatomic.h",
+        "stdint.h",
+        "time.h"
+      ],
+      "imported_by": [
+        "pogls_exec_window_lf.h",
+        "pogls_compute_stack.c"
+      ]
+    },
+    "pogls_win32_compat.h": {
+      "imports": [],
+      "imported_by": [
+        "pogls_compute_stack.c"
+      ]
+    },
     "pogls_wal_mmap.h": {
       "imports": [],
       "imported_by": [
-        "pogls_compute_stack.c",
-        "pogls_exec_window_lf.h"
-      ]
-    },
-    "pogls_exec_window.h": {
-      "imports": [
-        "time.h",
-        "stdint.h",
-        "stdatomic.h",
-        "string.h",
-        "unistd.h"
-      ],
-      "imported_by": [
-        "pogls_compute_stack.c",
-        "pogls_exec_window_lf.h"
+        "pogls_exec_window_lf.h",
+        "pogls_compute_stack.c"
       ]
     },
     "pogls_delta.c": {
       "imports": [
-        "mman.h",
-        "pogls_delta.h",
-        "stdio.h",
-        "stdbool.h",
-        "errno.h",
-        "stdint.h",
-        "dirent.h",
-        "stdlib.h",
-        "fcntl.h",
-        "stat.h",
         "string.h",
-        "unistd.h"
+        "errno.h",
+        "mman.h",
+        "stat.h",
+        "stdbool.h",
+        "unistd.h",
+        "stdlib.h",
+        "dirent.h",
+        "stdint.h",
+        "fcntl.h",
+        "pogls_delta.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
@@ -25011,45 +25360,45 @@
     },
     "pogls_delta_ext.c": {
       "imports": [
-        "pogls_delta_ext.h",
-        "stdio.h",
+        "string.h",
         "errno.h",
-        "stdlib.h",
         "fcntl.h",
         "stat.h",
-        "string.h",
-        "unistd.h"
+        "unistd.h",
+        "stdlib.h",
+        "pogls_delta_ext.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "pogls_delta_world_b.c": {
       "imports": [
-        "stdio.h",
+        "string.h",
         "errno.h",
         "pogls_delta_world_b.h",
+        "stat.h",
+        "unistd.h",
         "stdlib.h",
         "fcntl.h",
-        "stat.h",
-        "string.h",
-        "unistd.h"
+        "stdio.h"
       ],
       "imported_by": []
     },
     "pogls_detach.c": {
       "imports": [
-        "pogls_detach.h",
+        "string.h",
+        "unistd.h",
         "assert.h",
         "stdlib.h",
-        "string.h",
-        "unistd.h"
+        "pogls_detach.h"
       ],
       "imported_by": []
     },
     "pogls_detach.h": {
       "imports": [
-        "stdatomic.h",
         "string.h",
-        "stdint.h"
+        "stdint.h",
+        "stdatomic.h"
       ],
       "imported_by": [
         "pogls_hydra_scheduler.c",
@@ -25058,10 +25407,10 @@
     },
     "pogls_detach_eject.h": {
       "imports": [
-        "pogls_fold.h",
         "string.h",
-        "pogls_rubik.h",
-        "stdint.h"
+        "stdint.h",
+        "pogls_fold.h",
+        "pogls_rubik.h"
       ],
       "imported_by": [
         "pogls_entangle.h"
@@ -25069,12 +25418,12 @@
     },
     "pogls_entangle.h": {
       "imports": [
-        "pogls_detach_eject.h",
-        "stdint.h",
-        "stdatomic.h",
-        "pogls_fold.h",
         "string.h",
-        "pogls_fibo_addr.h"
+        "pogls_detach_eject.h",
+        "stdatomic.h",
+        "pogls_fibo_addr.h",
+        "pogls_fold.h",
+        "stdint.h"
       ],
       "imported_by": [
         "pogls_hydra_v36.h"
@@ -25082,18 +25431,18 @@
     },
     "pogls_entangle_graph.h": {
       "imports": [
-        "stdatomic.h",
         "stdint.h",
-        "pogls_node_soa.h"
+        "pogls_node_soa.h",
+        "stdatomic.h"
       ],
       "imported_by": []
     },
     "pogls_exec_window_lf.h": {
       "imports": [
-        "stdatomic.h",
-        "pogls_wal_mmap.h",
+        "stdint.h",
         "pogls_exec_window.h",
-        "stdint.h"
+        "stdatomic.h",
+        "pogls_wal_mmap.h"
       ],
       "imported_by": []
     },
@@ -25108,13 +25457,13 @@
     },
     "pogls_hydra.c": {
       "imports": [
+        "string.h",
         "mman.h",
-        "stdio.h",
+        "unistd.h",
+        "stdlib.h",
         "time.h",
         "pogls_hydra.h",
-        "stdlib.h",
-        "string.h",
-        "unistd.h"
+        "stdio.h"
       ],
       "imported_by": []
     },
@@ -25129,26 +25478,26 @@
     },
     "pogls_hydra_scheduler.c": {
       "imports": [
-        "pogls_detach.h",
-        "pogls_hydra_scheduler.h",
-        "time.h",
         "string.h",
-        "pogls_node_lut.h"
+        "pogls_node_lut.h",
+        "pogls_hydra_scheduler.h",
+        "pogls_detach.h",
+        "time.h"
       ],
       "imported_by": []
     },
     "pogls_hydra_scheduler.h": {
       "imports": [
+        "pogls_node_soa.h",
         "pogls_graph_topology.h",
         "sched.h",
-        "stdint.h",
         "stdatomic.h",
-        "pthread.h",
-        "pogls_node_soa.h"
+        "stdint.h",
+        "pthread.h"
       ],
       "imported_by": [
-        "pogls_hydra_scheduler.c",
-        "pogls_hydra_v36.h"
+        "pogls_hydra_v36.h",
+        "pogls_hydra_scheduler.c"
       ]
     },
     "sched.h": {
@@ -25159,36 +25508,36 @@
     },
     "pogls_hydra_v36.h": {
       "imports": [
+        "string.h",
+        "pogls_fibo_addr.h",
         "pogls_hydra_scheduler.h",
         "pogls_entangle.h",
-        "stdint.h",
         "pogls_fold.h",
-        "string.h",
-        "pogls_fibo_addr.h"
+        "stdint.h"
       ],
       "imported_by": []
     },
     "pogls_ntacle_graph.h": {
       "imports": [
-        "stdatomic.h",
         "stdint.h",
-        "pogls_node_soa.h"
+        "pogls_node_soa.h",
+        "stdatomic.h"
       ],
       "imported_by": []
     },
     "pogls_snapshot.c": {
       "imports": [
-        "time.h",
         "string.h",
-        "pogls_snapshot.h"
+        "pogls_snapshot.h",
+        "time.h"
       ],
       "imported_by": []
     },
     "pogls_tentacle_graph.h": {
       "imports": [
-        "stdatomic.h",
         "stdint.h",
-        "pogls_node_soa.h"
+        "pogls_node_soa.h",
+        "stdatomic.h"
       ],
       "imported_by": []
     },
@@ -25215,8 +25564,8 @@
     "geo_p4_batcher.h": {
       "imports": [
         "string.h",
-        "stdlib.h",
         "stdint.h",
+        "stdlib.h",
         "geo_simd_p4.h"
       ],
       "imported_by": []
@@ -25224,15 +25573,15 @@
     "geo_simd_p4.h": {
       "imports": [],
       "imported_by": [
-        "geo_p4_bridge.h",
-        "geo_p4_batcher.h"
+        "geo_p4_batcher.h",
+        "geo_p4_bridge.h"
       ]
     },
     "geo_p4_bridge.h": {
       "imports": [
         "string.h",
-        "stdlib.h",
         "stdint.h",
+        "stdlib.h",
         "geo_simd_p4.h"
       ],
       "imported_by": []
@@ -25292,19 +25641,19 @@
     },
     "pogls_visual.py": {
       "imports": [
-        "os",
+        "pogls_addr_codec",
         "sys",
-        "pogls_addr_codec"
+        "os"
       ],
       "imported_by": []
     },
-    "os": {
+    "pogls_addr_codec": {
       "imports": [],
       "imported_by": [
         "pogls_visual.py"
       ]
     },
-    "pogls_addr_codec": {
+    "os": {
       "imports": [],
       "imported_by": [
         "pogls_visual.py"
@@ -25344,16 +25693,16 @@
     },
     "test_5world_core.c": {
       "imports": [
-        "pogls_5world_core.h",
         "stdint.h",
+        "pogls_5world_core.h",
         "stdio.h"
       ],
       "imported_by": []
     },
     "test_fgls_twin_store.c": {
       "imports": [
-        "fgls_twin_store.h",
         "string.h",
+        "fgls_twin_store.h",
         "stdint.h",
         "stdio.h"
       ],
@@ -25361,12 +25710,12 @@
     },
     "test_geo_kv.c": {
       "imports": [
-        "geo_pipeline.h",
+        "string.h",
         "geo_kv.h",
-        "stdio.h",
         "assert.h",
         "stdint.h",
-        "string.h"
+        "geo_pipeline.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
@@ -25376,117 +25725,117 @@
     },
     "test_payload_store.c": {
       "imports": [
-        "geo_dodeca.h",
-        "stdio.h",
-        "geo_config.h",
+        "string.h",
         "assert.h",
-        "stdint.h",
         "geo_payload_store.h",
-        "string.h"
+        "geo_config.h",
+        "geo_dodeca.h",
+        "stdint.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "test_roundtrip.c": {
       "imports": [
-        "pogls_platform.h",
-        "geo_diamond_field.h",
-        "geo_config.h",
-        "pogls_pipeline_wire.h",
-        "geo_radial_hilbert.h",
-        "geo_thirdeye.h",
-        "geo_hardening_whe.h",
-        "geo_dodeca.h",
         "assert.h",
-        "geo_net.h",
+        "geo_dodeca.h",
         "geo_pipeline_wire.h",
-        "stdint.h",
-        "geo_fibo_clock.h",
-        "pogls_qrpn_phaseE.h",
-        "stdio.h",
+        "geo_thirdeye.h",
+        "string.h",
         "pogls_geomatrix.h",
-        "pogls_twin_bridge.h",
+        "geo_config.h",
+        "pogls_qrpn_phaseE.h",
+        "pogls_pipeline_wire.h",
+        "geo_diamond_field.h",
+        "geo_net.h",
+        "geo_radial_hilbert.h",
+        "stdio.h",
+        "geo_fibo_clock.h",
+        "geo_hardening_whe.h",
         "geo_read.h",
-        "string.h"
+        "pogls_platform.h",
+        "pogls_twin_bridge.h",
+        "stdint.h"
       ],
       "imported_by": []
     },
     "test_s16.c": {
       "imports": [
-        "pogls_sdk.h",
-        "stdio.h",
+        "string.h",
         "assert.h",
         "stdint.h",
-        "string.h"
+        "pogls_sdk.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "test_s17.c": {
       "imports": [
-        "pogls_sdk.h",
-        "stdio.h",
+        "pogls_sdk_so.h",
         "geo_kv_rehash.h",
         "assert.h",
-        "pogls_sdk_so.h",
-        "stdint.h"
+        "stdint.h",
+        "pogls_sdk.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "test_s18.c": {
       "imports": [
-        "stdio.h",
-        "kv_bridge.h",
+        "string.h",
         "assert.h",
         "stdint.h",
-        "string.h"
+        "kv_bridge.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "test_s19.c": {
       "imports": [
-        "pogls_sdk.h",
-        "time.h",
-        "stdio.h",
         "assert.h",
         "inttypes.h",
-        "stdint.h"
+        "stdint.h",
+        "time.h",
+        "pogls_sdk.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "test_s21.c": {
       "imports": [
-        "pogls_sdk.h",
+        "string.h",
+        "pogls_admin_snapshot.h",
         "geo_kv.h",
-        "stdio.h",
-        "kv_bridge.h",
         "assert.h",
         "inttypes.h",
-        "pogls_admin_snapshot.h",
         "stdint.h",
-        "string.h"
+        "kv_bridge.h",
+        "pogls_sdk.h",
+        "stdio.h"
       ],
       "imported_by": []
     },
     "test_twin_bridge.c": {
       "imports": [
-        "pogls_platform.h",
-        "geo_diamond_field.h",
-        "geo_config.h",
-        "pogls_pipeline_wire.h",
-        "geo_radial_hilbert.h",
-        "geo_thirdeye.h",
-        "geo_hardening_whe.h",
-        "geo_dodeca.h",
         "assert.h",
-        "geo_net.h",
+        "geo_dodeca.h",
         "geo_pipeline_wire.h",
-        "stdint.h",
-        "geo_fibo_clock.h",
-        "pogls_qrpn_phaseE.h",
-        "stdio.h",
+        "geo_thirdeye.h",
+        "string.h",
         "pogls_geomatrix.h",
-        "pogls_twin_bridge.h",
+        "geo_config.h",
+        "pogls_qrpn_phaseE.h",
+        "pogls_pipeline_wire.h",
+        "geo_diamond_field.h",
+        "geo_net.h",
+        "geo_radial_hilbert.h",
+        "stdio.h",
+        "geo_fibo_clock.h",
+        "geo_hardening_whe.h",
         "geo_read.h",
-        "string.h"
+        "pogls_platform.h",
+        "pogls_twin_bridge.h",
+        "stdint.h"
       ],
       "imported_by": []
     },
@@ -27341,6 +27690,14 @@
       "imports": [],
       "imported_by": []
     },
+    "sid.h": {
+      "imports": [],
+      "imported_by": []
+    },
+    "sid_cross_arch.py": {
+      "imports": [],
+      "imported_by": []
+    },
     "sparse_jump_test": {
       "imports": [],
       "imported_by": []
@@ -27461,6 +27818,10 @@
       "imports": [],
       "imported_by": []
     },
+    "analyze_sid_clusters.c": {
+      "imports": [],
+      "imported_by": []
+    },
     "bench_p5.c": {
       "imports": [],
       "imported_by": []
@@ -27486,6 +27847,10 @@
       "imported_by": []
     },
     "c_gsten_encode.exe": {
+      "imports": [],
+      "imported_by": []
+    },
+    "demo_sid_runtime.c": {
       "imports": [],
       "imported_by": []
     },
@@ -27553,6 +27918,14 @@
       "imports": [],
       "imported_by": []
     },
+    "test_cross_arch.c": {
+      "imports": [],
+      "imported_by": []
+    },
+    "test_cross_arch_v2.c": {
+      "imports": [],
+      "imported_by": []
+    },
     "test_exec_cache.py": {
       "imports": [],
       "imported_by": []
@@ -27562,6 +27935,14 @@
       "imported_by": []
     },
     "test_fts_route.c": {
+      "imports": [],
+      "imported_by": []
+    },
+    "test_full_pipeline.c": {
+      "imports": [],
+      "imported_by": []
+    },
+    "test_full_pipeline.exe": {
       "imports": [],
       "imported_by": []
     },
@@ -27577,6 +27958,10 @@
       "imports": [],
       "imported_by": []
     },
+    "test_geo_hex_layer.exe": {
+      "imports": [],
+      "imported_by": []
+    },
     "test_geo_jump_gear.exe": {
       "imports": [],
       "imported_by": []
@@ -27585,11 +27970,23 @@
       "imports": [],
       "imported_by": []
     },
+    "test_geo_minimal.exe": {
+      "imports": [],
+      "imported_by": []
+    },
     "test_geo_shell.exe": {
       "imports": [],
       "imported_by": []
     },
     "test_geo_store_reader.c": {
+      "imports": [],
+      "imported_by": []
+    },
+    "test_geo_summon.c": {
+      "imports": [],
+      "imported_by": []
+    },
+    "test_geo_summon.exe": {
       "imports": [],
       "imported_by": []
     },
@@ -27610,6 +28007,10 @@
       "imported_by": []
     },
     "test_geopixel_residual.py": {
+      "imports": [],
+      "imported_by": []
+    },
+    "test_gguf_capture.c": {
       "imports": [],
       "imported_by": []
     },
@@ -27634,6 +28035,10 @@
       "imported_by": []
     },
     "test_hex_codec.c": {
+      "imports": [],
+      "imported_by": []
+    },
+    "test_hex_codec.exe": {
       "imports": [],
       "imported_by": []
     },
@@ -27701,6 +28106,14 @@
       "imports": [],
       "imported_by": []
     },
+    "test_sid.c": {
+      "imports": [],
+      "imported_by": []
+    },
+    "test_sid.exe": {
+      "imports": [],
+      "imported_by": []
+    },
     "test_stream_dispatch_simple.c": {
       "imports": [],
       "imported_by": []
@@ -27718,6 +28131,10 @@
       "imported_by": []
     },
     "test_tgw_stream.c": {
+      "imports": [],
+      "imported_by": []
+    },
+    "test_tring_predictor.c": {
       "imports": [],
       "imported_by": []
     },
@@ -27746,6 +28163,22 @@
       "imported_by": []
     },
     "test_tw_capture.exe": {
+      "imports": [],
+      "imported_by": []
+    },
+    "test_tw_face_bridge.c": {
+      "imports": [],
+      "imported_by": []
+    },
+    "test_tw_face_bridge.exe": {
+      "imports": [],
+      "imported_by": []
+    },
+    "test_tw_tensor_capture.c": {
+      "imports": [],
+      "imported_by": []
+    },
+    "test_tw_tensor_capture.exe": {
       "imports": [],
       "imported_by": []
     },
@@ -27782,6 +28215,14 @@
       "imported_by": []
     },
     "tw_capture_int.h": {
+      "imports": [],
+      "imported_by": []
+    },
+    "tw_face_bridge.h": {
+      "imports": [],
+      "imported_by": []
+    },
+    "tw_tensor_capture.h": {
       "imports": [],
       "imported_by": []
     },
@@ -27992,17 +28433,21 @@
     "verification_backup.zip": {
       "imports": [],
       "imported_by": []
+    },
+    "zone_card_sid.h": {
+      "imports": [],
+      "imported_by": []
     }
   },
   "project_name": "FGLS_new",
-  "last_scan_ts": 1781313213.3524683,
+  "last_scan_ts": 1781397011.7379713,
   "folder_groups": {
     "core": 621,
     "geopixel": 524,
     "frustum": 150,
     "active_updates": 128,
-    "tests": 101,
-    "Hfolder": 82,
+    "tests": 120,
+    "Hfolder": 88,
     "python_src": 77,
     "zip": 56,
     "docs": 54,
@@ -28020,6 +28465,8 @@
     "HANDOFF.md": 1,
     "HANDOFF_CTD_Session.md": 1,
     "Makefile.integration": 1,
+    "SESSION-SUMMARY-June13-contd.md": 1,
+    "analyze_smolvlm.py": 1,
     "bermuda_export.c": 1,
     "bermuda_export.h": 1,
     "bermuda_reshape_v3.py": 1,
@@ -28036,6 +28483,8 @@
     "colab_bundle_v2.zip": 1,
     "colab_tools": 1,
     "colabpack": 1,
+    "convert_bf16_to_qdat.py": 1,
+    "convert_bf16_to_qdat_fast.py": 1,
     "coord_real_registry.json": 1,
     "coord_registry.example.json": 1,
     "ctd_g10.h": 1,
@@ -28100,6 +28549,8 @@
     "run_tgw_fgls_test.bat": 1,
     "session-ses_14a4.md": 1,
     "session-ses_14de.md": 1,
+    "sid.h": 1,
+    "sid_cross_arch.py": 1,
     "sparse_jump_test": 1,
     "src.zip": 1,
     "stderr": 1,
@@ -28119,6 +28570,9 @@
     "test_shell_bench.exe": 1,
     "tw_bridge.h": 1,
     "tw_capture_int.h": 1,
-    "verification_export.json": 1
+    "tw_face_bridge.h": 1,
+    "tw_tensor_capture.h": 1,
+    "verification_export.json": 1,
+    "zone_card_sid.h": 1
   }
 }

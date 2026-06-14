@@ -73,7 +73,7 @@ int main(int argc, char **argv) {
     for (uint32_t i = 0; i < RB_MAX_ENTRIES && store.n_entries < SID_MAX_ENTRIES; i++) {
         if (!rb.entries[i].occupied) continue;
 
-        int rc = sid_capture(rb.entries[i].data, rb.entries[i].size,
+        int rc = sid_capture_legacy(rb.entries[i].data, rb.entries[i].size,
                              rb.entries[i].dtype, 0,
                              &store.entries[store.n_entries].coord);
         if (rc != 0) { n_skipped++; continue; }
@@ -123,8 +123,8 @@ int main(int argc, char **argv) {
             if (strcmp(rb.entries[j].name, entry->name) == 0) {
                 found = 1;
 
-                /* Verify roundtrip via SID API */
-                int rc = sid_verify_roundtrip(rb.entries[j].data,
+                /* Verify roundtrip via SID API (legacy) */
+                int rc = sid_verify_roundtrip_legacy(rb.entries[j].data,
                                                rb.entries[j].size,
                                                rb.entries[j].dtype,
                                                rb.entries[j].name);
@@ -133,8 +133,8 @@ int main(int argc, char **argv) {
                 } else {
                     /* Maybe floating-point difference — check manually */
                     SIDCoord coord;
-                    if (sid_capture(rb.entries[j].data, rb.entries[j].size,
-                                    rb.entries[j].dtype, 0, &coord) == 0) {
+                    if (sid_capture_legacy(rb.entries[j].data, rb.entries[j].size,
+                                     rb.entries[j].dtype, 0, &coord) == 0) {
                         int64_t orig_vx, orig_vy;
                         if (rb.entries[j].dtype == 0)
                             sid_signature_f32(rb.entries[j].data,
@@ -145,7 +145,7 @@ int main(int argc, char **argv) {
                                               rb.entries[j].size,
                                               &orig_vx, &orig_vy);
                         int64_t svx, svy;
-                        sid_summon(&coord, &svx, &svy);
+                        sid_summon_legacy(&coord, &svx, &svy);
                         double err = fabs((double)(svx - orig_vx) / TW_SCALE)
                                    + fabs((double)(svy - orig_vy) / TW_SCALE);
                         if (err < 1e-4) n_small_err++;

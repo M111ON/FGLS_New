@@ -78,7 +78,7 @@ static TRec *capture_dir(const char *dir, int *out_n, int max_n) {
         if (lt == 0) continue; /* Only known types */
         
         SIDCoord c;
-        if (sid_capture(rb.entries[i].data, rb.entries[i].size,
+        if (sid_capture_legacy(rb.entries[i].data, rb.entries[i].size,
                         rb.entries[i].dtype, 0, &c) != 0) continue;
         
         recs[n].layer_type = lt;

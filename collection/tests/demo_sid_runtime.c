@@ -332,7 +332,7 @@ int main(int argc, char **argv) {
         }
         /* Summon from coordinate */
         int64_t svx, svy;
-        sid_summon(&e->coord, &svx, &svy);
+        sid_summon_legacy(&e->coord, &svx, &svy);
         /* Compare: summoned should match rotated original */
         int match = (svx == r_vx && svy == r_vy);
         if (match) n_pass++;
