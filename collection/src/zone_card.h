@@ -8,7 +8,7 @@
 #define NO_NEIGHBOR 0xFFFF
 
 /* v2: 12 bytes */
-typedef struct {
+typedef struct __attribute__((packed)) {
     uint16_t id;
     uint8_t  card_type;
     uint8_t  entropy;
@@ -22,7 +22,7 @@ typedef struct {
 _Static_assert(sizeof(ZoneCard) == 12, "ZoneCard v2 must be 12 bytes");
 
 /* Extended: 20 bytes (+hash) */
-typedef struct {
+typedef struct __attribute__((packed)) {
     uint16_t id;
     uint8_t  card_type;
     uint8_t  entropy;

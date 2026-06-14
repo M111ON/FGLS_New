@@ -19,8 +19,8 @@
 
 /* ── GGUF v3 constants ── */
 #define GGUF_MAGIC   0x46554747u  /* "GGUF" */
+#define GGUF_F32     0u
 #define GGUF_Q8_0    8u
-#define GGUF_F16     1u
 
 /* Read a GGUF file header + tensor info without loading weights */
 typedef struct {
@@ -215,25 +215,33 @@ int main(int argc, char **argv) {
     SIDStore store;
     memset(&store, 0, sizeof(store));
 
-    uint8_t buf[68];  /* 2 Q8_0 blocks = 68 bytes */
+    uint8_t buf[256];  /* up to 64 F32 values */
     int n_captured = 0;
     int n_ignored = 0;
 
     for (uint64_t i = 0; i < idx.n_tensors; i++) {
-        /* Only Q8_0 tensors (skip F16 etc.) */
-        if (idx.dtypes[i] != GGUF_Q8_0) {
+        int dtype = idx.dtypes[i];
+
+        /* Accept Q8_0 (8) and F32 (0) */
+        if (dtype != GGUF_Q8_0 && dtype != GGUF_F32) {
             n_ignored++;
             continue;
         }
 
-        /* Read just 2 blocks = 68 bytes */
-        size_t to_read = idx.sizes[i] < 68 ? idx.sizes[i] : 68;
+        /* Determine read size: 2 Q8_0 blocks (68B) or 64 F32 values (256B) */
+        size_t to_read;
+        if (dtype == GGUF_Q8_0) {
+            to_read = idx.sizes[i] < 68 ? idx.sizes[i] : 68;
+        } else {
+            to_read = idx.sizes[i] < 256 ? idx.sizes[i] : 256;
+        }
+
         fseek(f, idx.offsets[i], SEEK_SET);
         if (fread(buf, 1, to_read, f) != to_read) continue;
 
         /* Capture */
         SIDCoord coord;
-        if (sid_capture(buf, to_read, 8 /* Q8_0 */, 0, &coord) != 0) continue;
+        if (sid_capture_legacy(buf, to_read, dtype, 0, &coord) != 0) continue;
 
         /* Manually add to store */
         strncpy(store.entries[store.n_entries].name, idx.names[i], SID_NAME_MAX - 1);
@@ -245,6 +253,31 @@ int main(int argc, char **argv) {
             printf("  Captured %d/%llu...\n", n_captured,
                    (unsigned long long)idx.n_tensors);
     }
+
+    /* ── Roundtrip verification for F32 tensors (before fclose) ── */
+    printf("\n  Verifying F32 roundtrip...\n");
+    uint8_t *full_buf = NULL;
+    int n_verify = 0, n_verify_ok = 0;
+
+    for (uint64_t i = 0; i < idx.n_tensors; i++) {
+        if (idx.dtypes[i] != GGUF_F32) continue;
+        if (n_verify >= 24) break;
+
+        size_t sz = (size_t)idx.sizes[i];
+        full_buf = realloc(full_buf, sz);
+        fseek(f, idx.offsets[i], SEEK_SET);
+        if (fread(full_buf, 1, sz, f) != sz) continue;
+
+        int rc = sid_verify_roundtrip_legacy(full_buf, sz, GGUF_F32, idx.names[i]);
+        if (rc == 0) n_verify_ok++;
+        n_verify++;
+
+        if (n_verify % 12 == 0)
+            printf("    Verified %d F32 tensors...\n", n_verify);
+    }
+    free(full_buf);
+
+    printf("  Roundtrip: %d/%d F32 tensors verified\n", n_verify_ok, n_verify);
 
     fclose(f);
 
@@ -288,7 +321,7 @@ int main(int argc, char **argv) {
         printf("  Written: %s\n", twidx_path);
 
     gguf_free_index(&idx);
-    printf("\nDone — stream capture: %.0f bytes/tensor\n",
-           68.0);
+
+    printf("\nDone — stream capture (Q8=68B/tensor, F32=256B/tensor)\n");
     return 0;
 }

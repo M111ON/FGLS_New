@@ -129,7 +129,7 @@ int main(int argc, char **argv) {
         int lt_idx = (int)lt;
 
         SIDCoord coord;
-        if (sid_capture(rb.entries[i].data, rb.entries[i].size,
+        if (sid_capture_legacy(rb.entries[i].data, rb.entries[i].size,
                         rb.entries[i].dtype, 0, &coord) != 0)
             continue;
 
@@ -168,7 +168,7 @@ int main(int argc, char **argv) {
             if (classify_layer(rb.entries[i].name) != t) continue;
 
             SIDCoord coord;
-            if (sid_capture(rb.entries[i].data, rb.entries[i].size,
+            if (sid_capture_legacy(rb.entries[i].data, rb.entries[i].size,
                             rb.entries[i].dtype, 0, &coord) != 0) continue;
 
             double dt = coord.tring_pos - stats[t].tring_mean;

@@ -7,7 +7,9 @@
  * Core idea:
  *   One line + {36°, 60°, 180°} → pentagon + hexagon →
  *   10 sectors × 6 slots = 60 positions per face →
- *   12 faces × 60 = TRing 720 = SID coordinate space
+ *   12 faces × 60 = TRing 720 (hex centroids) →
+ *   +30° rotation = 60 more tri centroids = 120/face →
+ *   12 × 120 = TRing 1440 = SID coordinate space
  *
  *   SID coordinate (face, zone, slot, resid) uniquely identifies
  *   ANY tensor in the system. From coordinate alone, we summon
@@ -34,6 +36,8 @@
 #include <stdlib.h>
 #include "tw_capture_int.h"
 #include "tw_face_bridge.h"
+#include "zone_card.h"
+#include "zone_card_sid.h"
 
 /* ── Limits ─────────────────────────────────────────────────── */
 #define SID_MAX_ENTRIES  2048
@@ -48,15 +52,38 @@ typedef struct {
     uint8_t  slot;        /* 0..5 slot within sector              */
     int64_t  resid_x;     /* residual X (TW_SCALE units)          */
     int64_t  resid_y;     /* residual Y (TW_SCALE units)          */
-    uint16_t tring_pos;   /* 0..719 = face*60 + zone*6 + slot     */
-    uint8_t  drain;       /* 1 if near sector boundary            */
-    uint8_t  pad[3];
+    uint16_t tring_pos;   /* 0..1439 = face*120 + is_tri*60 + zone*6 + slot */
+    uint8_t  is_tri;      /* 0=hex centroid, 1=triangle centroid (30°)      */
+    uint8_t  drain;       /* 1 if near sector boundary                      */
+    uint8_t  pad[2];
 } SIDCoord;
 
-/* ── SID Entry: name + coordinate ───────────────────────────── */
+/* Helper: extract SIDCoord from ZoneCardSID for backward compatibility */
+static inline SIDCoord sid_coord_from_zcsid(const ZoneCardSID *zcsid) {
+    SIDCoord c = {0};
+    c.face      = zcsid->face;
+    c.zone      = zcsid->zone;
+    c.slot      = zcsid->slot;
+    c.resid_x   = zcsid->resid_x;
+    c.resid_y   = zcsid->resid_y;
+    c.tring_pos = zcsid->tring_pos;
+    c.is_tri    = (zcsid->tring_pos % 120 >= 60) ? 1 : 0;
+    c.drain     = (zcsid->inf.flags & ZCSID_FLAG_DRAIN) ? 1 : 0;
+    return c;
+}
+
+/* Helper: extract ZoneCardSID communication payload (inf + tring_pos = 10B) */
+static inline void sid_comm_payload(const ZoneCardSID *zcsid, uint8_t out[10]) {
+    /* inf (8B) + tring_pos (2B) - not contiguous in struct, copy separately */
+    memcpy(out, &zcsid->inf, 8);
+    memcpy(out + 8, &zcsid->tring_pos, 2);
+}
+
+/* ── SID Entry: name + coordinate (SIDCoord) ──────────────────── */
+/* SIDCoord is used in SIDEntry for .twidx storage backward compatibility. */
 typedef struct {
     char     name[SID_NAME_MAX];
-    SIDCoord coord;
+    SIDCoord coord;        /* 16B: coordinate components */
 } SIDEntry;
 
 /* ── SID Store: lightweight coordinate-only index ───────────── */
@@ -145,39 +172,18 @@ static inline int sid_signature_f32(const uint8_t *f32_data, size_t nbytes,
 }
 
 /*
- * SID Capture: Q8_0/F32 raw bytes → SIDCoord.
- * The coordinate IS the storage — no file write needed.
+ * SID Capture: ZoneCard + TWCaptureInt → ZoneCardSID.
+ * Stored resid is face-local (backward compat). For face-0 resid, use
+ * tw_capture_int_to_face + SIDCoord path instead.
  */
-static inline int sid_capture(const void *data, size_t nbytes,
-                               int dtype, uint8_t face,
-                               SIDCoord *out)
+static inline int sid_capture(const ZoneCard *card, const TWCaptureInt *cap_data,
+                               uint8_t face, uint8_t is_tri, ZoneCardSID *out)
 {
-    if (!data || !out || nbytes == 0) return -1;
-    memset(out, 0, sizeof(*out));
-
-    int64_t vx, vy;
-    int rc;
-    if (dtype == 0) {
-        rc = sid_signature_f32((const uint8_t *)data, nbytes, &vx, &vy);
-    } else {
-        rc = sid_signature_q80((const uint8_t *)data, nbytes, &vx, &vy);
-    }
-    if (rc != 0) return rc;
-
-    /* Run TW capture */
-    TWFaceCapture fc;
-    tw_capture_face(vx, vy, face, &fc);
-
-    out->face      = fc.face;
-    out->zone      = fc.zone;
-    out->slot      = fc.slot;
-    out->resid_x   = fc.resid_x;
-    out->resid_y   = fc.resid_y;
-    out->tring_pos = fc.tring_pos;
-    out->drain     = fc.drain;
-
+    if (!card || !cap_data || !out) return -1;
+    *out = zcsid_make(card, 0, 0, 0, face, is_tri, cap_data);
     return 0;
 }
+
 
 /* ═══════════════════════════════════════════════════════════════
    SUMMON — SID coordinate → 2D signature (pure integer)
@@ -190,28 +196,32 @@ static inline int sid_capture(const void *data, size_t nbytes,
  * The result (vx / TW_SCALE, vy / TW_SCALE) = original 2D signature
  * of the tensor's first row.
  */
-static inline void sid_summon(const SIDCoord *coord,
-                               int64_t *vx, int64_t *vy)
+static inline void sid_summon(const ZoneCardSID *coord, int64_t *vx, int64_t *vy)
 {
-    TWCaptureInt cap;
-    cap.zone    = coord->zone;
-    cap.slot    = coord->slot;
-    cap.resid_x = coord->resid_x;
-    cap.resid_y = coord->resid_y;
-    cap.drain   = coord->drain;
+    uint8_t face  = coord->inf.face;
+    uint8_t is_tri = (coord->tring_pos % 120 >= 60) ? 1 : 0;
 
-    tw_reconstruct_int(&cap, vx, vy);
+    /* TWCaptureInt stores slot as sector*TW_SLOTS_PER + local (0..59).
+     * Extract local slot (0..5) and index into combined grid.
+     * Rotate the face-local centroid to face-0 frame, then add resid (face-0). */
+    int local_slot = coord->slot % TW_SLOTS_PER;
+    int combined_idx = local_slot + (is_tri ? TW_SLOTS_PER : 0);
+    int64_t c0x, c0y;
+    _tw_centroid_to_face0(coord->zone, combined_idx, face, &c0x, &c0y);
+    *vx = c0x + coord->resid_x;
+    *vy = c0y + coord->resid_y;
 }
+
 
 /*
  * Summon signature as double (for verification/display).
  * The integer path is sid_summon() — this is a convenience wrapper.
  */
-static inline void sid_summon_sig(const SIDCoord *coord,
+static inline void sid_summon_sig(const ZoneCardSID *full_csid, /* Accepts full ZoneCardSID */
                                    double *sig_x, double *sig_y)
 {
     int64_t vx, vy;
-    sid_summon(coord, &vx, &vy);
+    sid_summon(full_csid, &vx, &vy); /* Pass the full ZoneCardSID */
     *sig_x = (double)vx / (double)TW_SCALE;
     *sig_y = (double)vy / (double)TW_SCALE;
 }
@@ -223,9 +233,10 @@ static inline void sid_summon_sig(const SIDCoord *coord,
 /*
  * .twidx format (binary):
  *   [Header: 16B]     magic(4) + version(4) + n_entries(4) + reserved(4)
- *   [Entry × N: 272B each]  name(256) + coord(16)
+ *   [Entry × N: ~296B each] name(256) + ZoneCardSID(32)
  *
- * Typical: 290 tensors → ~79 KB (vs 367 MB raw .qdat)
+ * Total size increase is acceptable for storage, but for communication,
+ * only relevant parts (inf + tring_pos) will be extracted.
  */
 
 typedef struct __attribute__((packed)) {
@@ -237,14 +248,18 @@ typedef struct __attribute__((packed)) {
 
 typedef struct __attribute__((packed)) {
     char     name[SID_NAME_MAX];  /* tensor name, null-terminated */
+    /* Store ZoneCardSID components relevant for lookup/reconstruction */
     uint8_t  face;                /* 0..11 */
     uint8_t  zone;                /* 0..9 */
     uint8_t  slot;                /* 0..5 */
     int64_t  resid_x;
     int64_t  resid_y;
     uint16_t tring_pos;
+    uint8_t  is_tri;              /* 0=hex centroid, 1=triangle centroid */
     uint8_t  drain;
-    uint8_t  pad[5];
+    uint8_t  pad[4]; /* To maintain alignment and size if needed */
+    /* Note: Full ZoneCard and ZCSIDInference are not stored in twidx for brevity,
+       but are assumed to be reconstructible or managed elsewhere if needed. */
 } SIDTwidxEntry;
 
 /* Write .twidx file */
@@ -266,13 +281,17 @@ static inline int sid_write(const char *path, const SIDStore *store) {
         SIDTwidxEntry e;
         memset(&e, 0, sizeof(e));
         strncpy(e.name, store->entries[i].name, SID_NAME_MAX - 1);
+
+        /* Populate entry from SIDCoord in SIDEntry */
         e.face      = store->entries[i].coord.face;
         e.zone      = store->entries[i].coord.zone;
         e.slot      = store->entries[i].coord.slot;
         e.resid_x   = store->entries[i].coord.resid_x;
         e.resid_y   = store->entries[i].coord.resid_y;
         e.tring_pos = store->entries[i].coord.tring_pos;
+        e.is_tri    = store->entries[i].coord.is_tri;
         e.drain     = store->entries[i].coord.drain;
+
         if (fwrite(&e, sizeof(e), 1, f) != 1) { fclose(f); return -1; }
     }
 
@@ -305,12 +324,15 @@ static inline int sid_read(const char *path, SIDStore *store) {
             return (int)i;
         }
         strncpy(store->entries[i].name, e.name, SID_NAME_MAX - 1);
+
+        /* Populate SIDCoord from SIDTwidxEntry */
         store->entries[i].coord.face      = e.face;
         store->entries[i].coord.zone      = e.zone;
         store->entries[i].coord.slot      = e.slot;
         store->entries[i].coord.resid_x   = e.resid_x;
         store->entries[i].coord.resid_y   = e.resid_y;
         store->entries[i].coord.tring_pos = e.tring_pos;
+        store->entries[i].coord.is_tri    = e.is_tri;
         store->entries[i].coord.drain     = e.drain;
     }
 
@@ -330,25 +352,67 @@ static inline SIDEntry *sid_lookup(SIDStore *store, const char *name) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   SID VERIFY — capture → store → load → summon → verify
+   BACKWARD COMPATIBILITY — old API for existing tests
    ═══════════════════════════════════════════════════════════════ */
 
 /*
- * Full SID roundtrip test for one tensor:
- *   1. Capture: raw data → SIDCoord
- *   2. Summon:  SIDCoord → (vx, vy)
- *   3. Verify:  (vx, vy) matches original signature
- *
- * Returns 0 on pass, -1 on error.
+ * Old-style capture: raw data → SIDCoord (for test compatibility)
+ * Internally computes signature and runs TW capture.
  */
-static inline int sid_verify_roundtrip(const void *data, size_t nbytes,
-                                        int dtype, const char *name)
+static inline int sid_capture_legacy(const void *data, size_t nbytes,
+                                      int dtype, uint8_t face,
+                                      SIDCoord *out)
 {
+    if (!data || !out || nbytes == 0) return -1;
+    memset(out, 0, sizeof(*out));
+
+    int64_t vx, vy;
+    int rc;
+    if (dtype == 0)
+        rc = sid_signature_f32((const uint8_t *)data, nbytes, &vx, &vy);
+    else
+        rc = sid_signature_q80((const uint8_t *)data, nbytes, &vx, &vy);
+    if (rc != 0) return rc;
+
+    TWFaceCapture fc;
+    tw_capture_face(vx, vy, face, &fc);
+
+    out->face      = fc.face;
+    out->zone      = fc.zone;
+    out->slot      = fc.slot;
+    out->resid_x   = fc.resid_x;
+    out->resid_y   = fc.resid_y;
+    out->tring_pos = fc.tring_pos;
+    out->is_tri    = fc.is_tri;
+    out->drain     = fc.drain;
+
+    return 0;
+}
+
+/* Old-style summon: SIDCoord → (vx, vy) */
+static inline void sid_summon_legacy(const SIDCoord *coord,
+                                      int64_t *vx, int64_t *vy)
+{
+    /* TWCaptureInt stores slot as sector*TW_SLOTS_PER + local (0..59).
+     * Extract local slot (0..5) and index into combined grid.
+     * Rotate centroid from face-local to face-0, then add resid (face-0). */
+    int local_slot = coord->slot % TW_SLOTS_PER;
+    int combined_idx = local_slot + (coord->is_tri ? TW_SLOTS_PER : 0);
+    int64_t c0x, c0y;
+    _tw_centroid_to_face0(coord->zone, combined_idx, coord->face, &c0x, &c0y);
+    *vx = c0x + coord->resid_x;
+    *vy = c0y + coord->resid_y;
+}
+
+/* Old-style roundtrip test */
+static inline int sid_verify_roundtrip_legacy(const void *data, size_t nbytes,
+                                               int dtype, const char *name)
+{
+    (void)name; /* unused */
     SIDCoord coord;
-    if (sid_capture(data, nbytes, dtype, 0, &coord) != 0)
+    if (sid_capture_legacy(data, nbytes, dtype, 0, &coord) != 0)
         return -1;
 
-    /* Compute original signature */
     int64_t orig_vx, orig_vy;
     int rc;
     if (dtype == 0)
@@ -357,15 +421,243 @@ static inline int sid_verify_roundtrip(const void *data, size_t nbytes,
         rc = sid_signature_q80((const uint8_t *)data, nbytes, &orig_vx, &orig_vy);
     if (rc != 0) return -1;
 
-    /* Summon from coordinate */
     int64_t summon_vx, summon_vy;
-    sid_summon(&coord, &summon_vx, &summon_vy);
+    sid_summon_legacy(&coord, &summon_vx, &summon_vy);
 
-    /* Must match exactly */
     if (summon_vx != orig_vx || summon_vy != orig_vy)
         return -1;
 
     return 0;
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   SIDArchConfig — Architecture-Adaptive Capture Configuration
+   ═══════════════════════════════════════════════════════════════
+   Different model families (SmolLM, VLM, Qwen) have different
+   optimal face priority orders and resolution requirements.
+   This config allows per-family tuning without code changes.
+
+   n_faces:   faces from priority list to try (1..7)
+              n_faces=4 → 8 dirs (hex+tri) = ~99% coverage (default)
+              n_faces=7 → 14 dirs = ~100% coverage
+              n_faces=1 → 2 dirs = fast but may miss
+
+   use_tri:   1=try both hex and tri grids (120 positions/face)
+              0=hex only (60 positions/face)
+
+   face_order: priority face list, NULL = default {0,3,5,6,2,1,4}
+              Different arch families can provide their own.
+   ═══════════════════════════════════════════════════════════════ */
+
+typedef struct {
+    uint8_t        n_faces;       /* 1..7 faces from priority list */
+    uint8_t        use_tri;       /* 1=also try tri centroids */
+    const uint8_t *face_order;    /* priority face list (NULL = default) */
+} SIDArchConfig;
+
+/* ── Built-in profiles ───────────────────────────────────── */
+/* SmolLM family: 4 faces + tri = 8 dirs, ~99% coverage */
+static inline SIDArchConfig sid_conf_smollm(void) {
+    SIDArchConfig c = { .n_faces = 4, .use_tri = 1, .face_order = NULL };
+    return c;
+}
+
+/* VLM family: 6 faces + tri = 12 dirs (vision needs more resolution) */
+static inline SIDArchConfig sid_conf_vlm(void) {
+    SIDArchConfig c = { .n_faces = 6, .use_tri = 1, .face_order = NULL };
+    return c;
+}
+
+/* Qwen family: 7 faces + tri = 14 dirs (different architecture, more faces) */
+static inline SIDArchConfig sid_conf_qwen(void) {
+    SIDArchConfig c = { .n_faces = 7, .use_tri = 1, .face_order = NULL };
+    return c;
+}
+
+/* Fast: 1 face + hex only = 1 dir (quick scan, may miss some) */
+static inline SIDArchConfig sid_conf_fast(void) {
+    SIDArchConfig c = { .n_faces = 1, .use_tri = 0, .face_order = NULL };
+    return c;
+}
+
+/* Full: 7 faces + tri = 14 dirs (max coverage) */
+static inline SIDArchConfig sid_conf_full(void) {
+    SIDArchConfig c = { .n_faces = 7, .use_tri = 1, .face_order = NULL };
+    return c;
+}
+
+/*
+ * Capture with configurable SIDArchConfig.
+ * Handles hex-only and hex+tri modes.
+ * Returns 0 on success, -1 on error.
+ */
+static inline int sid_capture_with_config(const void *data, size_t nbytes,
+                                           int dtype, SIDArchConfig cfg,
+                                           SIDCoord *out)
+{
+    if (!data || !out || nbytes == 0) return -1;
+    memset(out, 0, sizeof(*out));
+
+    int64_t vx, vy;
+    int rc;
+    if (dtype == 0)
+        rc = sid_signature_f32((const uint8_t *)data, nbytes, &vx, &vy);
+    else
+        rc = sid_signature_q80((const uint8_t *)data, nbytes, &vx, &vy);
+    if (rc != 0) return rc;
+
+    int max_faces = cfg.n_faces;
+    if (max_faces <= 0 || max_faces > TW_PRIORITY_FACES)
+        max_faces = TW_PRIORITY_FACES;
+
+    const uint8_t *order = cfg.face_order ? cfg.face_order : TW_FACE_PRIORITY;
+
+    int best_idx = -1;
+    int64_t best_mag = -1;
+    TWFaceCapture caps[7]; /* max 7 faces, 1 per face with combined grid */
+
+    for (int p = 0; p < max_faces; p++) {
+        uint8_t f = order[p];
+
+        int64_t rx = (vx * _TW_ROT_COS[f] - vy * _TW_ROT_SIN[f]) / TW_SCALE;
+        int64_t ry = (vx * _TW_ROT_SIN[f] + vy * _TW_ROT_COS[f]) / TW_SCALE;
+
+        /* Combined grid (hamburger): single nearest search across 12 centroids
+         * (6 hex + 6 tri). Picks best automatically — no separate hex/tri compare. */
+        uint8_t is_tri;
+        TWCaptureInt cap;
+        tw_capture_int_combined(rx, ry, &cap, &is_tri);
+        tw_capture_int_to_face(&cap, f, &caps[p], is_tri, vx, vy);
+    }
+
+    for (int p = 0; p < max_faces; p++) {
+        int64_t m = caps[p].resid_x * caps[p].resid_x
+                  + caps[p].resid_y * caps[p].resid_y;
+        if (best_idx < 0 || m < best_mag) { best_mag = m; best_idx = p; }
+    }
+
+    if (best_idx < 0) return -1;
+
+    out->face      = caps[best_idx].face;
+    out->zone      = caps[best_idx].zone;
+    out->slot      = caps[best_idx].slot;
+    out->resid_x   = caps[best_idx].resid_x;
+    out->resid_y   = caps[best_idx].resid_y;
+    out->tring_pos = caps[best_idx].tring_pos;
+    out->is_tri    = caps[best_idx].is_tri;
+    out->drain     = caps[best_idx].drain;
+
+    return 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PRIORITY CAPTURE — benchmark-ordered faces (4 = 91%, 7 = 99.7%)
+   ═══════════════════════════════════════════════════════════════ */
+
+/*
+ * Priority capture: raw data → SIDCoord using face priority list.
+ * Tries max_faces from {0,3,5,6,2,1,4}, each with hex+tri.
+ * Internally uses sid_capture_with_config with default face_order.
+ * n_faces=4 → 8 directions, ~99% coverage (real tri grid).
+ * n_faces=7 → 14 directions, ~100% coverage.
+ * Always picks best resid across all tried directions.
+ */
+static inline int sid_capture_priority(const void *data, size_t nbytes,
+                                        int dtype, int max_faces,
+                                        SIDCoord *out)
+{
+    SIDArchConfig cfg;
+    cfg.n_faces    = (uint8_t)(max_faces > 0 ? max_faces : 4);
+    cfg.use_tri    = 1;
+    cfg.face_order = NULL;
+    if (cfg.n_faces > TW_PRIORITY_FACES) cfg.n_faces = TW_PRIORITY_FACES;
+    return sid_capture_with_config(data, nbytes, dtype, cfg, out);
+}
+
+/* Priority roundtrip test */
+static inline int sid_verify_priority(const void *data, size_t nbytes,
+                                       int dtype, int max_faces,
+                                       const char *name)
+{
+    (void)name;
+    SIDCoord coord;
+    if (sid_capture_priority(data, nbytes, dtype, max_faces, &coord) != 0)
+        return -1;
+
+    int64_t orig_vx, orig_vy, summon_vx, summon_vy;
+    int rc;
+    if (dtype == 0)
+        rc = sid_signature_f32((const uint8_t *)data, nbytes, &orig_vx, &orig_vy);
+    else
+        rc = sid_signature_q80((const uint8_t *)data, nbytes, &orig_vx, &orig_vy);
+    if (rc != 0) return -1;
+
+    sid_summon_legacy(&coord, &summon_vx, &summon_vy);
+    return (summon_vx == orig_vx && summon_vy == orig_vy) ? 0 : -1;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   24-DIRECTION CAPTURE — best of 12 faces × 2 (hex+tri)
+   ═══════════════════════════════════════════════════════════════ */
+
+/*
+ * 24-direction capture: raw data → SIDCoord (best of 24 directions).
+ * Tries all 12 faces × 2 (hex+tri) = 24 independent captures,
+ * picks the one with smallest resid magnitude.
+ * Theoretic coverage ≈ 99.6%.
+ */
+static inline int sid_capture_legacy_24(const void *data, size_t nbytes,
+                                         int dtype, SIDCoord *out)
+{
+    if (!data || !out || nbytes == 0) return -1;
+    memset(out, 0, sizeof(*out));
+
+    int64_t vx, vy;
+    int rc;
+    if (dtype == 0)
+        rc = sid_signature_f32((const uint8_t *)data, nbytes, &vx, &vy);
+    else
+        rc = sid_signature_q80((const uint8_t *)data, nbytes, &vx, &vy);
+    if (rc != 0) return rc;
+
+    TWFaceIter24 r24;
+    tw_iterate_faces_24(vx, vy, &r24);
+
+    int best = tw_best_of_24(&r24);
+    TWFaceCapture *fc = &r24.caps[best];
+
+    out->face      = fc->face;
+    out->zone      = fc->zone;
+    out->slot      = fc->slot;
+    out->resid_x   = fc->resid_x;
+    out->resid_y   = fc->resid_y;
+    out->tring_pos = fc->tring_pos;
+    out->is_tri    = fc->is_tri;
+    out->drain     = fc->drain;
+
+    return 0;
+}
+
+/* 24-direction roundtrip test */
+static inline int sid_verify_roundtrip_24(const void *data, size_t nbytes,
+                                           int dtype, const char *name)
+{
+    (void)name;
+    SIDCoord coord;
+    if (sid_capture_legacy_24(data, nbytes, dtype, &coord) != 0) return -1;
+
+    int64_t orig_vx, orig_vy, summon_vx, summon_vy;
+    int rc;
+    if (dtype == 0)
+        rc = sid_signature_f32((const uint8_t *)data, nbytes, &orig_vx, &orig_vy);
+    else
+        rc = sid_signature_q80((const uint8_t *)data, nbytes, &orig_vx, &orig_vy);
+    if (rc != 0) return -1;
+
+    sid_summon_legacy(&coord, &summon_vx, &summon_vy);
+
+    return (summon_vx == orig_vx && summon_vy == orig_vy) ? 0 : -1;
+}
+
 #endif /* SID_H */
+

@@ -20,7 +20,7 @@
 #define TW_FACE_BRIDGE_IMPLEMENTATION
 #include "tw_face_bridge.h"
 
-/* sid.h gives us capture via sid_capture */
+/* sid.h gives us capture via sid_capture_legacy */
 #define SID_IMPLEMENTATION
 #include "sid.h"
 
@@ -93,9 +93,9 @@ static TensorInfo *capture_using_sid(const char *tensors_dir, int *out_n) {
         size_t sz = rb.entries[i].size;
         int dtype = rb.entries[i].dtype;
         
-        /* Capture using SID API */
+        /* Capture using SID API (legacy) */
         SIDCoord coord;
-        if (sid_capture(data, sz, dtype, 0, &coord) != 0) continue;
+        if (sid_capture_legacy(data, sz, dtype, 0, &coord) != 0) continue;
         
         /* Also get 2D signature vx, vy by dequanting first 64 values */
         int n_blocks = sz / 34;
@@ -222,8 +222,7 @@ static void print_12face_stats(const char *tensors_dir, const char *label) {
         int dtype = rb.entries[i].dtype;
         
         SIDCoord coord;
-        if (sid_capture(data, sz, dtype, 0, &coord) != 0) continue;
-        
+        if (sid_capture_legacy(data, sz, dtype, 0, &coord) != 0) continue;
         /* Get vx, vy from dequant */
         int n_blocks = sz / 34;
         int n_vals = n_blocks * 32;

@@ -276,6 +276,86 @@ sid_verify_roundtrip(data, nbytes, dtype, "name");
 
 ---
 
+## Session June 14 — Real Tri Grid + SIDArchConfig API
+
+### tl;dr
+**Real tri centroid grid implemented** — `TW_TRI_SLOT_LOCAL_I` (60 physical positions/face, R_{-30} of hex grid). **1 face with hex+tri = 99.3% coverage** (was previously ~27% with virtual rotation). **4 faces = 99.7%, 6 faces = 100%**. SIDArchConfig API with architecture profiles (SmolLM, VLM, Qwen, Fast, Full). 5175/5175 tests pass. 290/290 SID lossless roundtrip.
+
+### Key Change: Virtual rotation → Real tri grid
+Before: tri was computed by rotating input 30° and using hex centroids (virtual perspective).
+After: tri uses independent `TW_TRI_SLOT_LOCAL_I` table (60 physical centroid positions per face).
+
+### Files Modified
+| File | Change |
+|------|--------|
+| `collection/tw_capture_int.h` | +`TW_TRI_SLOT_LOCAL_I` table, +`tw_capture_int_on_grid()`, +`tw_capture_int_tri()`, +`tw_reconstruct_int_on_grid()`, +`tw_reconstruct_int_tri()` |
+| `collection/tw_face_bridge.h` | All tri capture paths use real grid (no rotation): `tw_capture_face()`, `tw_iterate_faces_24()`, `tw_capture_priority()` |
+| `collection/sid.h` | +`SIDArchConfig` struct + 5 built-in profile macros (sid_conf_smollm/vlm/qwen/fast/full), +`sid_capture_with_config()`. Updated `sid_summon()` and `sid_summon_legacy()` to be grid-aware (use tri reconstruct when is_tri=1). |
+
+### New Files
+| File | Purpose |
+|------|---------|
+| `collection/tests/bench_priority_coverage.c` | Priority capture coverage benchmark with real tri grid |
+
+### SIDArchConfig API
+```c
+typedef struct {
+    uint8_t        n_faces;       /* 1..7 faces from priority list */
+    uint8_t        use_tri;       /* 1=also try tri centroids */
+    const uint8_t *face_order;    /* priority face list (NULL = default {0,3,5,6,2,1,4}) */
+} SIDArchConfig;
+
+sid_conf_smollm() → {n_faces=4, use_tri=1, face_order=NULL}  /* 8 dirs, 99.7% */
+sid_conf_vlm()    → {n_faces=6, use_tri=1, face_order=NULL}  /* 12 dirs, 100% */
+sid_conf_qwen()   → {n_faces=7, use_tri=1, face_order=NULL}  /* 14 dirs, 100% */
+sid_conf_fast()   → {n_faces=1, use_tri=0, face_order=NULL}  /* 1 dir */
+sid_conf_full()   → {n_faces=7, use_tri=1, face_order=NULL}  /* 14 dirs, 100% */
+```
+
+### Benchmark Results (SmolLM2-360M, 290 tensors)
+| Config | Dirs | Coverage | Tri Used | Slots | Notes |
+|--------|------|----------|----------|-------|-------|
+| 1f x2 | 2 | **99.3%** | 72.8% | 44/1440 | Just face-0 hex+tri |
+| 2f x4 | 4 | 99.3% | 75.9% | 70/1440 | |
+| 3f x6 | 6 | 99.7% | 72.8% | 85/1440 | |
+| 4f x8 | 8 | **99.7%** | 53.4% | 87/1440 | ← default profile |
+| 5f x10 | 10 | 99.7% | 49.7% | 97/1440 | |
+| 6f x12 | 12 | **100.0%** | 53.8% | 102/1440 | ← VLM profile |
+| 7f x14 | 14 | **100.0%** | 56.2% | 103/1440 | |
+
+**Key insight**: 99.3% coverage from JUST face-0 with hex+tri. The real tri grid is far more effective than virtual rotation (which achieved only ~27% tri utilization vs 53-76% with real grid).
+
+### Critical Finding: Integer Rotation Quantization
+Non-zero face captures require inverse rotation to recover original signature. Fixed-point rotation has inherent quantization error (RCOS²+RSIN²≠SCALE² difference ≈ 0.003%), causing ≤±1 integer error in reconstruction. **Face-0 captures are 100% exact**. For multi-face SID, resid is stored in face-local frame — summon gives face-local signature, caller must rotate by -face_angle.
+
+### Architecture
+```
+TW_RECONSTRUCT GRID SELECTION:
+  is_tri=0 → tw_reconstruct_int()    → TW_SLOT_LOCAL_I (hex)
+  is_tri=1 → tw_reconstruct_int_tri() → TW_TRI_SLOT_LOCAL_I (tri)
+
+CAPTURE PATH:
+  sid_capture_with_config(data, dtype, cfg, &coord)
+    → signature(vx, vy)
+    → for each priority face: rotate, try hex grid + try tri grid
+    → pick best resid across all tried directions
+    → store (face, zone, slot, is_tri, resid, tring_pos)
+```
+
+### Next Steps
+1. Fix integer rotation: pre-compute resid in face-0 frame (eliminate summon rotation for non-zero face)
+2. Add `SID_FACE_ORDER_VLM` / `SID_FACE_ORDER_QWEN` with arch-specific priority lists
+3. Test on 7B model (~800 tensors) to verify scale behavior
+4. Connect to `geo_rewind.h` for O(1) state routing
+
+### Relevant Files
+- `I:\FGLS_new\collection\tw_capture_int.h` — TW_TRI_SLOT_LOCAL_I, grid-aware capture/reconstruct
+- `I:\FGLS_new\collection\tw_face_bridge.h` — real tri grid capture paths
+- `I:\FGLS_new\collection\sid.h` — SIDArchConfig, sid_capture_with_config, grid-aware summon
+- `I:\FGLS_new\collection\tests\bench_priority_coverage.c` — priority coverage benchmark
+
+---
+
 ## Session June 13 (continued) — Cross-Architecture SID Validation
 
 ### tl;dr
@@ -404,6 +484,66 @@ Edge/2 subdivision (`edge length / 2`) creates 4 triangles per hexagon, but only
 
 ---
 
+## Session June 14 — Rewind Bridge: SID ↔ geo_rewind.h Connection
+
+### tl;dr
+**TWFaceRewind ↔ RewindBuffer bridge implemented.** SID tring_pos (0..1439 hex+tri) now maps to packed GEO_WALK enc via `GEO_WALK[720]` from `core/core/geo_temporal_lut.h`. Hex captures stored in both systems; tri captures stored in TWFaceRewind only. Bug fix: `tw_face_pack_key` now sets bit-49 valid marker → key ≠ 0 for any valid capture (zero-key sentinel was broken for face=zone=slot=resid=0 captures).
+
+### Bridge API (`tw_rewind_bridge.h`)
+```c
+uint32_t    tw_sid_tring_to_enc(tring_pos, is_tri)  // SID → packed enc
+uint16_t    tw_enc_to_sid_tring(enc)                 // packed enc → SID hex tring
+int         tw_enc_is_valid(enc)                     // enc → valid walk position?
+
+TStreamChunk tw_cap_pack_chunk(cap)                  // TWFaceCapture → TStreamChunk
+int          tw_chunk_unpack_cap(chunk, cap, key)    // TStreamChunk → TWFaceCapture
+
+uint32_t     tw_bridge_rewind_store(tw_rb, geo_rb, cap)     // store in both
+TWBRewindResult tw_bridge_rewind_find(tw_rb, geo_rb, tring) // unified lookup
+int            tw_bridge_rewind_has(tw_rb, geo_rb, tring, is_tri)
+uint32_t       tw_bridge_rewind_evict_geo(tw_rb, geo_rb, tring, is_tri)
+void           tw_bridge_stats(tw_rb, geo_rb, &st)
+```
+
+### Test Results
+| Test | Status |
+|------|--------|
+| SID tring ↔ enc roundtrip (720 iterations) | PASS |
+| `tw_cap_pack_chunk` / `tw_chunk_unpack_cap` | PASS |
+| Bridge store: hex→both, tri→TW only | PASS |
+| Bridge find unified lookup | PASS |
+| Bridge stats | PASS |
+| Existing 5175 tw_face_bridge tests | 5175/5175 PASS |
+
+### Files Created
+| File | Purpose |
+|------|---------|
+| `collection/tw_rewind_bridge.h` | **NEW** — SID↔geo_rewind.h bridge (includes + conversion + uniform store/find) |
+| `collection/tests/test_tw_rewind_bridge.c` | **NEW** — 22 tests, 9 checkpoints, 0 failures |
+
+### Files Modified
+| File | Change |
+|------|--------|
+| `collection/tw_face_bridge.h` | `tw_face_pack_key`: added bit-49 valid marker (always 1) → key ≠ 0 for any valid capture. Updated comment documenting key format (`[face:4][zone:4][slot:4][drain:1][is_tri:1][V:1][resid_x:16][resid_y:16][drain_tring:11]`). |
+
+### Architecture
+```
+SID TWFaceCapture (face, zone, slot, is_tri, resid)
+    │
+    ├─ tw_face_pack_key → uint64_t key (8B, bit 49 = valid)
+    │
+    ├─ TWFaceRewind (1440 slots, indexed by tring_pos)
+    │   • hex+tri, O(1), lightweight coordinate index
+    │
+    └─ tw_sid_tring_to_enc → GEO_WALK[tring_pos] → packed enc
+         │
+         RewindBuffer (972 slots, indexed by enc)
+         • hex-only, O(1), full 4104B TStreamChunk storage
+         • backpressure, snapshot, pin/restore API
+```
+
+---
+
 ## Session June 13 (continued) — Stream SID Capture from Real GGUF + Qwen2.5-1.5B
 
 ### tl;dr
@@ -443,8 +583,9 @@ Edge/2 subdivision (`edge length / 2`) creates 4 triangles per hexagon, but only
 - Qwen naming: `blk.N.` pattern for layer detection (vs `layers.N.`)
 
 ### Next Steps
-1. **Qwen 0.5B** — verify architecture family consistency
-2. **F16 handler** — capture all 339/339 tensors (add f16→Q8_0 signature converter)
-3. **Stream capture lib** — reusable `sid_capture_gguf()` API
-4. **7B test** — ~800 Q8_0 tensors, ~680 KB I/O, no blocker
-5. **Connect GeoField routing** — `geo_tring_addr.h` → SID
+1. *DONE* Connect TWFaceRewind ↔ geo_rewind.h for O(1) state routing via tring_pos
+2. **Qwen 0.5B** — verify architecture family consistency
+3. **F16 handler** — capture all 339/339 tensors (add f16→Q8_0 signature converter)
+4. **Stream capture lib** — reusable `sid_capture_gguf()` API
+5. **7B test** — ~800 Q8_0 tensors, ~680 KB I/O, no blocker
+6. **Connect GeoField routing** — `geo_tring_addr.h` → SID

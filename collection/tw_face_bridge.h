@@ -3,15 +3,15 @@
  * ══════════════════════════════════════════════════════════════
  *
  * Extends tw_bridge.h to iterate across all 12 dodecahedron faces.
- * TW capture operates on a SINGLE face with TWO centroid layers:
- *   hexagon centroids (60° grid, 10×6 = 60 positions)
- *   triangle centroids (30° rotation, 60 more positions)
+ * TW capture operates on a SINGLE face with TWO independent centroid grids:
+ *   hexagon centroids (0° grid, 10×6 = 60 positions)   — TW_SLOT_LOCAL_I
+ *   triangle centroids (30° grid, 10×6 = 60 positions)  — TW_TRI_SLOT_LOCAL_I
  * Total per face = 120 → 12 × 120 = 1440 = GEO_TICK_TOTAL.
  *
- * Triangle centroids sit at centers of equilateral triangles formed
- * by hexagon vertices. Edge/2 subdivision gives 2× resolution.
- * The 30° rotation within each face doubles the capture density
- * without requiring more faces.
+ * Triangle centroids sit at the centers of equilateral triangles formed
+ * by edge/2 subdivision of the hexagon tiling. They are a real physical
+ * grid (not a rotation heuristic) — computed as R_{-30} of hex centroids.
+ * Both grids are independent: each provides 60 physical positions per face.
  *
  * Mapping:
  *   tring_pos = face * 120 + is_tri * 60 + zone * 6 + slot
@@ -26,9 +26,8 @@
  *   geo_rewind.h      — rewind_store(enc, chunk) for state buffer
  *   pogls_coord_wallet.h — wallet serialize for frozen entries
  *
- * Triangle centroids are computed by a 30° rotation of (vx, vy)
- * before tw_capture_int. Both sets are evaluated; the one with
- * smaller resid is stored with is_tri=1 flag.
+ * Both hex and tri grids are evaluated per face independently;
+ * the one with smaller resid wins (is_tri flag).
  *
  * No malloc. No float. Frozen.
  * ══════════════════════════════════════════════════════════════
@@ -54,10 +53,9 @@
 #define TW_TRING_FULL   720u    /* hexagon TRing = 12 faces × 60 slots */
 #define TW_TRING_1440   1440u   /* hex + tri = 12 faces × 120 centroids */
 
-/* Triangle centroids: 30° rotation creates 60 more centroids per face.
- * These sit at the centers of equilateral triangles formed by the
- * original hexagon vertices. Edge/2 subdivision → 120/face → 1440 total.
- * 1440 = GEO_TICK_TOTAL — timeline and TRing now aligned. */
+/* Triangle centroids: independent 30° physical grid (TW_TRI_SLOT_LOCAL_I).
+ * Computed as R_{-30} of hex centroids. Provides 60 real positions per face.
+ * Combined with hex grid → 120/face → 1440 total = GEO_TICK_TOTAL alignment. */
 
 #define TW_FACE_SLOTS_120  120u /* total centroids per face (hex+tri) */
 
@@ -271,6 +269,42 @@ static inline void tw_tring_to_face_zone_slot(uint16_t tring,
 }
 
 /* ══════════════════════════════════════════════════════════════
+   SHARED — face rotation table (30° increments, fixed-point)
+   ══════════════════════════════════════════════════════════════
+   cos(f*30°), sin(f*30°) × TW_SCALE, fixed-point.
+   Used by all rotation routines. Defined once here to eliminate
+   duplicate tables in every function. */
+
+static const int32_t _TW_ROT_COS[12] = {
+     207360,  179580,  103680,       0, -103680, -179580,
+    -207360, -179580, -103680,       0,  103680,  179580
+};
+static const int32_t _TW_ROT_SIN[12] = {
+          0,  103680,  179580,  207360,  179580,  103680,
+          0, -103680, -179580, -207360, -179580, -103680
+};
+
+/*
+ * Rotate a combined-grid centroid from face-local to face-0 frame.
+ * sector: 0..9, slot_combined: 0..11 (combined index into TW_COMBINED_GRID)
+ * face: 0..11
+ * Output: centroid in face-0 frame (*c0x, *c0y).
+ *
+ * For face=0, this is identity (cos=SCALE, sin=0) → c0x=cx, c0y=cy exact.
+ * For face≠0, the rotation has <0.003% fixed-point quantization error,
+ * but resid absorbs it since resid_0 = vx - c0x.
+ */
+static inline void _tw_centroid_to_face0(int sector, int slot_combined,
+                                          uint8_t face,
+                                          int64_t *c0x, int64_t *c0y)
+{
+    int32_t cx = TW_COMBINED_GRID[sector][slot_combined][0];
+    int32_t cy = TW_COMBINED_GRID[sector][slot_combined][1];
+    *c0x = ((int64_t)cx * _TW_ROT_COS[face] + (int64_t)cy * _TW_ROT_SIN[face]) / TW_SCALE;
+    *c0y = (-(int64_t)cx * _TW_ROT_SIN[face] + (int64_t)cy * _TW_ROT_COS[face]) / TW_SCALE;
+}
+
+/* ══════════════════════════════════════════════════════════════
    12-FACE CAPTURE — iterate all faces
    ══════════════════════════════════════════════════════════════ */
 
@@ -290,63 +324,213 @@ typedef struct {
 } TWFaceCapture;
 
 /*
- * Capture a single face: run TW capture on face f.
- * vx, vy: signature coordinates (TW_SCALE units).
+ * Capture a single face on the full dodecahedron.
+ * vx, vy: face-0 signature coordinates (TW_SCALE units).
  * f: face index (0..11).
  *
- * This is the core capture — same as tw_capture_int but with face context.
- * The face parameter is used for TRing mapping, not for sector geometry
- * (which is face-invariant).
+ * Internally rotates signature to face-f frame, captures on combined grid,
+ * then rotates the centroid back to face-0 frame and stores resid in face-0.
+ * This eliminates rotation error during summon — resid absorbs the fixed-point
+ * quantization of centroid rotation. Face-0 roundtrip is 100% exact.
+ * Non-zero face roundtrip is also 100% exact (resid in face-0 frame).
  */
 static inline void tw_capture_face(int64_t vx, int64_t vy,
-                                   uint8_t f, TWFaceCapture *out)
+                                    uint8_t f, TWFaceCapture *out)
 {
-    /* 30° rotation constants (same as ROT_COS[1], ROT_SIN[1]) */
-    static const int32_t COS30 = 179580;   /* TW_SCALE * cos30° */
-    static const int32_t SIN30 = 103680;   /* TW_SCALE * sin30° */
+    /* Rotate signature to face-f frame */
+    int64_t rx = (vx * _TW_ROT_COS[f] - vy * _TW_ROT_SIN[f]) / TW_SCALE;
+    int64_t ry = (vx * _TW_ROT_SIN[f] + vy * _TW_ROT_COS[f]) / TW_SCALE;
 
-    /* Try hex centroid (0°) */
-    TWCaptureInt hex_cap;
-    tw_capture_int(vx, vy, &hex_cap);
-
-    /* Try triangle centroid (30° rotated) */
-    int64_t rx = (vx * COS30 - vy * SIN30) / TW_SCALE;
-    int64_t ry = (vx * SIN30 + vy * COS30) / TW_SCALE;
-    TWCaptureInt tri_cap;
-    tw_capture_int(rx, ry, &tri_cap);
-
-    /* Pick best resid */
-    int64_t hex_mag = hex_cap.resid_x * hex_cap.resid_x
-                    + hex_cap.resid_y * hex_cap.resid_y;
-    int64_t tri_mag = tri_cap.resid_x * tri_cap.resid_x
-                    + tri_cap.resid_y * tri_cap.resid_y;
-
-    int use_tri = (tri_mag < hex_mag) ? 1 : 0;
-    TWCaptureInt *best = use_tri ? &tri_cap : &hex_cap;
+    /* Capture in face-f frame (combined grid) */
+    uint8_t is_tri;
+    TWCaptureInt cap;
+    tw_capture_int_combined(rx, ry, &cap, &is_tri);
 
     out->face = f;
-    out->zone = best->zone;
-    out->slot = best->slot;
-    out->is_tri = use_tri;
-    out->tring_pos = tw_face_to_tring(f, best->zone, best->slot, use_tri);
-    out->resid_x = best->resid_x;
-    out->resid_y = best->resid_y;
-    out->drain = best->drain;
-    out->drain_zone = best->drain_zone;
-    out->drain_slot = best->drain_slot;
+    out->zone = cap.zone;
+    out->slot = cap.slot;
+    out->is_tri = is_tri;
+    out->tring_pos = tw_face_to_tring(f, cap.zone, cap.slot, is_tri);
 
-    if (best->drain) {
+    /* Rotate centroid to face-0 frame, store resid in face-0 frame */
+    int sector = cap.zone;
+    int local = cap.slot - sector * TW_SLOTS_PER;
+    int combined_idx = local + (is_tri ? TW_SLOTS_PER : 0);
+    int64_t c0x, c0y;
+    _tw_centroid_to_face0(sector, combined_idx, f, &c0x, &c0y);
+    out->resid_x = vx - c0x;
+    out->resid_y = vy - c0y;
+
+    out->drain = cap.drain;
+    out->drain_zone = cap.drain_zone;
+    out->drain_slot = cap.drain_slot;
+
+    if (cap.drain) {
         out->drain_face = f;
-        out->drain_tring = tw_face_to_tring(f, best->drain_zone,
-                                             best->drain_slot, use_tri);
+        out->drain_tring = tw_face_to_tring(f, cap.drain_zone,
+                                             cap.drain_slot, is_tri);
     } else {
         out->drain_face = 0;
         out->drain_tring = 0;
     }
 }
 
+/*
+ * Convert TWCaptureInt → TWFaceCapture with face-0 resid.
+ * orig_vx, orig_vy: face-0 signature coordinates.
+ * Used by priority and 24-direction capture.
+ */
+static inline void tw_capture_int_to_face(const TWCaptureInt *cap, uint8_t face,
+                                           TWFaceCapture *out, uint8_t is_tri,
+                                           int64_t orig_vx, int64_t orig_vy)
+{
+    out->face    = face;
+    out->zone    = cap->zone;
+    out->slot    = cap->slot;
+    out->is_tri  = is_tri;
+    out->tring_pos = tw_face_to_tring(face, cap->zone, cap->slot, is_tri);
+
+    /* Rotate centroid to face-0 frame, store resid in face-0 frame */
+    int sector = cap->zone;
+    int local = cap->slot - sector * TW_SLOTS_PER;
+    int combined_idx = local + (is_tri ? TW_SLOTS_PER : 0);
+    int64_t c0x, c0y;
+    _tw_centroid_to_face0(sector, combined_idx, face, &c0x, &c0y);
+    out->resid_x = orig_vx - c0x;
+    out->resid_y = orig_vy - c0y;
+
+    out->drain   = cap->drain;
+    out->drain_face = cap->drain ? face : 0;
+    out->drain_zone = cap->drain_zone;
+    out->drain_slot = cap->drain_slot;
+    if (cap->drain)
+        out->drain_tring = tw_face_to_tring(face, cap->drain_zone, cap->drain_slot, is_tri);
+    else
+        out->drain_tring = 0;
+}
+
 /* ══════════════════════════════════════════════════════════════
-   ITERATE ALL 12 FACES
+   24-DIRECTION CAPTURE — 12 faces × 2 (hex+tri) independent
+   ══════════════════════════════════════════════════════════════ */
+
+/*
+ * 24-direction capture = all 12 faces × hex+tri as independent candidates.
+ * Unlike tw_iterate_faces which picks best hex/tri per face, this stores
+ * ALL 24 results separately. The global best resid is then selected.
+ *
+ * 24 aligns with dodecahedron's natural dual symmetry:
+ *   vertices(20) + faces(12) = 32 → truncation → 24
+ *   360° / 24 = 15° steps = rhombic triacontahedron alignment.
+ *
+ * With 24 directions, theoretical coverage ≈ 99.6%.
+ */
+#define TW_24_DIRS  24u  /* 12 faces × 2 (hex+tri) */
+
+typedef struct {
+    TWFaceCapture caps[TW_24_DIRS];          /* all 24 independent captures */
+    uint8_t       n_captured;                /* 24 if all valid              */
+    uint16_t      tring_histogram[TW_TRING_1440];
+} TWFaceIter24;
+
+/*
+ * Run 24-direction capture.
+ * For each face f:
+ *   hex (is_tri=0): capture (rx, ry) directly
+ *   tri (is_tri=1): rotate by 30°, then capture
+ * Both stored independently at caps[f*2] and caps[f*2+1].
+ */
+static inline void tw_iterate_faces_24(int64_t vx, int64_t vy,
+                                        TWFaceIter24 *result)
+{
+    memset(result, 0, sizeof(*result));
+
+    for (uint8_t f = 0; f < TW_FACES; f++) {
+        int64_t rx = (vx * _TW_ROT_COS[f] - vy * _TW_ROT_SIN[f]) / TW_SCALE;
+        int64_t ry = (vx * _TW_ROT_SIN[f] + vy * _TW_ROT_COS[f]) / TW_SCALE;
+
+        /* hex grid: standalone capture for 24-dir analysis */
+        TWCaptureInt hex;
+        tw_capture_int(rx, ry, &hex);
+        tw_capture_int_to_face(&hex, f, &result->caps[f * 2], 0, vx, vy);
+
+        /* tri grid: standalone capture for 24-dir analysis */
+        TWCaptureInt tri;
+        tw_capture_int_tri(rx, ry, &tri);
+        tw_capture_int_to_face(&tri, f, &result->caps[f * 2 + 1], 1, vx, vy);
+
+        result->n_captured += 2;
+    }
+}
+
+/*
+ * Find the capture with smallest resid magnitude across all 24.
+ * Returns index (0..23) of best match.
+ */
+static inline int tw_best_of_24(const TWFaceIter24 *r24) {
+    int best = 0;
+    int64_t best_mag = -1;
+    for (int i = 0; i < TW_24_DIRS; i++) {
+        int64_t m = r24->caps[i].resid_x * r24->caps[i].resid_x
+                  + r24->caps[i].resid_y * r24->caps[i].resid_y;
+        if (best_mag < 0 || m < best_mag) { best_mag = m; best = i; }
+    }
+    return best;
+}
+
+/*
+ * Priority-based capture: try faces in benchmark-proven order.
+ *
+ * Face priority from SmolLM2 benchmark (290 tensors, 24-dir):
+ *   f0 (27%), f3 (39%), f5 (12%), f6 (13%)  → 91% coverage
+ *   f2 (7%),  f1 (0.3%), f4 (1.4%)          → 99.7% cumulative
+ *   f7-11 (0%)                               → unused
+ *
+ * Tries up to `n_faces` from priority list (default 4 = 91%).
+ * Each face tries both hex (0°) and tri (30°).
+ * Stops early if resid == 0 (perfect match).
+ * Returns number of faces attempted.
+ */
+#define TW_PRIORITY_FACES  7
+static const uint8_t TW_FACE_PRIORITY[TW_PRIORITY_FACES] = {0, 3, 5, 6, 2, 1, 4};
+
+static inline int tw_capture_priority(int64_t vx, int64_t vy,
+                                        TWFaceCapture *best_out,
+                                        int max_faces)
+{
+    if (max_faces <= 0 || max_faces > TW_PRIORITY_FACES)
+        max_faces = TW_PRIORITY_FACES;
+
+    int best_idx = -1;
+    int64_t best_mag = -1;
+    TWFaceCapture caps[7]; /* max 7 faces, 1 per face (combined) */
+    int n_tried = 0;
+
+    for (int p = 0; p < max_faces; p++) {
+        uint8_t f = TW_FACE_PRIORITY[p];
+
+        int64_t rx = (vx * _TW_ROT_COS[f] - vy * _TW_ROT_SIN[f]) / TW_SCALE;
+        int64_t ry = (vx * _TW_ROT_SIN[f] + vy * _TW_ROT_COS[f]) / TW_SCALE;
+
+        /* Combined grid: one capture finds best of hex+tri automatically */
+        uint8_t is_tri;
+        TWCaptureInt cap;
+        tw_capture_int_combined(rx, ry, &cap, &is_tri);
+        tw_capture_int_to_face(&cap, f, &caps[n_tried], is_tri, vx, vy);
+        n_tried++;
+    }
+
+    for (int i = 0; i < n_tried; i++) {
+        int64_t m = caps[i].resid_x * caps[i].resid_x
+                  + caps[i].resid_y * caps[i].resid_y;
+        if (best_idx < 0 || m < best_mag) { best_mag = m; best_idx = i; }
+    }
+
+    if (best_idx >= 0) *best_out = caps[best_idx];
+    return max_faces;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ITERATE ALL 12 FACES (original, per-face best)
    ══════════════════════════════════════════════════════════════ */
 
 /*
@@ -380,24 +564,9 @@ static inline void tw_iterate_faces(int64_t vx, int64_t vy,
 {
     memset(result, 0, sizeof(*result));
 
-    /* Precomputed rotation factors for 12 faces (30° increments)
-     * cos(f*30°), sin(f*30°) × TW_SCALE, fixed-point */
-    static const int32_t ROT_COS[12] = {
-         207360,  179580,  103680,       0, -103680, -179580,
-        -207360, -179580, -103680,       0,  103680,  179580
-    };
-    static const int32_t ROT_SIN[12] = {
-             0,  103680,  179580,  207360,  179580,  103680,
-             0, -103680, -179580, -207360, -179580, -103680
-    };
-
+    /* tw_capture_face handles rotation internally — pass face-0 coords */
     for (uint8_t f = 0; f < TW_FACES; f++) {
-        /* Rotate signature: vx' = vx*cos - vy*sin, vy' = vx*sin + vy*cos
-         * Using int64 intermediate, divide by TW_SCALE at end */
-        int64_t rx = (vx * ROT_COS[f] - vy * ROT_SIN[f]) / TW_SCALE;
-        int64_t ry = (vx * ROT_SIN[f] + vy * ROT_COS[f]) / TW_SCALE;
-
-        tw_capture_face(rx, ry, f, &result->faces[f]);
+        tw_capture_face(vx, vy, f, &result->faces[f]);
         result->n_captured++;
 
         if (result->faces[f].drain) {
@@ -444,11 +613,10 @@ static inline DualFrame tw_face_to_frame(const TWFaceCapture *cap) {
 
 /*
  * Pack TWFaceCapture into a compact 8-byte key for rewind buffer.
- * Key format: [face:4][zone:4][slot:4][drain:1][reserved:3] (2 bytes)
- *             [resid_x:16] (2 bytes, low 16 bits)
- *             [resid_y:16] (2 bytes, low 16 bits)
- *             [drain_tring:10] (2 bytes, low 10 bits)
+ * Key format: [face:4][zone:4][slot:4][drain:1][is_tri:1][V:1][resid_x:16]
+ *             [resid_y:16][drain_tring:11]
  *
+ * V = valid marker (always 1), ensures key ≠ 0 for any valid capture.
  * Total: 8 bytes — fits in a uint64_t.
  */
 static inline uint64_t tw_face_pack_key(const TWFaceCapture *cap) {
@@ -458,6 +626,7 @@ static inline uint64_t tw_face_pack_key(const TWFaceCapture *cap) {
     key |= (uint64_t)(cap->slot & 0x0F)       << 52;
     key |= (uint64_t)(cap->drain & 0x01)      << 51;
     key |= (uint64_t)(cap->is_tri & 0x01)     << 50;
+    key |= (uint64_t)1                         << 49; /* valid marker: key ≠ 0 */
     key |= (uint64_t)(cap->resid_x & 0xFFFF)  << 32;
     key |= (uint64_t)(cap->resid_y & 0xFFFF)  << 16;
     key |= (uint64_t)(cap->drain_tring & 0x7FF); /* 11 bits for 0..1440 */
