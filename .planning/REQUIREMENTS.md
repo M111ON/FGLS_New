@@ -51,14 +51,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| MFACE-01 | | Pending |
-| TIME-01 | | Pending |
-| DEMO-01 | | Pending |
+| MFACE-01 | Phase 1 | Pending |
+| TIME-01 | Phase 2 | Pending |
+| DEMO-01 | Phase 3 | Pending |
 
 **Coverage:**
 - v1 requirements: 3 total
-- Mapped to phases: 0
-- Unmapped: 3
+- Mapped to phases: 3
+- Unmapped: 0 ✓
 
 ---
 
