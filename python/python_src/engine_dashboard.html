@@ -464,6 +464,102 @@ h1, h2, h3, h4, .h { font-family: var(--font-headline); font-weight: 700; text-t
 
 </div>
 
+<!-- ─── Section: AI Models (STT / TTS / VLM) ─── -->
+<div class="section" id="secModels">
+  <div class="section-header" onclick="toggleSec(this)">
+    <span class="icon">&#x1F9E0;</span>
+    <h2>AI Models — STT / TTS / Vision</h2>
+    <span class="status-tag" id="modelsStatus">loading</span>
+    <span class="toggle">&#x25BC;</span>
+  </div>
+  <div class="section-body open" id="modelsBody">
+    <div class="gauges-row" id="modelsGauges" style="margin-bottom:10px;"></div>
+
+    <!-- Tab bar -->
+    <div style="display:flex;gap:0;margin-bottom:10px;border-bottom:2px solid var(--border);">
+      <button class="btn model-tab btn-gold" data-tab="stt" style="border-radius:0;box-shadow:none;flex:1;" onclick="switchModelTab('stt')">&#x1F399; STT</button>
+      <button class="btn model-tab btn-outline" data-tab="tts" style="border-radius:0;box-shadow:none;flex:1;" onclick="switchModelTab('tts')">&#x1F50A; TTS</button>
+      <button class="btn model-tab btn-outline" data-tab="vlm" style="border-radius:0;box-shadow:none;flex:1;" onclick="switchModelTab('vlm')">&#x1F4F7; Vision</button>
+    </div>
+
+    <!-- STT Tab -->
+    <div class="model-panel" id="panelStt">
+      <div class="form-row">
+        <input type="file" id="sttFileInput" accept=".wav,.mp3,.m4a,.ogg,.flac" style="display:none;" onchange="sttTranscribe(event)">
+        <button class="btn btn-gold" onclick="el('sttFileInput').click()">Upload Audio</button>
+        <span style="font-size:.6rem;color:var(--text-muted);align-self:center;">wav / mp3 / m4a / ogg / flac</span>
+      </div>
+      <div class="viz-card">
+        <h3>Transcription</h3>
+        <div id="sttResult" class="output-box" style="min-height:60px;max-height:300px;">Upload an audio file to transcribe</div>
+      </div>
+    </div>
+
+    <!-- TTS Tab -->
+    <div class="model-panel" id="panelTts" style="display:none;">
+      <div class="form-row">
+        <div class="form-group" style="flex:3;">
+          <label>Text to speak</label>
+          <textarea id="ttsText" style="width:100%;min-height:60px;font-family:var(--font);font-size:.75rem;border:2px solid var(--border);padding:6px;background:var(--card);color:var(--fg);">Hello! This is Kokoro TTS speaking.</textarea>
+        </div>
+        <div class="form-group">
+          <label>Voice</label>
+          <select id="ttsVoice">
+            <option>af_heart</option>
+            <option>af_bella</option>
+            <option>af_nicole</option>
+            <option>am_adam</option>
+            <option>am_michael</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Speed</label>
+          <input type="number" id="ttsSpeed" value="1.0" min="0.5" max="2.0" step="0.1">
+        </div>
+      </div>
+      <div class="form-row">
+        <button class="btn btn-gold" onclick="ttsSpeak()">&#x25B6; Speak</button>
+        <button class="btn btn-outline" onclick="ttsDownload()">&#x2B07; Download WAV</button>
+      </div>
+      <div class="viz-card">
+        <h3>Audio Player</h3>
+        <div id="ttsPlayerWrap" style="min-height:40px;display:flex;align-items:center;">
+          <audio id="ttsPlayer" controls style="width:100%;display:none;"></audio>
+          <span id="ttsStatus" style="color:var(--text-muted);font-size:.7rem;">Enter text and click Speak</span>
+        </div>
+        <div id="ttsMeta" class="output-box" style="min-height:24px;font-size:.55rem;margin-top:6px;display:none;"></div>
+      </div>
+    </div>
+
+    <!-- VLM Tab -->
+    <div class="model-panel" id="panelVlm" style="display:none;">
+      <div class="form-row">
+        <input type="file" id="vlmFileInput" accept=".jpg,.jpeg,.png,.webp,.bmp" style="display:none;" onchange="vlmDescribe(event)">
+        <button class="btn btn-gold" onclick="el('vlmFileInput').click()">Upload Image</button>
+        <span style="font-size:.6rem;color:var(--text-muted);align-self:center;">jpg / png / webp / bmp</span>
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="flex:1;">
+          <label>Prompt (optional)</label>
+          <input type="text" id="vlmPrompt" value="Describe this image in detail." style="width:100%;">
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;">
+        <div class="viz-card" style="flex:1;">
+          <h3>Image Preview</h3>
+          <div id="vlmPreview" style="min-height:80px;display:flex;align-items:center;justify-content:center;background:var(--bg);border:1px solid var(--border);">
+            <span style="color:var(--text-muted);font-size:.65rem;">No image selected</span>
+          </div>
+        </div>
+        <div class="viz-card" style="flex:2;">
+          <h3>Description</h3>
+          <div id="vlmResult" class="output-box" style="min-height:80px;max-height:300px;">Upload an image to describe</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 const API = '';
 async function api(method, path, body) {
@@ -1599,10 +1695,109 @@ async function conGpx4PreviewO4() {
   }
 }
 
+// ─── AI Models ───
+let _lastTtsBlob = null;
+
+function switchModelTab(tab) {
+  document.querySelectorAll('.model-panel').forEach(p => p.style.display = 'none');
+  document.querySelectorAll('.model-tab').forEach(b => { b.className = 'btn model-tab btn-outline'; });
+  const panel = el('panel' + tab.charAt(0).toUpperCase() + tab.slice(1));
+  if (panel) panel.style.display = 'block';
+  const btn = document.querySelector(`.model-tab[data-tab="${tab}"]`);
+  if (btn) btn.className = 'btn model-tab btn-gold';
+}
+
+async function loadModels() {
+  const statusEl = el('modelsStatus');
+  try {
+    const d = await api('GET', '/api/models/status');
+    const whisper = d.whisper === 'loaded';
+    const kokoro = d.kokoro === 'loaded';
+    const vlm = d.vlm === 'loaded';
+    const nOn = [whisper, kokoro, vlm].filter(Boolean).length;
+    statusEl.textContent = nOn + '/3 loaded';
+    statusEl.className = 'status-tag ' + (nOn === 3 ? 'online' : nOn > 0 ? 'online' : 'offline');
+    el('modelsGauges').innerHTML =
+      gaugeCard(svgGauge(whisper ? 100 : 0, 0, 100, 'Whisper STT', '%', whisper ? 'var(--gold)' : 'var(--secondary)')) +
+      gaugeCard(svgGauge(kokoro ? 100 : 0, 0, 100, 'Kokoro TTS', '%', kokoro ? 'var(--gold)' : 'var(--secondary)')) +
+      gaugeCard(svgGauge(vlm ? 100 : 0, 0, 100, 'SmolVLM', '%', vlm ? 'var(--gold)' : 'var(--secondary)'));
+  } catch {
+    statusEl.textContent = 'offline'; statusEl.className = 'status-tag offline';
+  }
+}
+
+async function sttTranscribe(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const out = el('sttResult'); out.innerHTML = '<span class="spinner"></span> Transcribing... (first load downloads Whisper model)';
+  try {
+    const fd = new FormData(); fd.append('file', file);
+    const r = await fetch(API + '/api/models/stt', { method: 'POST', body: fd });
+    if (!r.ok) { let t = await r.text(); try { const j = JSON.parse(t); t = j.detail || j.error || t; } catch {} throw new Error(t); }
+    const d = await r.json();
+    out.innerHTML = `<span class="ok">&#x2705; ${d.language} (p=${d.probability}) ${d.duration_ms}ms</span>\n${d.text}`;
+    await loadModels();
+  } catch (e) { out.innerHTML = `<span class="err">ERROR:</span> ${e.message}`; }
+  event.target.value = '';
+}
+
+async function ttsSpeak() {
+  const text = el('ttsText').value.trim();
+  if (!text) return;
+  const status = el('ttsStatus'); status.innerHTML = '<span class="spinner"></span> Generating... (first load downloads Kokoro model)';
+  const player = el('ttsPlayer'); player.style.display = 'none';
+  try {
+    const r = await fetch(API + '/api/models/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, voice: el('ttsVoice').value, speed: parseFloat(el('ttsSpeed').value) }),
+    });
+    if (!r.ok) { let t = await r.text(); try { const j = JSON.parse(t); t = j.detail || j.error || t; } catch {} throw new Error(t); }
+    const blob = await r.blob();
+    _lastTtsBlob = blob;
+    const url = URL.createObjectURL(blob);
+    player.src = url; player.style.display = 'block'; player.play();
+    const ms = r.headers.get('X-Duration-Ms') || '?';
+    const sr = r.headers.get('X-Sample-Rate') || '?';
+    el('ttsMeta').style.display = 'block';
+    el('ttsMeta').innerHTML = `<span class="ok">Generated</span> ${(blob.size/1024).toFixed(1)} KB  ${ms}ms  ${sr}Hz`;
+    status.innerHTML = `<span class="ok">&#x25B6; Playing</span>`;
+    await loadModels();
+  } catch (e) { status.innerHTML = `<span class="err">ERROR:</span> ${e.message}`; }
+}
+
+async function ttsDownload() {
+  if (!_lastTtsBlob) { alert('Generate speech first'); return; }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(_lastTtsBlob);
+  a.download = 'kokoro_tts.wav';
+  a.click();
+}
+
+async function vlmDescribe(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const preview = el('vlmPreview');
+  preview.innerHTML = '<span class="spinner"></span>';
+  const reader = new FileReader();
+  reader.onload = (e) => { preview.innerHTML = `<img src="${e.target.result}" style="max-width:200px;max-height:200px;border:2px solid var(--border);">`; };
+  reader.readAsDataURL(file);
+  const out = el('vlmResult'); out.innerHTML = '<span class="spinner"></span> Describing... (first load downloads SmolVLM model)';
+  try {
+    const fd = new FormData(); fd.append('file', file); fd.append('prompt', el('vlmPrompt').value);
+    const r = await fetch(API + '/api/models/vlm', { method: 'POST', body: fd });
+    if (!r.ok) { let t = await r.text(); try { const j = JSON.parse(t); t = j.detail || j.error || t; } catch {} throw new Error(t); }
+    const d = await r.json();
+    out.innerHTML = `<span class="ok">&#x2705; ${d.duration_ms}ms</span>\n${d.description}`;
+    await loadModels();
+  } catch (e) { out.innerHTML = `<span class="err">ERROR:</span> ${e.message}`; }
+  event.target.value = '';
+}
+
 // ─── Init ───
 document.addEventListener('DOMContentLoaded', async () => {
   await loadStatus();
-  await Promise.all([loadStore(), loadRouter(), loadGate(), loadPipeline(), loadCBinaries(), loadCodec(), loadGeopixel(), loadContainer()]);
+  await Promise.all([loadStore(), loadRouter(), loadGate(), loadPipeline(), loadCBinaries(), loadCodec(), loadGeopixel(), loadContainer(), loadModels()]);
   startAutoRefresh(15000);
 });
 </script>

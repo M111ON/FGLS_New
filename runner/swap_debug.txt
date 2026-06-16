@@ -1,0 +1,13 @@
+start
+before llama_backend_init
+before model load
+after model load: 0000000000C40080
+before DLL load
+after DLL load: 00007FFE94CA0000
+before find tensor
+find returned 0
+before ctx init
+ctx=00000000027EECA0
+before decode
+after decode ret=0
+step_A

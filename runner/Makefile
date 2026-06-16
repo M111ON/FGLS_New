@@ -10,9 +10,18 @@ DLLS    = $(DLLDIR)/llama.dll $(DLLDIR)/ggml.dll $(DLLDIR)/ggml-base.dll $(DLLDI
 
 .PHONY: all clean run
 
-all: llama_pogls_runner_sid.exe
+all: test_swap_all.exe llama_pogls_runner_sid_v2.exe
+
+test_swap_all.exe: test_swap_all.c gguf_index.h
+	$(CC) $(CFLAGS) -o $@ $< $(DLLS) $(LDLIBS)
+
+test_swap_debug.exe: test_swap_debug.c
+	$(CC) $(CFLAGS) -o $@ $< $(DLLS) $(LDLIBS)
 
 llama_pogls_runner_sid.exe: llama_pogls_runner_sid.c gguf_index.h sid_loader.h sid_cache.h
+	$(CC) $(CFLAGS) -o $@ $< $(DLLS) $(LDLIBS)
+
+llama_pogls_runner_sid_v2.exe: llama_pogls_runner_sid_v2.c gguf_index.h sid_loader.h sid_cache.h bond_discovery.h hex_grid.h th_grid.h goldberg_sid.h sid_delta_ring.h sid_timetravel.h
 	$(CC) $(CFLAGS) -o $@ $< $(DLLS) $(LDLIBS)
 
 clean:
