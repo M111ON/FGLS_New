@@ -11,8 +11,8 @@
  *     merkle_root = (uint32_t)(addr ^ val) — caller can override.
  *
  *  2. metatron_target_face_b(addr) — Option B
- *     addr ∈ [0    ..3455] → tetra zone → face from tring walk
- *     addr ∈ [3456 ..6911] → octa zone  → cross/chiral via compound
+ *     addr ∈ [0    ..3455] → zone A      → face from tring walk
+ *     addr ∈ [3456 ..6911] → zone B      → cross/chiral routing
  *     addr ≥ 6912          → wrap mod 6912, re-classify
  *     Returns face_id 0..11 for metatron_route_to().
  *
@@ -30,7 +30,7 @@
  *   FrustumStore fs_store;       // parallel frustum pipeline
  *   uint64_t     fs_fibo_seed;   // set at init, default FIBO_SEED_DEFAULT
  *
- * Sacred: 3456=GEO_FULL_N, 6912=JUNCTION — used as read-only boundaries.
+ * Boundaries derived from GEO_FULL=20736: GEO_FULL/6=3456, GEO_FULL/3=6912.
  * No malloc. No float. No heap.
  * ════════════════════════════════════════════════════════════════
  */
@@ -43,9 +43,9 @@
 #include "geo_metatron_route.h"    /* meta_route, METATRON_CROSS            */
 #include "geo_temporal_lut.h"      /* GEO_WALK, TRING_COMP                 */
 
-/* ── address zone boundaries (read-only, never modified) ───── */
-#define FRUSTUM_TETRA_CEILING  3456u   /* GEO_FULL_N = 2⁷×3³              */
-#define FRUSTUM_JUNCTION       6912u   /* 2⁸×3³, tetra+octa ceiling        */
+/* ── address zone boundaries (derived from GEO_FULL=20736) ────────────── */
+#define FRUSTUM_TETRA_CEILING  3456u   /* GEO_FULL/6 = 2⁷×3³              */
+#define FRUSTUM_JUNCTION       6912u   /* GEO_FULL/3 = 2⁸×3³              */
 
 /* ════════════════════════════════════════════════════════════════
    PART 1 — FRUSTUM PARALLEL HOOK

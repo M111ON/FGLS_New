@@ -1,4 +1,4 @@
-/* test_tw_face_bridge.c — 12-Face Bridge: TW → Full TRing 720
+/* test_tw_face_bridge.c — Capo ×12: Y-Triangle Node_id Capture
  * ════════════════════════════════════════════════════════════════
  * Build:
  *   gcc -DGEO_JUMP_INLINE -I. -I../geo_jump_module/include -I../src
@@ -7,30 +7,32 @@
  * Run:   test_tw_face_bridge.exe [tensors_dir]
  *
  * Tests:
- *   [T1] TW rewind buffer — store/find/has/occupied roundtrip
- *   [T2] Freeze wallet — entry create + file write/read
- *   [T3] Single face capture — mapping sanity
- *   [T4] 12-face iteration — all faces produce valid TRing positions
- *   [T5] TRing histogram — distribution across 720 slots
- *   [T6] Frame seek integration — TRing → DualFrame
- *   [T7] World A/B — cpair mapping
- *   [T8] Full pipeline (real tensors) — gb_load → capture → bridge
- */
+ *   [T1]  Rewind buffer — store/find/has/occupied via node_id
+ *   [T2]  Freeze wallet — entry create + file write/read
+ *   [T3]  Single node capture — mapping sanity
+ *   [T4]  Capo ×12 — all 12 pentagons via tw_capture_capo_all
+ *   [T5]  Node distribution — histogram across GEO_FULL=20736
+ *   [T6]  Frame seek — node_id → DualFrame via frame_at
+ *   [T7]  Capo uniqueness — 12 capo nodes = 12 distinct pentagons
+ *   [T8]  Full pipeline (real tensors)
+ *   [T9]  Orchestrator — tw_capture_12face_init/free
+ *   [T10] Timeline round-trip — node_id → DualFrame determinism
+ *   [B1]  Capo benchmark (behind -DBENCHMARK)
+ * ════════════════════════════════════════════════════════════════ */
 
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include "tw_face_bridge.h"
-
-/* ── RawBridge for real tensor loading (guarded by HAVE_TENSOR_DIR) ── */
+/* ── RawBridge for real tensor loading (must set impl BEFORE first include) ── */
 #ifdef TEST_WITH_TENSORS
 #define GEOM_RAW_BRIDGE_IMPLEMENTATION
-#include "geom_raw_bridge.h"
 #endif
 
-/* ── Test framework ─────────────────────────────────────────── */
+#include "tw_face_bridge.h"
+
+/* ── Test framework ── */
 static int g_pass = 0, g_fail = 0;
 
 #define ASSERT(cond) do { \
@@ -44,47 +46,30 @@ static int g_pass = 0, g_fail = 0;
            __LINE__, (long long)(a), (long long)(b)); } \
 } while(0)
 
+#define ASSERT_NE(a,b) do { \
+    if ((a) != (b)) { g_pass++; } \
+    else { g_fail++; printf("  FAIL: " #a " != " #b " (line %d)\n", __LINE__); } \
+} while(0)
+
 #define CHECK(cond, msg) do { \
     if (cond) { g_pass++; printf("  PASS: %s\n", msg); } \
     else { g_fail++; printf("  FAIL: %s (line %d)\n", msg, __LINE__); } \
 } while(0)
 
-/* ── Helper: create a capture for testing ───────────────────── */
-static TWFaceCapture make_capture(uint8_t face, uint8_t zone, uint8_t slot,
-                                   int64_t rx, int64_t ry, uint8_t drain)
-{
-    TWFaceCapture cap;
-    memset(&cap, 0, sizeof(cap));
-    cap.face = face;
-    cap.zone = zone;
-    cap.slot = slot;
-    cap.tring_pos = tw_face_to_tring(face, zone, slot, 0);
-    cap.resid_x = rx;
-    cap.resid_y = ry;
-    cap.drain = drain;
-    if (drain) {
-        cap.drain_face = face;
-        cap.drain_zone = (zone + 1) % TW_N_SECTORS;
-        cap.drain_slot = 0;
-        cap.drain_tring = tw_face_to_tring(face, cap.drain_zone, cap.drain_slot, 0);
-    }
-    return cap;
-}
-
 /* ══════════════════════════════════════════════════════════════
-   [T1] TW Rewind Buffer
+   [T1] Rewind Buffer — node_id based
    ══════════════════════════════════════════════════════════════ */
 static void test_rewind_buffer(void) {
-    printf("\n─── [T1] TW Rewind Buffer ───\n");
+    printf("\n─── [T1] Rewind Buffer (node_id) ───\n");
 
     TWFaceRewind rb;
     tw_rewind_init(&rb);
     ASSERT_EQ(tw_rewind_occupied(&rb), 0u);
     ASSERT_EQ(rb.stored, 0u);
 
-    /* store at TRing position 0 */
-    TWFaceCapture c0 = make_capture(0, 0, 0, 100, -50, 0);
-    tw_face_rewind_store(&rb, &c0);
+    /* store at node 0 */
+    uint64_t k0 = tw_node_pack_key(0, 100, -50, 1);
+    tw_rewind_store(&rb, k0, 0);
     ASSERT(tw_rewind_has(&rb, 0));
     ASSERT(!tw_rewind_has(&rb, 1));
     ASSERT_EQ(tw_rewind_occupied(&rb), 1u);
@@ -92,74 +77,72 @@ static void test_rewind_buffer(void) {
 
     /* retrieve and verify packed key */
     uint64_t k = tw_rewind_find(&rb, 0);
-    TWFaceCapture c1;
-    tw_face_unpack_key(k, &c1);
-    ASSERT_EQ(c1.face, 0u);
-    ASSERT_EQ(c1.zone, 0u);
-    ASSERT_EQ(c1.slot, 0u);
-    ASSERT_EQ(c1.resid_x, 100);
-    ASSERT_EQ(c1.resid_y, -50);
-    ASSERT_EQ(c1.drain, 0u);
+    uint32_t node_id; int64_t rx, ry; uint8_t pent;
+    tw_node_unpack_key(k, &node_id, &rx, &ry, &pent);
+    ASSERT_EQ(node_id, 0u);
+    ASSERT_EQ(rx, 100);
+    ASSERT_EQ(ry, -50);
+    ASSERT_EQ(pent, 1u);
 
-    /* store at hex tring 1379 (face 11, zone 9, slot 5) */
-    TWFaceCapture c2 = make_capture(11, 9, 5, -200, 300, 0);
-    c2.is_tri = 0;
-    c2.tring_pos = tw_face_to_tring(11, 9, 5, 0);  /* = 1379 */
-    tw_face_rewind_store(&rb, &c2);
+    /* store at node 1379 */
+    uint64_t k1 = tw_node_pack_key(1379, -200, 300, 1);
+    tw_rewind_store(&rb, k1, 1379);
     ASSERT(tw_rewind_has(&rb, 1379));
     ASSERT_EQ(tw_rewind_occupied(&rb), 2u);
 
     /* overwrite at same position */
-    TWFaceCapture c3 = make_capture(0, 0, 0, 999, 888, 1);
-    c3.tring_pos = 0;
-    tw_face_rewind_store(&rb, &c3);
-    ASSERT_EQ(tw_rewind_occupied(&rb), 2u);  /* same 2 slots occupied */
-    ASSERT_EQ(rb.stored, 3u);                /* but 3 total stores */
+    uint64_t k2 = tw_node_pack_key(0, 999, 888, 1);
+    tw_rewind_store(&rb, k2, 0);
+    ASSERT_EQ(tw_rewind_occupied(&rb), 2u);  /* same 2 slots */
+    ASSERT_EQ(rb.stored, 3u);                /* 3 total stores */
 
     /* verify overwrite */
     k = tw_rewind_find(&rb, 0);
-    tw_face_unpack_key(k, &c1);
-    ASSERT_EQ(c1.resid_x, 999);
-    ASSERT_EQ(c1.drain, 1u);
+    tw_node_unpack_key(k, &node_id, &rx, &ry, &pent);
+    ASSERT_EQ(rx, 999);
+    ASSERT_EQ(ry, 888);
 
     /* find on empty slot returns 0 */
-    ASSERT_EQ(tw_rewind_find(&rb, 360), 0ull);
-    ASSERT(!tw_rewind_has(&rb, 360));
+    ASSERT_EQ(tw_rewind_find(&rb, 9999), 0ull);
+    ASSERT(!tw_rewind_has(&rb, 9999));
+
+    /* rewind slots = GEO_FULL */
+    ASSERT_EQ((int)TW_REWIND_SLOTS, 20736);
 
     CHECK(g_pass > 0, "rewind buffer: all checks passed");
 }
 
 /* ══════════════════════════════════════════════════════════════
-   [T2] Freeze Wallet
+   [T2] Freeze Wallet — node_id entries
    ══════════════════════════════════════════════════════════════ */
 static void test_freeze_wallet(void) {
-    printf("\n─── [T2] Freeze Wallet ───\n");
+    printf("\n─── [T2] Freeze Wallet (node_id) ───\n");
 
-    /* create freeze entries from captures */
-    TWFaceCapture caps[3];
-    caps[0] = make_capture(0, 0, 0, 1000, 2000, 1);  /* frozen */
-    caps[1] = make_capture(5, 3, 2, -500, 800, 1);    /* frozen */
-    caps[2] = make_capture(11, 9, 5, 0, 0, 1);         /* frozen */
-
+    /* create freeze entries from node_ids */
     TWFreezeEntry entries[3];
-    for (int i = 0; i < 3; i++)
-        entries[i] = tw_face_freeze_entry(&caps[i], 12 + i, 0);
+    entries[0] = tw_node_freeze_entry(1,     12, 0, 1000,  2000);  /* node=1 avoids addr=0 */
+    entries[1] = tw_node_freeze_entry(1728,  13, 0, -500,  800);
+    entries[2] = tw_node_freeze_entry(1379,  14, 0, 0,     0);
 
-    ASSERT_EQ(entries[0].tring_pos, 0u);
+    ASSERT_EQ(entries[0].node_id, 1u);
     ASSERT_EQ(entries[0].tick, 12u);
-    ASSERT(entries[0].freeze_addr > 0);
+    ASSERT(entries[0].freeze_addr < GEO_FULL);
     ASSERT(entries[0].packed_key > 0);
 
-    ASSERT_EQ(entries[1].tring_pos, tw_face_to_tring(5, 3, 2, 0));
+    ASSERT_EQ(entries[1].node_id, 1728u);
     ASSERT_EQ(entries[1].tick, 13u);
 
-    ASSERT_EQ(entries[2].tring_pos, tw_face_to_tring(11, 9, 5, 0)); /* 1379 */
+    ASSERT_EQ(entries[2].node_id, 1379u);
     ASSERT_EQ(entries[2].tick, 14u);
+
+    /* node_freeze_address should be deterministic */
+    uint32_t addr0 = tw_node_freeze_address(0, 12);
+    ASSERT_EQ(addr0, GEO_WRAP(0 + (12 % SHELL_RINGS) * GEO_TOWER));
 
     /* write to file */
     const char *path = "/tmp/test_freeze_tw.tw";
     size_t written = tw_freeze_wallet_write(path, entries, 3);
-    ASSERT_EQ(written, 16 + 3 * 18);  /* header + 3 entries */
+    ASSERT_EQ(written, 16u + 3u * 20u);  /* header + 3×20 */
 
     /* read back */
     TWFreezeEntry *read_entries = NULL;
@@ -167,13 +150,13 @@ static void test_freeze_wallet(void) {
     ASSERT_EQ(n, 3u);
     ASSERT(read_entries != NULL);
 
-    ASSERT_EQ(read_entries[0].tring_pos, entries[0].tring_pos);
+    ASSERT_EQ(read_entries[0].node_id,     entries[0].node_id);
     ASSERT_EQ(read_entries[0].freeze_addr, entries[0].freeze_addr);
-    ASSERT_EQ(read_entries[0].tick, entries[0].tick);
-    ASSERT_EQ(read_entries[0].packed_key, entries[0].packed_key);
+    ASSERT_EQ(read_entries[0].tick,        entries[0].tick);
+    ASSERT_EQ(read_entries[0].packed_key,  entries[0].packed_key);
 
-    ASSERT_EQ(read_entries[1].tring_pos, entries[1].tring_pos);
-    ASSERT_EQ(read_entries[2].tring_pos, entries[2].tring_pos);
+    ASSERT_EQ(read_entries[1].node_id, entries[1].node_id);
+    ASSERT_EQ(read_entries[2].node_id, entries[2].node_id);
     ASSERT_EQ(read_entries[2].tick, 14u);
 
     free(read_entries);
@@ -186,93 +169,89 @@ static void test_freeze_wallet(void) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   [T3] Single Face Capture
+   [T3] Single Node Capture — tw_capture_to_node
    ══════════════════════════════════════════════════════════════ */
-static void test_single_face(void) {
-    printf("\n─── [T3] Single Face Capture ───\n");
+static void test_single_capture(void) {
+    printf("\n─── [T3] Single Node Capture ───\n");
 
-    /* capture at origin */
-    TWFaceCapture cap;
-    tw_capture_face(0, 0, 0, &cap);
-    ASSERT_EQ(cap.face, 0u);
-    ASSERT(cap.zone < TW_N_SECTORS);
-    ASSERT(cap.slot < TW_N_SLOTS);
-    ASSERT(cap.tring_pos < 120);  /* face 0: 0-119 (hex+tri) */
-    ASSERT(cap.tring_pos == tw_face_to_tring(0, cap.zone, cap.slot, cap.is_tri));
-    ASSERT_EQ(cap.drain, 0u);
+    uint8_t pentagon;
 
-    /* large offsets → still valid (wrap within sector) */
-    tw_capture_face(100000, 50000, 3, &cap);
-    ASSERT_EQ(cap.face, 3u);
-    ASSERT(cap.zone < TW_N_SECTORS);
-    ASSERT(cap.slot < TW_N_SLOTS);
-    /* face 3 hex: 360-419, tri: 420-479 */
-    ASSERT(cap.tring_pos >= 360 && cap.tring_pos < 480);
-    ASSERT(cap.tring_pos == tw_face_to_tring(3, cap.zone, cap.slot, cap.is_tri));
+    /* origin */
+    uint32_t n0 = tw_capture_to_node(0, 0, &pentagon);
+    ASSERT(n0 < GEO_FULL);
+    ASSERT(pentagon >= 1 && pentagon <= 12);
+    ASSERT_EQ(geo_pentagon_id(n0), pentagon);
 
-    /* face 11, negative coords */
-    tw_capture_face(-75000, -120000, 11, &cap);
-    ASSERT_EQ(cap.face, 11u);
-    /* face 11 hex: 1320-1379, tri: 1380-1439 */
-    ASSERT(cap.tring_pos >= 1320 && cap.tring_pos < 1440);
+    /* large offsets */
+    uint32_t n1 = tw_capture_to_node(100000, 50000, &pentagon);
+    ASSERT(n1 < GEO_FULL);
+    ASSERT(pentagon >= 1 && pentagon <= 12);
+    ASSERT(geo_shell_ring(n1) < SHELL_RINGS);
+    ASSERT(geo_shell_side(n1) < SHELL_FACES);  /* 0..11 */
 
-    /* drain on boundary */
-    /* use a vector known to hit a boundary */
-    int64_t near_boundary_x = 200000;
-    int64_t near_boundary_y = 5000;
-    tw_capture_face(near_boundary_x, near_boundary_y, 0, &cap);
-    if (cap.drain) {
-        ASSERT(cap.drain_face == 0);
-        ASSERT(cap.drain_tring < 720);
-    }
+    /* negative coords */
+    uint32_t n2 = tw_capture_to_node(-75000, -120000, &pentagon);
+    ASSERT(n2 < GEO_FULL);
+    ASSERT(pentagon >= 1 && pentagon <= 12);
 
-    CHECK(g_pass > 0, "single face: all checks passed");
+    /* different inputs → different node_ids (high probability) */
+    ASSERT_NE(n0, n1);
+    ASSERT_NE(n1, n2);
+
+    /* drain from tw_capture_int via side-channel */
+    TWCaptureInt cap;
+    tw_capture_int_combined(200000, 5000, &cap, &(uint8_t){0});
+    /* drain is either 0 or 1 — no invalid value */
+    ASSERT(cap.drain == 0 || cap.drain == 1);
+
+    CHECK(g_pass > 0, "single capture: all checks passed");
 }
 
 /* ══════════════════════════════════════════════════════════════
-   [T4] 12-Face Iteration
+   [T4] Capo ×12 Pentagons
    ══════════════════════════════════════════════════════════════ */
-static void test_iterate_faces(void) {
-    printf("\n─── [T4] 12-Face Iteration ───\n");
+static void test_capo_all(void) {
+    printf("\n─── [T4] Capo ×12 Pentagons ───\n");
 
-    TWFaceIterResult iter;
-    tw_iterate_faces(100000, 50000, &iter);
+    uint32_t capo_nodes[TW_CAPO_FACES];
 
-    /* must have captured all 12 faces */
-    ASSERT_EQ(iter.n_captured, 12u);
+    tw_capture_capo_all(100000, 50000, capo_nodes);
 
-    /* every face has valid zone/slot/tring */
-    for (uint8_t f = 0; f < 12; f++) {
-        ASSERT(iter.faces[f].zone < TW_N_SECTORS);
-        ASSERT(iter.faces[f].slot < TW_N_SLOTS);
-        ASSERT(iter.faces[f].tring_pos < 1440);
-        ASSERT_EQ(iter.faces[f].face, f);
-
-        /* verify TRing position consistency */
-        uint16_t expected = tw_face_to_tring(f, iter.faces[f].zone, iter.faces[f].slot, iter.faces[f].is_tri);
-        ASSERT_EQ(iter.faces[f].tring_pos, expected);
+    /* all 12 nodes valid */
+    uint8_t pents[12] = {0};
+    for (uint32_t f = 0; f < TW_CAPO_FACES; f++) {
+        ASSERT(capo_nodes[f] < GEO_FULL);
+        ASSERT(geo_shell_ring(capo_nodes[f]) < SHELL_RINGS);
+        ASSERT(geo_shell_side(capo_nodes[f]) < SHELL_FACES);
+        pents[f] = geo_pentagon_id(capo_nodes[f]);
+        ASSERT(pents[f] >= 1 && pents[f] <= 12);
     }
 
-    /* TRing histogram should cover at least n_captured slots */
-    uint32_t covered = 0;
-    for (uint16_t i = 0; i < TW_TRING_1440; i++)
-        if (iter.tring_histogram[i]) covered++;
-    ASSERT(covered >= iter.n_captured);
+    /* all 12 pentagons distinct */
+    uint8_t all_distinct = 1;
+    for (uint8_t i = 0; i < 12 && all_distinct; i++)
+        for (uint8_t j = i + 1; j < 12 && all_distinct; j++)
+            if (pents[i] == pents[j]) all_distinct = 0;
+    ASSERT(all_distinct);
 
-    /* iterate with different signature */
-    tw_iterate_faces(-50000, 200000, &iter);
-    ASSERT_EQ(iter.n_captured, 12u);
+    /* different signature */
+    uint32_t capo2[TW_CAPO_FACES];
+    tw_capture_capo_all(-50000, 200000, capo2);
+    for (uint32_t f = 0; f < TW_CAPO_FACES; f++) {
+        ASSERT(capo2[f] < GEO_FULL);
+        uint8_t p = geo_pentagon_id(capo2[f]);
+        ASSERT(p >= 1 && p <= 12);
+    }
 
-    CHECK(g_pass > 0, "12-face iteration: all checks passed");
+    CHECK(g_pass > 0, "capo ×12: all checks passed");
 }
 
 /* ══════════════════════════════════════════════════════════════
-   [T5] TRing Distribution
+   [T5] Node Distribution — histogram across GEO_FULL
    ══════════════════════════════════════════════════════════════ */
-static void test_tring_distribution(void) {
-    printf("\n─── [T5] TRing Distribution ───\n");
+static void test_node_distribution(void) {
+    printf("\n─── [T5] Node Distribution ───\n");
 
-    /* Run 100 random-like signatures and track histogram */
     int64_t sigs[][2] = {
         {100000, 50000},   {-50000, 200000},  {30000, -80000},
         {-100000, -100000},{150000, 0},       {0, 150000},
@@ -284,100 +263,304 @@ static void test_tring_distribution(void) {
     };
     int n_sigs = sizeof(sigs) / sizeof(sigs[0]);
 
-    uint32_t hist[1440] = {0};
+    /* histogram: 20736 slots, but we use sparse tracking */
+    /* count unique node_ids from capo_all × n_sigs */
+    uint32_t all_nodes[20 * 12]; /* max 20 sigs × 12 capo */
+    int n_total = 0;
+
     for (int i = 0; i < n_sigs; i++) {
-        TWFaceIterResult iter;
-        tw_iterate_faces(sigs[i][0], sigs[i][1], &iter);
-        for (uint8_t f = 0; f < 12; f++)
-            hist[iter.faces[f].tring_pos]++;
+        uint32_t capo[TW_CAPO_FACES];
+        tw_capture_capo_all(sigs[i][0], sigs[i][1], capo);
+        for (int f = 0; f < TW_CAPO_FACES; f++)
+            all_nodes[n_total++] = capo[f];
     }
 
-    /* at least some slots should be occupied */
+    /* count unique */
     uint32_t occupied = 0;
-    for (int i = 0; i < 1440; i++)
-        if (hist[i]) occupied++;
+    for (int i = 0; i < n_total; i++) {
+        int dup = 0;
+        for (int j = 0; j < i; j++)
+            if (all_nodes[j] == all_nodes[i]) { dup = 1; break; }
+        if (!dup) occupied++;
+    }
 
-    printf("  1440-slot occupancy: %u/1440 (%.1f%%)\n",
-           occupied, 100.0 * occupied / 1440);
+    printf("  Unique node_ids: %u/%d (%.1f%%)\n",
+           occupied, GEO_FULL, 100.0 * occupied / GEO_FULL);
     ASSERT(occupied > 0);
 
     /* entropy metric */
-    double total_hits = n_sigs * 12;
+    uint32_t hist[20736] = {0};
+    for (int i = 0; i < n_total; i++)
+        hist[all_nodes[i]]++;
+
+    double total_hits = n_total;
     double entropy = 0;
-    for (int i = 0; i < 1440; i++) {
+    for (int i = 0; i < GEO_FULL; i++) {
         if (hist[i] == 0) continue;
         double p = hist[i] / total_hits;
         entropy -= p * log2(p);
     }
-    double max_entropy = log2(1440);
+    double max_entropy = log2(GEO_FULL);
     printf("  Entropy: %.4f / %.4f (%.1f%%)\n",
            entropy, max_entropy, 100.0 * entropy / max_entropy);
     ASSERT(entropy > 0);
 
-    CHECK(g_pass > 0, "TRing distribution: all checks passed");
+    CHECK(g_pass > 0, "node distribution: all checks passed");
 }
 
 /* ══════════════════════════════════════════════════════════════
-   [T6] Frame Seek Integration
+   [T6] Frame Seek — node_id → DualFrame
    ══════════════════════════════════════════════════════════════ */
 static void test_frame_seek(void) {
-    printf("\n─── [T6] Frame Seek Integration ───\n");
+    printf("\n─── [T6] Frame Seek (node_id → DualFrame) ───\n");
 
     /* verify geo_frame_seek.h self-check */
     ASSERT_EQ(geo_frame_seek_verify(), 0);
 
-    /* TRing position → frame enc → DualFrame */
-    for (uint16_t tp = 0; tp < 720; tp++) {
-        uint16_t enc = tw_tring_to_frame_enc(tp);
-        ASSERT(enc < FRAME_CYCLE);
-        DualFrame df = frame_at(enc);
-        ASSERT(df.enc == enc);
+    /* node_id → frame_at works for full range */
+    for (uint32_t node = 0; node < GEO_FULL; node += 1111) {
+        DualFrame df = frame_at(node % FRAME_CYCLE);
+        ASSERT(df.enc < FRAME_CYCLE);
         ASSERT(df.face < 12);
         ASSERT(df.slot < 120);
-
-        /* enc should match tp (World A direct mapping) */
-        ASSERT_EQ(enc, tp);
     }
 
-    /* specific position checks */
-    uint16_t enc0 = tw_tring_to_frame_enc(0);
-    DualFrame df0 = frame_at(enc0);
+    /* specific node_id checks */
+    DualFrame df0 = frame_at(0);
     ASSERT_EQ(df0.enc, 0u);
     ASSERT_EQ(df0.face, 0u);
     ASSERT_EQ(df0.slot, 0u);
 
-    uint16_t enc719 = tw_tring_to_frame_enc(719);
-    DualFrame df719 = frame_at(enc719);
-    ASSERT_EQ(df719.enc, 719u);
-    ASSERT_EQ(df719.face, 5u);   /* 719/120 = 5 */
-    ASSERT_EQ(df719.slot, 119u); /* 719%120 = 119 */
+    DualFrame df1379 = frame_at(1379 % FRAME_CYCLE);
+    ASSERT_EQ(df1379.face, 11u);   /* 1379/120 = 11 */
+    ASSERT_EQ(df1379.slot, 59u);   /* 1379%120 = 59 */
 
     CHECK(g_pass > 0, "frame seek: all checks passed");
 }
 
 /* ══════════════════════════════════════════════════════════════
-   [T7] World A/B — cpair mapping
+   [T7] Capo Uniqueness — verify 12 pentagons distinct for all sigs
    ══════════════════════════════════════════════════════════════ */
-static void test_world_ab(void) {
-    printf("\n─── [T7] World A/B ───\n");
+static void test_capo_uniqueness(void) {
+    printf("\n─── [T7] Capo Uniqueness ───\n");
 
-    /* World B = cpair = (pos + 720) % 1440 */
-    ASSERT_EQ(tw_tring_to_world_b(0), 720u);
-    ASSERT_EQ(tw_tring_to_world_b(719), 1439u);
-    ASSERT_EQ(tw_tring_to_world_b(360), 1080u);
+    int64_t sigs[][2] = {
+        {0, 0}, {100000, 50000}, {-50000, 200000}, {30000, -80000},
+        {-100000, -100000}, {150000, 0}, {0, 150000}, {-150000, 50000},
+    };
+    int n_sigs = sizeof(sigs) / sizeof(sigs[0]);
 
-    /* cpair self-inverse (provided by frame_seek verify) */
-    for (uint16_t tp = 0; tp < 720; tp++) {
-        uint16_t wb = tw_tring_to_world_b(tp);
-        ASSERT(wb >= 720 && wb < 1440);
+    for (int i = 0; i < n_sigs; i++) {
+        uint32_t capo[TW_CAPO_FACES];
+        tw_capture_capo_all(sigs[i][0], sigs[i][1], capo);
 
-        /* world B back to world A */
-        DualFrame df = frame_at(wb);
-        ASSERT(df.enc == wb);
+        uint8_t pents[12] = {0};
+        for (int f = 0; f < TW_CAPO_FACES; f++) {
+            pents[f] = geo_pentagon_id(capo[f]);
+            ASSERT(pents[f] >= 1 && pents[f] <= 12);
+        }
+
+        /* verify all 12 pentagons covered */
+        uint8_t hit[13] = {0};
+        for (int f = 0; f < TW_CAPO_FACES; f++)
+            hit[pents[f]] = 1;
+
+        int n_pents = 0;
+        for (int p = 1; p <= 12; p++)
+            if (hit[p]) n_pents++;
+
+        ASSERT_EQ(n_pents, 12);
     }
 
-    CHECK(g_pass > 0, "world A/B: all checks passed");
+    CHECK(g_pass > 0, "capo uniqueness: all 12 pentagons verified for all signatures");
 }
+
+/* ══════════════════════════════════════════════════════════════
+   [T9] Orchestrator Unit Test
+   ══════════════════════════════════════════════════════════════ */
+static void test_orchestrator(void) {
+    printf("\n─── [T9] Orchestrator Unit Test ───\n");
+
+    TWCapture12FaceResult r;
+    tw_capture_12face_init(&r);
+    ASSERT_EQ(r.n_tensors, 0u);
+    ASSERT_EQ(r.n_frozen, 0u);
+    ASSERT_EQ(r.freeze_log, (void*)0);
+    ASSERT_EQ(tw_rewind_occupied(&r.rewind), 0u);
+    tw_capture_12face_free(&r);
+    ASSERT_EQ(r.freeze_log, (void*)0);
+
+    /* Test with synthetic signature via direct capo */
+    tw_capture_12face_init(&r);
+
+    int64_t vx = 100000;
+    int64_t vy = 50000;
+
+    tw_capture_capo_all(vx, vy, r.capo_nodes);
+    r.base_node_id = r.capo_nodes[0];
+    ASSERT(r.base_node_id < GEO_FULL);
+
+    /* store primary in rewind */
+    TWCaptureInt cap;
+    tw_capture_int_combined(vx, vy, &cap, &(uint8_t){0});
+    uint64_t key = tw_node_pack_key(r.base_node_id, cap.resid_x, cap.resid_y,
+                                     (uint8_t)(geo_pentagon_id(r.base_node_id)));
+    tw_rewind_store(&r.rewind, key, r.base_node_id);
+    ASSERT(tw_rewind_occupied(&r.rewind) > 0);
+    ASSERT(tw_rewind_has(&r.rewind, r.base_node_id));
+
+    r.n_tensors = 1;
+    tw_capture_12face_free(&r);
+
+    CHECK(g_pass > 0, "orchestrator: all checks passed");
+}
+
+/* ══════════════════════════════════════════════════════════════
+   [T10] Timeline Round-Trip — node_id → DualFrame
+   ══════════════════════════════════════════════════════════════ */
+static void test_timeline_roundtrip(void) {
+    printf("\n─── [T10] Timeline Round-Trip ───\n");
+
+    /* Test 1: Known signature → node_id → DualFrame */
+    int64_t vx = 100000;
+    int64_t vy = 50000;
+
+    TWCaptureInt cap;
+    tw_capture_int_combined(vx, vy, &cap, &(uint8_t){0});
+    uint32_t node = tw_to_node(cap.zone, cap.slot);
+
+    DualFrame df = frame_at(node % FRAME_CYCLE);
+
+    /* node_id encodes face+ring+side */
+    uint8_t face = (uint8_t)((node % FRAME_CYCLE) / 120);
+    uint8_t slot = (uint8_t)((node % FRAME_CYCLE) % 120);
+    ASSERT_EQ(df.face, face);
+    ASSERT_EQ(df.slot, slot);
+
+    ASSERT(df.ico_idx < 162);
+    ASSERT(df.phase < 12);
+    ASSERT(df.h.group < 3);
+    ASSERT(df.h.edge < 3);
+    ASSERT(df.p.step < 4);
+    ASSERT(df.p.sub < 3);
+
+    printf("  sig(%d,%d) → node=%u face=%d slot=%d → enc=%d face=%d slot=%d\n",
+           (int)vx, (int)vy, node, face, slot,
+           df.enc, df.face, df.slot);
+
+    /* Test 2: Determinism */
+    TWCaptureInt cap2;
+    tw_capture_int_combined(vx, vy, &cap2, &(uint8_t){0});
+    uint32_t node2 = tw_to_node(cap2.zone, cap2.slot);
+    DualFrame df2 = frame_at(node2 % FRAME_CYCLE);
+    ASSERT_EQ(node, node2);
+    ASSERT_EQ(df.enc, df2.enc);
+    ASSERT_EQ(df.face, df2.face);
+    ASSERT_EQ(df.slot, df2.slot);
+
+    /* Test 3: Multiple signatures produce valid mappings */
+    int64_t test_sigs[][2] = {
+        {0, 0},
+        {207360, 0},
+        {0, 207360},
+        {-100000, 50000},
+        {50000, -100000},
+    };
+    int n_sigs = sizeof(test_sigs) / sizeof(test_sigs[0]);
+    for (int i = 0; i < n_sigs; i++) {
+        TWCaptureInt c;
+        tw_capture_int_combined(test_sigs[i][0], test_sigs[i][1], &c, &(uint8_t){0});
+        uint32_t n = tw_to_node(c.zone, c.slot);
+        DualFrame d = frame_at(n % FRAME_CYCLE);
+        ASSERT(n < GEO_FULL);
+        ASSERT(d.face < 12);
+        ASSERT(d.slot < 120);
+        ASSERT(d.ico_idx < 162);
+        ASSERT(d.phase < 12);
+        printf("  sig[%d] → node=%u enc=%d face=%d slot=%d\n",
+               i, n, d.enc, d.face, d.slot);
+    }
+
+    /* Test 4: capo ×12 Diversity — each node maps to different DualFrame slot range */
+    uint32_t capo[TW_CAPO_FACES];
+    tw_capture_capo_all(vx, vy, capo);
+    uint8_t seen_faces[12] = {0};
+    for (int f = 0; f < TW_CAPO_FACES; f++) {
+        DualFrame d = frame_at(capo[f] % FRAME_CYCLE);
+        seen_faces[d.face] = 1;
+    }
+    int n_distinct_faces = 0;
+    for (int f = 0; f < 12; f++)
+        if (seen_faces[f]) n_distinct_faces++;
+    ASSERT(n_distinct_faces > 1);  /* should map to different faces */
+    printf("  Capo ×12 maps to %d distinct DualFrame faces\n", n_distinct_faces);
+
+    CHECK(g_pass > 0, "timeline round-trip: all checks passed");
+}
+
+/* ══════════════════════════════════════════════════════════════
+   [B1] Capo Benchmark
+   ══════════════════════════════════════════════════════════════ */
+#ifdef BENCHMARK
+#include <time.h>
+
+static void benchmark_capo(const char *tensors_dir) {
+    printf("\n─── [B1] Capo Benchmark ───\n");
+
+    RawBridge rb;
+    memset(&rb, 0, sizeof(rb));
+    if (rb_load(&rb, tensors_dir) != RB_OK) {
+        printf("  SKIP: no tensor data at %s\n", tensors_dir);
+        g_pass++;
+        return;
+    }
+
+    uint32_t n_avail = 0;
+    for (uint32_t i = 0; i < RB_MAX_ENTRIES; i++)
+        if (rb.entries[i].occupied) n_avail++;
+
+    if (n_avail == 0) { rb_free(&rb); g_pass++; return; }
+
+    /* Warmup */
+    TWCapture12FaceResult warmup;
+    tw_capture_12face_init(&warmup);
+    for (uint32_t i = 0; i < RB_MAX_ENTRIES; i++) {
+        if (!rb.entries[i].occupied) continue;
+        tw_capture_tensor_12face(&rb, rb.entries[i].name, 12, 0, &warmup);
+    }
+    tw_capture_12face_free(&warmup);
+
+    clock_t start = clock();
+    int iterations = 3;
+    for (int iter = 0; iter < iterations; iter++) {
+        TWCapture12FaceResult result;
+        tw_capture_12face_init(&result);
+        for (uint32_t i = 0; i < RB_MAX_ENTRIES; i++) {
+            if (!rb.entries[i].occupied) continue;
+            tw_capture_tensor_12face(&rb, rb.entries[i].name, 12, 0, &result);
+        }
+        tw_capture_12face_free(&result);
+    }
+    clock_t end = clock();
+
+    double elapsed_s = (double)(end - start) / CLOCKS_PER_SEC;
+    double total_tensors = (double)n_avail * iterations;
+    double tps = total_tensors / elapsed_s;
+
+    printf("  Tensors: %.0f in %.3fs = %.0f t/s\n", total_tensors, elapsed_s, tps);
+    printf("  Target: 2000 t/s (capo baseline: ~26000 t/s)\n");
+
+    ASSERT(tps > 100.0);
+    if (tps >= 2000.0) {
+        printf("  \xe2\x9c\x93 MEETS TARGET (>= 2000 t/s)\n");
+    } else {
+        printf("  \xe2\x9a\xa0 Below target: %.0f < 2000 t/s\n", tps);
+    }
+
+    rb_free(&rb);
+    CHECK(g_pass > 0, "benchmark: completed");
+}
+#endif /* BENCHMARK */
 
 /* ══════════════════════════════════════════════════════════════
    [T8] Full Pipeline with Real Tensors
@@ -396,76 +579,51 @@ static void test_full_pipeline(const char *tensors_dir) {
     int rc = rb_load(&rb, tensors_dir);
     if (rc != RB_OK) {
         printf("  SKIP: no tensor data at %s\n", tensors_dir);
-        g_pass++; /* not a failure — just no data */
+        g_pass++;
         return;
     }
     printf("  Loaded %u tensors from %s\n", rb.n_entries, tensors_dir);
 
-    /* We need tw_tensor_capture.h - let's check if it's available */
-    /* Simple version: just use raw data as 2D signature */
-    int n_captured = 0;
-    TWFaceRewind rewind;
-    tw_rewind_init(&rewind);
-    TWFreezeEntry freeze_log[2048];
-    uint32_t n_frozen = 0;
+    TWCapture12FaceResult result;
+    tw_capture_12face_init(&result);
 
+    int n_captured = 0;
     for (uint32_t i = 0; i < RB_MAX_ENTRIES && n_captured < 10; i++) {
         if (!rb.entries[i].occupied) continue;
 
-        /* Use first 8 bytes of tensor data as signature */
-        if (rb.entries[i].size < 8) continue;
-        uint8_t *data = (uint8_t *)rb.entries[i].data;
-        int64_t vx = (int64_t)(*(int32_t*)data);
-        int64_t vy = (int64_t)(*(int32_t*)(data + 4));
-        /* Normalize to TW_SCALE range */
-        vx = (vx % (TW_SCALE * 2)) - TW_SCALE;
-        vy = (vy % (TW_SCALE * 2)) - TW_SCALE;
-
-        /* Run 12-face bridge (full) */
-        TWFaceIterResult iter;
-        tw_iterate_faces(vx, vy, &iter);
-        n_captured++;
-
-        /* Store each face's capture in rewind buffer */
-        for (uint8_t f = 0; f < 12; f++) {
-            tw_face_rewind_store(&rewind, &iter.faces[f]);
-
-            /* If frozen, log to wallet */
-            if (tw_face_is_frozen(&iter.faces[f], 12) && n_frozen < 2048) {
-                freeze_log[n_frozen++] = tw_face_freeze_entry(
-                    &iter.faces[f], 12, 0);
-            }
-        }
+        rc = tw_capture_tensor_12face(&rb, rb.entries[i].name, 12, 0, &result);
+        if (rc == 0) n_captured++;
     }
 
-    printf("  Captured: %d tensors × 12 faces\n", n_captured);
-    printf("  Rewind occupied: %u slots\n", tw_rewind_occupied(&rewind));
-    printf("  Frozen entries: %u\n", n_frozen);
+    printf("  Captured: %d tensors via orchestrator\n", n_captured);
+    printf("  Rewind occupied: %u slots\n", tw_rewind_occupied(&result.rewind));
+    printf("  Frozen entries: %u\n", result.n_frozen);
 
     ASSERT(n_captured > 0);
-    ASSERT(tw_rewind_occupied(&rewind) > 0);
+    ASSERT(tw_rewind_occupied(&result.rewind) > 0);
 
-    /* Write freeze wallet */
-    if (n_frozen > 0) {
+    /* Write freeze wallet if any frozen entries */
+    if (result.n_frozen > 0) {
         const char *wallet_path = "/tmp/test_tw_pipeline.tw";
-        size_t w = tw_freeze_wallet_write(wallet_path, freeze_log, n_frozen);
+        size_t w = tw_freeze_wallet_write(wallet_path,
+            result.freeze_log, result.n_frozen);
         ASSERT(w > 0);
         printf("  Freeze wallet: %zu bytes\n", w);
 
-        /* Verify roundtrip */
         TWFreezeEntry *check = NULL;
         uint32_t n_check = tw_freeze_wallet_read(wallet_path, &check);
-        ASSERT_EQ(n_check, n_frozen);
+        ASSERT_EQ(n_check, result.n_frozen);
         if (check) {
-            ASSERT_EQ(check[0].tring_pos, freeze_log[0].tring_pos);
+            ASSERT_EQ(check[0].node_id, result.freeze_log[0].node_id);
             free(check);
         }
         remove(wallet_path);
     }
 
+    tw_capture_12face_free(&result);
     rb_free(&rb);
     CHECK(g_pass > 0, "full pipeline: all checks passed");
-#endif /* TEST_WITH_TENSORS */
+#endif
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -476,16 +634,21 @@ int main(int argc, char **argv) {
     if (argc > 1) tensors_dir = argv[1];
 
     printf("══════════════════════════════════════════════════════\n");
-    printf("  test_tw_face_bridge — 12-Face: TW → Full TRing 1440 (hex+tri)\n");
+    printf("  test_tw_face_bridge — Capo ×12: TW → Y-Triangle Node_id (0..%d)\n", GEO_FULL-1);
     printf("══════════════════════════════════════════════════════\n");
 
     test_rewind_buffer();
     test_freeze_wallet();
-    test_single_face();
-    test_iterate_faces();
-    test_tring_distribution();
+    test_single_capture();
+    test_capo_all();
+    test_node_distribution();
     test_frame_seek();
-    test_world_ab();
+    test_capo_uniqueness();
+    test_orchestrator();
+    test_timeline_roundtrip();
+#ifdef BENCHMARK
+    benchmark_capo(tensors_dir);
+#endif
     test_full_pipeline(tensors_dir);
 
     printf("\n══════════════════════════════════════════════════════\n");

@@ -126,11 +126,8 @@ static inline void onion_init(OnionShell *o, uint32_t seed)
     for (uint8_t l = 0u; l < ONION_LAYERS; l++) {
         uint32_t layer_seed = seed ^ ((uint32_t)l * 89u); /* fibo[11]=89 */
         uint8_t  subdiv     = (uint8_t)(l + 1u);          /* 1..12 */
-        uint8_t  mode       = (l % 2u == 0u)              /* alternate */
-                              ? GEO_COMPOUND_TETRA
-                              : GEO_COMPOUND_OCTA;
 
-        shell_init(&o->layer[l], l, subdiv, layer_seed, mode);
+        shell_init(&o->layer[l], l, subdiv, layer_seed);
 
         /* wire anchor table from global anchors */
         for (uint8_t a = 0u; a < SHELL_N_ANCHORS; a++) {

@@ -1,62 +1,72 @@
-"""Test Qwen3-TTS with local model weights."""
-import sys, os, time, torch
+"""Test Qwen3-TTS with local model weights (manual load for memory efficiency)."""
+import sys, os, time, torch, gc, numpy as np
 from pathlib import Path
 
-os.environ["HF_HOME"] = "I:/model/.cache/huggingface"
+os.environ["HF_HOME"] = "I:/model/.cache/hf"
 
-t0 = time.time()
-from qwen_tts import Qwen3TTSModel
+from transformers import AutoConfig, AutoModel, AutoProcessor
+from qwen_tts.core.models import Qwen3TTSConfig, Qwen3TTSForConditionalGeneration, Qwen3TTSProcessor
+from qwen_tts.inference.qwen3_tts_model import Qwen3TTSModel as Qwen3TTSWrapper
+from qwen_tts.inference.qwen3_tts_tokenizer import Qwen3TTSTokenizer
+from safetensors.torch import load_file
 
 MODEL_DIR = "I:/model/qwen3-tts-0.6b"
-print(f"Loading Qwen3-TTS 0.6B from {MODEL_DIR}...")
-model = Qwen3TTSModel.from_pretrained(
-    MODEL_DIR,
-    device_map="cpu",
-    dtype=torch.float32,
+
+AutoConfig.register("qwen3_tts", Qwen3TTSConfig)
+AutoModel.register(Qwen3TTSConfig, Qwen3TTSForConditionalGeneration)
+AutoProcessor.register(Qwen3TTSConfig, Qwen3TTSProcessor)
+
+t0 = time.time()
+config = AutoConfig.from_pretrained(MODEL_DIR)
+
+# Init in half-precision to save CPU RAM
+model = Qwen3TTSForConditionalGeneration(config).half()
+print(f"Model init: {time.time()-t0:.1f}s", flush=True)
+
+# Load weights
+sd = load_file(f"{MODEL_DIR}/model.safetensors")
+model.load_state_dict(sd, strict=False)
+del sd; gc.collect()
+print(f"Weights loaded: {time.time()-t0:.1f}s", flush=True)
+
+# Move to GPU
+model = model.to("cuda", dtype=torch.float16)
+print(f"GPU: {time.time()-t0:.1f}s", flush=True)
+
+# Speech tokenizer (loads directly on GPU)
+gc.collect()
+st = Qwen3TTSTokenizer.from_pretrained(
+    f"{MODEL_DIR}/speech_tokenizer",
+    device_map="cuda",
+    dtype="float16",
 )
-load_ms = int((time.time()-t0)*1000)
-print(f"Loaded in {load_ms}ms")
+model.load_speech_tokenizer(st)
+print(f"Speech tokenizer: {time.time()-t0:.1f}s", flush=True)
 
-# Test English
-t1 = time.time()
-result = model.synthesize(
-    "Hello, this is a test of Qwen Three TTS system.",
-    language="en",
-    max_audio_tokens=2048,
-)
-synth_ms = int((time.time()-t1)*1000)
-print(f"\nEnglish synthesized in {synth_ms}ms")
-print(f"Audio shape: {result.audio.shape}")
-print(f"Sample rate: {result.sample_rate}")
+# Processor
+processor = AutoProcessor.from_pretrained(MODEL_DIR, fix_mistral_regex=True)
+wrapper = Qwen3TTSWrapper(model=model, processor=processor)
+print(f"Ready: {time.time()-t0:.1f}s", flush=True)
 
-import soundfile as sf
-sf.write("build/test_qwen3_en.wav", result.audio, result.sample_rate)
-print("Saved: build/test_qwen3_en.wav")
+# Dummy reference audio (sine wave, 1 sec @ 24kHz)
+sr = 24000
+dummy_audio = np.sin(2 * np.pi * 440 * np.arange(sr) / sr).astype(np.float32)
 
-# Test Thai
-t2 = time.time()
-result2 = model.synthesize(
-    "สวัสดีครับ ทดสอบระบบเสียงภาษาไทย",
-    language="th",
-    max_audio_tokens=4096,
-)
-thai_ms = int((time.time()-t2)*1000)
-dur = len(result2.audio) / result2.sample_rate
-print(f"\nThai synthesized in {thai_ms}ms, duration {dur:.1f}s")
-sf.write("build/test_qwen3_th.wav", result2.audio, result2.sample_rate)
-print("Saved: build/test_qwen3_th.wav")
+def test(text, lang, fname, max_tokens=2048):
+    tt = time.time()
+    wavs, fs = wrapper.generate_voice_clone(
+        text=text, language=lang,
+        ref_audio=(dummy_audio, sr),
+        x_vector_only_mode=True,
+        max_audio_tokens=max_tokens,
+    )
+    dur = len(wavs[0]) / fs
+    print(f"  [{lang}] {dur:.1f}s audio in {time.time()-tt:.1f}s", flush=True)
+    import soundfile as sf
+    sf.write(f"build/{fname}", wavs[0], fs)
 
-# Test Chinese
-t3 = time.time()
-result3 = model.synthesize(
-    "你好，世界！这是一个测试。",
-    language="zh",
-    max_audio_tokens=2048,
-)
-cn_ms = int((time.time()-t3)*1000)
-dur3 = len(result3.audio) / result3.sample_rate
-print(f"\nChinese synthesized in {cn_ms}ms, duration {dur3:.1f}s")
-sf.write("build/test_qwen3_zh.wav", result3.audio, result3.sample_rate)
-print("Saved: build/test_qwen3_zh.wav")
+test("Hello, this is a test of Qwen Three TTS system.", "english", "test_qwen3_en.wav", 2048)
+test("สวัสดีครับ ทดสอบระบบเสียงภาษาไทย", "thai", "test_qwen3_th.wav", 4096)
+test("你好，世界！这是一个测试。", "chinese", "test_qwen3_zh.wav", 2048)
 
-print("\n✓ All tests complete")
+print(f"\n✓ All tests complete ({time.time()-t0:.1f}s total)")

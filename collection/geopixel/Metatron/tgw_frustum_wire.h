@@ -42,10 +42,11 @@
 #include "frustum_gcfs.h"          /* → frustum_slot64.h → frustum_trit.h */
 #include "geo_metatron_route.h"    /* meta_route, METATRON_CROSS            */
 #include "geo_temporal_lut.h"      /* GEO_WALK, TRING_COMP                 */
+#include "geo_jump.h"              /* GEO_FULL for derived boundaries       */
 
-/* ── address zone boundaries (read-only, never modified) ───── */
-#define FRUSTUM_TETRA_CEILING  3456u   /* GEO_FULL_N = 2⁷×3³              */
-#define FRUSTUM_JUNCTION       6912u   /* 2⁸×3³, tetra+octa ceiling        */
+/* ── address zone boundaries (derived from GEO_FULL=20736) ────────────── */
+#define FRUSTUM_TETRA_CEILING  (GEO_FULL / 6u)   /* 3456 = 2⁷×3³          */
+#define FRUSTUM_JUNCTION       (GEO_FULL / 3u)   /* 6912 = 2⁸×3³          */
 
 /* ════════════════════════════════════════════════════════════════
    PART 1 — FRUSTUM PARALLEL HOOK

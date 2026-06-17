@@ -112,8 +112,6 @@ static inline WeightAddr shell_weight_addr(const OnionStack *o,
     wa.capo     = wmap_stability_to_capo(card->stability);
 
     Chord c = {
-        .geometry   = (wa.shell_id & 1u) ? GEO_COMPOUND_OCTA
-                                          : GEO_COMPOUND_TETRA,
         .seed       = wa.seed,
         .chord_id   = wa.chord_id,
         .key_offset = wa.capo,

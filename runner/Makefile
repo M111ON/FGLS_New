@@ -3,6 +3,7 @@ CFLAGS  = -O2 -std=c11
 CFLAGS += -I. -I../collection -I../collection/src -I../collection/core
 CFLAGS += -I../collection/core/core -I../collection/geopixel
 CFLAGS += -I../collection/geopixel/Metatron/core -I../collection/pogls_engine
+CFLAGS += -I../collection/geo_jump_module/include
 CFLAGS += -II:/llama.cpp/include -II:/llama.cpp/ggml/include
 LDLIBS  = -lm
 DLLDIR  = I:/llama/llama-b9528-bin-win-vulkan-x64
@@ -21,8 +22,8 @@ test_swap_debug.exe: test_swap_debug.c
 llama_pogls_runner_sid.exe: llama_pogls_runner_sid.c gguf_index.h sid_loader.h sid_cache.h
 	$(CC) $(CFLAGS) -o $@ $< $(DLLS) $(LDLIBS)
 
-llama_pogls_runner_sid_v2.exe: llama_pogls_runner_sid_v2.c gguf_index.h sid_loader.h sid_cache.h bond_discovery.h hex_grid.h th_grid.h goldberg_sid.h sid_delta_ring.h sid_timetravel.h
-	$(CC) $(CFLAGS) -o $@ $< $(DLLS) $(LDLIBS)
+llama_pogls_runner_sid_v2.exe: llama_pogls_runner_sid_v2.c gguf_index.h sid_loader.h sid_cache.h bond_discovery.h hex_grid.h th_grid.h goldberg_sid.h sid_delta_ring.h sid_timetravel.h geo_addr.h
+	$(CC) $(CFLAGS) -DGEO_JUMP_INLINE -o $@ $< $(DLLS) $(LDLIBS)
 
 clean:
 	rm -f *.exe tests/*.exe

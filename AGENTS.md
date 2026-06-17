@@ -158,3 +158,112 @@ When `--bond` is passed, the runner builds a **bond graph** over all 290 discove
 - BondGraph is heap-allocated with capacity `n_found * 8` (up to 32768).
 - BOND_METATRON_HUB defined in enum but not currently discovered (too noisy).
 - Hotness propagation: 3 passes, 0.7 self-weight + 0.3 × bond_weight × neighbor hotness.
+
+---
+
+## ✅ Milestone v1.0 "12-Face Bridge Pipeline" — COMPLETE (June 16)
+
+### Summary
+All 3 phases of milestone v1.0 have been implemented, compiled, and verified (5265 PASS / 0 FAIL with T8 skipped due to no tensor data).
+
+### Files Created
+- `runner/capture_pipeline.h` — Full capture pipeline header: `CaptureResult`, `CaptureTensor`, `capture_init()`, `capture_tensor()`, `capture_write_freeze_wallet()`, `capture_write_store()`, `capture_verify()`, `capture_run_full()`, `capture_summary()`. Uses `tw_capture_tensor_raw` for dequant + signature, runs `tw_iterate_faces` for full 12-face capture per tensor.
+
+### Files Modified
+- `collection/tw_face_bridge.h`
+  - Added `#include "tw_tensor_capture.h"`
+  - Added `TWCapture12FaceResult` struct + `tw_capture_12face_init/free()`
+  - Added `tw_capture_tensor_12face()` — orchestrator: `tw_capture_tensor_by_name` → `tw_capture_priority` → `frame_at` → rewind store → freeze wallet in one call
+  - Added `tw_capture_tensor_12face_batch()` — multi-tensor batch wrapper
+  - Added `DualFrame df` field to `TWCapture12FaceResult` for timeline integration
+
+- `collection/tests/test_tw_face_bridge.c`
+  - Upgraded T8 to use `tw_capture_tensor_12face()` orchestrator
+  - Added T9 orchestrator unit test (init/free/priority integration)
+  - Added T10 timeline round-trip test (DualFrame verification, determinism, World B)
+  - Added B1 benchmark test (behind `#ifdef BENCHMARK`)
+
+- `runner/llama_pogls_runner_sid_v2.c`
+  - Added `#include "capture_pipeline.h"` after `FoundTensor` definition
+  - Added `--capture DIR` CLI flag with arg parsing and help text
+  - Added capture call after prompt decode in both chat and prompt modes
+  - Uses `CaptureTensor` descriptor to bridge `FoundTensor` → capture pipeline
+
+### Key Design Decisions
+- `capture_pipeline.h` defines `CaptureTensor` (lightweight, runner-agnostic) to avoid coupling to `FoundTensor` struct
+- `CAPTURE_TENSOR_FROM_FOUND` macro inlined (GCC scoping quirk with `#ifdef` + `for`-scope vars)
+- `.tw` (freeze wallet) + `.gsten` (full tensor store) both written per capture
+- Lossless verification via `tw_capture_tensor_raw` roundtrip
+
+### Next
+- User needs to run `--capture` with an actual GGUF model to verify freeze wallet + .gsten output files are correct
+- Benchmark with `-DBENCHMARK` to measure 12-face capture throughput against 2000 t/s target
+
+---
+
+## 🎤 Qwen3 TTS Pipeline (June 17 — bf16 Fixes NaN + Manual ST Load)
+
+### tl;dr
+**bfloat16 fixes `TensorCompare.cu:110 Assertion 'input[0] != 0'`** caused by float16 overflow during attention softmax computation. Model outputs all-(-1.0) audio (silence/DC) — generation runs without crash but codes are invalid.
+
+### Working Pipeline (test_fix_v9.py)
+1. **Load main model**: meta → replace params with CUDA bf16 → copy weights from CPU sd (dtype conversion on CPU, `copy_` to CUDA — avoids intermediate CUDA tensor)
+2. **Load speech tokenizer**: create on **CPU** (not meta — preserves scalar buffers like `padding_total`, `stride`), move float params+buffers to CUDA bf16, load weights tensor-by-tensor via manual safetensors parse (avoids mmap paging error)
+3. **Monkey-patch SafeCE**: clamp embedding indices to `num_embeddings-1` to avoid OOB
+4. **`generate_voice_clone()`**: runs without NaN crash but output is all -1.0
+
+### Key Findings
+- **float16 overflows**: `torch.where()` assert fires because softmax produces NaN from overflowed logits in float16. bf16 has same exponent range as f32 — no overflow.
+- **safe_open paging error**: Windows `safe_open` mmap exhausts page file when loading 682MB speech tokenizer after main model weights. Manual safetensors parse (raw bytes → `torch.frombuffer`) avoids mmap.
+- **Speech tokenizer scalar buffers**: `MimiConv1d.register_buffer("padding_total", ...)` creates scalar int64 buffers. Must keep on CPU or the Mimi encoder's `_pad1d()` breaks (`pad()` expects Python ints, not CUDA tensors).
+- **Float buffers must move to CUDA**: Codebook `embed` is a buffer, not a parameter. Need to iterate `named_buffers()` and move float ones to CUDA.
+
+### Current Limitation
+- Audio output is all -1.0 (DC silence). Likely cause: generated tokens/codes are wrong. Possibly embedding weights not matching between talker and code_predictor, or the code_predictor generates invalid codes that decode to silence.
+
+### Relevant Files
+- `I:\FGLS_new\test_fix_v9.py`: Working pipeline (bf16 + manual ST)
+- `I:\FGLS_new\test_fix_v8.py`: Previous version (f16 — NaN crash)
+- `I:\model\qwen3-tts-0.6b\`: Model directory
+- `I:\model\.cache\pykokoro\`: Kokoro TTS (working independently)
+
+---
+
+## 🔺 Session June 17 — Y-Triangle Migration (geo_jump, Remove TETRA/OCTA)
+
+### Goal
+Replace compound-of-5-tetra/octa addressing (3456/6912) with geo_jump Y-triangle (GEO_FULL=20736) for O(1) access, no warmup, simpler frustum routing.
+
+### What Changed
+
+| File | Change |
+|---|---|
+| `geo_compound_cfg.h` (8 copies) | Removed `GeoCompoundType`, `GeoFaceBase`, `frustum_divisor`, `geo_face_route()`, `geo_addr_translate()`, `geo_compound_cfg_verify()`, `geo_cfg_frustum_unit()`. Single `GEO_CFG` at GEO_FULL=20736. |
+| `shell_container.h` | Removed mode/geometry params. `shell_init()` now takes only `(s, shell_id, subdivision, seed)`. Anchor space = GEO_FULL/12 = 1728. |
+| `shell_hop.h` | Bridge is identity (1:1) — shell_to_geo and geo_to_shell both mod GEO_FULL. Removed scale_factor. |
+| `shell_weight_map.h` | Removed `.geometry` field from Chord init. (already removed from struct) |
+| `onion_stack.h`, `onion_shell.h` | Removed mode param from `shell_init()` calls. |
+| `tgw_frustum_wire.h` (4 copies) | `FRUSTUM_TETRA_CEILING = GEO_FULL/6`, `FRUSTUM_JUNCTION = GEO_FULL/3`. core/ copy uses hardcoded values (same math, no geo_jump.h dependency). |
+| `lc_wire.h` (collection/ copy) | `LCW_MAIN_SPACE = GEO_FULL`, `LCW_RESIDUE = GEO_FULL/3`. core/ copy uses hardcoded. |
+| `test_onion.c` | 3 `shell_init()` calls updated (no mode param), 3 Chord inits without `.geometry`. |
+
+### Key Design Decisions
+- **Y-triangle eliminates frustum quad conversion**: direction = topology natively, no need for tetra+octa hybrid
+- **geo_compound_cfg.h kept as backward-compat shim** — new code should use `geo_jump.h` directly (`JUMP_PENTAGON`, `geo_pentagon_id`, `geo_capo`, `geo_field_climate`)
+- **3456/6912 still appear** in `frustum_slot64.h`, `frustum_layout_v2.h`, `geo_field_core.h`, `exp_frame_hash.c` — these are data sizes / hash seeds, NOT TRing-related, left untouched
+- **core/ directory** is self-contained (no geo_jump.h) — uses hardcoded values that match GEO_FULL arithmetic
+
+### Verification
+- Zero actual code references to removed types/functions remain (all in comments only)
+- `FRUSTUM_TETRA_CEILING = 20736/6 = 3456` ✓
+- `FRUSTUM_JUNCTION = 20736/3 = 6912` ✓
+- `LCW_RESIDUE = 20736/3 = 6912 = 4×12³` ✓
+- `GEO_CFG.slots_per_spoke = 20736/6 = 3456` ✓
+- `shell_init()` calls all 4-param, no `.geometry` anywhere ✓
+
+### NEXT: Capture Pipeline Retarget
+`tw_face_bridge.h` and `capture_pipeline.h` still use 12-face / 1440 TRing (face rotation, hex+tri dual grid, centroids, resid). Need to retarget to geo_jump Y-triangle:
+- Replace 12-face iteration → Y-triangle node_id (0..20735) mapping
+- Replace `TWFreezeEntry.tring_pos` (0..1439) → node_id (0..20735)
+- Replace `TW_REWIND_SLOTS=1440` → 20736 or per-shell partition
+- Replace face rotation + resid → `geo_pentagon_id()` + `geo_capo()` O(1) targeting

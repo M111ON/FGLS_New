@@ -11,9 +11,9 @@
  *     merkle_root = (uint32_t)(addr ^ val) — caller can override.
  *
  *  2. metatron_target_face_b(addr) — Option B
- *     addr ∈ [0    ..3455] → tetra zone → face from tring walk
- *     addr ∈ [3456 ..6911] → octa zone  → cross/chiral via compound
- *     addr ≥ 6912          → wrap mod 6912, re-classify
+ *    addr ∈ [0         ..GEO_FULL/6] → zone A → face from tring walk
+ *    addr ∈ [GEO_FULL/6..GEO_FULL/3] → zone B → cross/chiral
+ *    addr ≥ GEO_FULL/3                → wrap mod GEO_FULL/3, re-classify
  *     Returns face_id 0..11 for metatron_route_to().
  *
  * Usage in tgw_dispatch_v2_tri5.h — add after geo_net_encode():
@@ -30,7 +30,8 @@
  *   FrustumStore fs_store;       // parallel frustum pipeline
  *   uint64_t     fs_fibo_seed;   // set at init, default FIBO_SEED_DEFAULT
  *
- * Sacred: 3456=GEO_FULL_N, 6912=JUNCTION — used as read-only boundaries.
+ * MIGRATED: boundaries now derived from geo_jump GEO_FULL.
+ * GEO_FULL/6 = 3456, GEO_FULL/3 = 6912 — no sacred number hardcodes.
  * No malloc. No float. No heap.
  * ════════════════════════════════════════════════════════════════
  */
@@ -42,10 +43,11 @@
 #include "frustum_gcfs.h"          /* → frustum_slot64.h → frustum_trit.h */
 #include "geo_metatron_route.h"    /* meta_route, METATRON_CROSS            */
 #include "geo_temporal_lut.h"      /* GEO_WALK, TRING_COMP                 */
+#include "geo_jump.h"              /* GEO_FULL for derived boundaries       */
 
-/* ── address zone boundaries (read-only, never modified) ───── */
-#define FRUSTUM_TETRA_CEILING  3456u   /* GEO_FULL_N = 2⁷×3³              */
-#define FRUSTUM_JUNCTION       6912u   /* 2⁸×3³, tetra+octa ceiling        */
+/* ── address zone boundaries (derived from geo_jump, never modified) ──── */
+#define FRUSTUM_TETRA_CEILING  (GEO_FULL / 6u)   /* was 3456 = 2⁷×3³     */
+#define FRUSTUM_JUNCTION       (GEO_FULL / 3u)   /* was 6912 = 2⁸×3³     */
 
 /* ════════════════════════════════════════════════════════════════
    PART 1 — FRUSTUM PARALLEL HOOK
@@ -103,19 +105,19 @@ static inline uint8_t _meta_face_from_walk(uint32_t enc)
 /*
  * metatron_target_face_b — Option B face derivation
  *
- * Tetra zone (addr < 3456):
+ * Zone A (addr < GEO_FULL/6 = 3456):
  *   walk_pos = addr % 720
  *   enc      = GEO_WALK[walk_pos]
  *   face     = TRING_COMP(enc)         ← geometry drives face
  *
- * Octa zone (3456 ≤ addr < 6912):
- *   octa_pos  = (addr - 3456) % 720    ← mirror the 720-slot cycle
+ * Zone B (GEO_FULL/6 ≤ addr < GEO_FULL/3 = 6912):
+ *   octa_pos  = (addr - GEO_FULL/6) % 720  ← mirror the 720-slot cycle
  *   enc       = GEO_WALK[octa_pos]
  *   src_face  = TRING_COMP(enc)
- *   face      = METATRON_CROSS[src_face]  ← cross-ring: octa bridges ring
+ *   face      = METATRON_CROSS[src_face]  ← cross-ring bridges ring
  *
- * Above junction (addr ≥ 6912):
- *   wrap to junction, re-classify
+ * Above GEO_FULL/3:
+ *   wrap to GEO_FULL/3, re-classify
  */
 static inline uint8_t metatron_target_face_b(uint64_t addr)
 {

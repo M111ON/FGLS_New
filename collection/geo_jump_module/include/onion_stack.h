@@ -174,12 +174,10 @@ static inline void onion_init(OnionStack *o,
 {
     for (uint8_t i = 0u; i < ONION_N_SHELLS; i++) {
         uint32_t shell_seed = seed ^ ((uint32_t)i * 0xC0FFEEu);
-        uint8_t  mode = (i & 1u) ? GEO_COMPOUND_OCTA : GEO_COMPOUND_TETRA;
         shell_init(&o->shells[i],
                    i,
                    (uint8_t)(base_subdiv + i),
-                   shell_seed,
-                   mode);
+                   shell_seed);
 
         /* populate LUT row for this shell — O(12) per shell, done once */
         for (uint8_t j = 0u; j < SHELL_N_ANCHORS; j++) {

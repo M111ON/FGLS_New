@@ -23,13 +23,14 @@
 #include <string.h>
 #include <stdio.h>
 #include "lc_hdr.h"
+#include "geo_jump.h"
 
 /* ══════════════════════════════════════════════════════
    1. NODE — uses LCHdr v2 (replaces PolarHdr)
    ══════════════════════════════════════════════════════ */
-#define LCW_MAIN_SPACE    20736u
-#define LCW_RESIDUE       6912u
-#define LCW_TOTAL         27648u
+#define LCW_MAIN_SPACE    GEO_FULL            /* 20736      */
+#define LCW_RESIDUE       (GEO_FULL / 3u)     /* was 6912   */
+#define LCW_TOTAL         (LCW_MAIN_SPACE + LCW_RESIDUE)  /* 27648 */
 
 typedef struct {
     uint32_t  address;

@@ -1,7 +1,7 @@
 /*
  * test_onion.c — Test suite for onion_stack.h (S2)
  * Compile: gcc -O2 -o test_onion test_onion.c && ./test_onion
- * Depends: shell_container.h, onion_stack.h, geo_compound_cfg.h
+ * Depends: shell_container.h, onion_stack.h
  */
 
 #include <stdio.h>
@@ -19,7 +19,7 @@ static void test_hop_adjacent(void)
 {
     printf("\n[T1] shell_hop — adjacent pairs\n");
     ShellContainer s;
-    shell_init(&s, 0, 1, 0xABCD1234u, GEO_COMPOUND_TETRA);
+    shell_init(&s, 0, 1, 0xABCD1234u);
 
     /* 0→1 is adjacent per PENT_ADJ */
     HopResult r = shell_hop(&s, 0, 1);
@@ -48,7 +48,7 @@ static void test_hop_symmetric(void)
 {
     printf("\n[T2] shell_hop — symmetric (A→B same addr as B→A midpoint)\n");
     ShellContainer s;
-    shell_init(&s, 3, 2, 0xDEADBEEFu, GEO_COMPOUND_OCTA);
+    shell_init(&s, 3, 2, 0xDEADBEEFu);
 
     /* midpoint formula is symmetric */
     HopResult ab = shell_hop(&s, 1, 2);
@@ -61,7 +61,7 @@ static void test_hop_path(void)
 {
     printf("\n[T3] shell_hop_path\n");
     ShellContainer s;
-    shell_init(&s, 0, 1, 0x12345678u, GEO_COMPOUND_TETRA);
+    shell_init(&s, 0, 1, 0x12345678u);
 
     /* valid path: 0→1→2→3 (all adjacent in dodecahedron) */
     uint8_t  path[]  = {0, 1, 2, 3};
@@ -103,7 +103,7 @@ static void test_onion_addr(void)
     OnionStack o;
     onion_init(&o, 0xFEEDFACEu, 1u);
 
-    Chord c = { .geometry=0, .seed=0xABCDu, .chord_id=CHORD_ORBITAL, .key_offset=0 };
+    Chord c = { .seed=0xABCDu, .chord_id=CHORD_ORBITAL, .key_offset=0 };
 
     uint64_t a1 = onion_addr(&o, 3, &c);
     uint64_t a2 = onion_addr(&o, 3, &c);
@@ -164,8 +164,8 @@ static void test_capo_shift(void)
     OnionStack o;
     onion_init(&o, 0x42424242u, 1u);
 
-    Chord c1 = { .geometry=0, .seed=100u, .chord_id=CHORD_CROSS, .key_offset=0 };
-    Chord c2 = { .geometry=0, .seed=100u, .chord_id=CHORD_CROSS, .key_offset=576u };
+    Chord c1 = { .seed=100u, .chord_id=CHORD_CROSS, .key_offset=0 };
+    Chord c2 = { .seed=100u, .chord_id=CHORD_CROSS, .key_offset=576u };
 
     uint64_t a = onion_addr(&o, 2, &c1);
     uint64_t b = onion_addr(&o, 2, &c2);

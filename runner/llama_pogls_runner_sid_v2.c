@@ -24,6 +24,7 @@
 #ifdef _WIN32
   #define WIN32_LEAN_AND_MEAN
   #include <windows.h>
+  #include <direct.h>
   #define CLOCK_MONOTONIC 0
   typedef struct{long tv_sec;long tv_nsec;}PoglsTime;
   static inline int clock_gettime(int _clk,PoglsTime *ts){
@@ -204,8 +205,12 @@ typedef struct {
 static FoundTensor found_tensors[MAX_TENSORS];
 static int n_found = 0;
 
+#include "capture_pipeline.h"
+#include "geo_addr.h"
+
 typedef struct {
     int      ft_idx;
+    uint32_t geo_addr;
     uint8_t *sid_data;
     size_t   sid_size;
     int      is_malloc;
@@ -246,8 +251,8 @@ static void sid_swap_restore(void) {
 
 int main(int argc,char**argv){
     if(argc<2){fprintf(stderr,"Usage: %s model.gguf [--chat] [--ngl N] [--sid-face N] [--sid-spoke N|all] [--sid-slot STR] [--sid-corrupt N] [--sid-checkpoint NAME] [--sid-rewind NAME] [--sid-ff NAME] [--sid-branch NAME] [options]\n",argv[0]);return 1;}
-    const char*gguf_path=NULL,*opt_prompt=NULL,*opt_dump_logits=NULL;
-    int opt_ngl=0,opt_max_new=256,opt_chat=0,opt_count_only=0,opt_bond=0,opt_hex=0,opt_trihex=0,opt_goldberg=0,sid_face=0,sid_spoke=-1,sid_corrupt=0,opt_swap_cold=0,sid_corrupt_val=1,opt_hybrid=0,opt_sid_adaptive=0;
+    const char*gguf_path=NULL,*opt_prompt=NULL,*opt_dump_logits=NULL,*opt_capture=NULL;
+    int opt_ngl=0,opt_max_new=256,opt_chat=0,opt_count_only=0,opt_bond=0,opt_hex=0,opt_trihex=0,opt_goldberg=0,sid_face=0,sid_spoke=-1,sid_corrupt=0,opt_swap_cold=0,sid_corrupt_val=1,opt_hybrid=0,opt_sid_adaptive=0,opt_sid_multi=0;
     float opt_goldberg_threshold = 1.2f;
     int opt_sid_geodesic = 0; float opt_sid_geo_radius = 0.5f, opt_hybrid_radius = 0.01f;
     const char*sid_slot="",*sid_pattern=NULL;
@@ -287,6 +292,8 @@ int main(int argc,char**argv){
         else if(!strcmp(argv[i],"--hybrid"))opt_hybrid=1;
         else if(!strcmp(argv[i],"--hybrid-radius")&&i+1<argc)opt_hybrid_radius=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--sid-adaptive"))opt_sid_adaptive=1;
+        else if(!strcmp(argv[i],"--sid-multi")&&i+1<argc)opt_sid_multi=atoi(argv[++i]);
+        else if(!strcmp(argv[i],"--capture")&&i+1<argc)opt_capture=argv[++i];
         else if(!strcmp(argv[i],"--dump-logits")&&i+1<argc)opt_dump_logits=argv[++i];
         else if(!strcmp(argv[i],"-h")||!strcmp(argv[i],"--help")){
             fprintf(stderr,"Usage: %s model.gguf [options]\n",argv[0]);
@@ -320,6 +327,8 @@ int main(int argc,char**argv){
             fprintf(stderr,"  --hybrid                 Hex+goldberg hybrid: hot cluster + geodesic neighbors\n");
             fprintf(stderr,"  --hybrid-radius N        Geodesic radius for hybrid (default: 0.01)\n");
             fprintf(stderr,"  --sid-adaptive           Scale corruption bytes by tensor hotness\n");
+            fprintf(stderr,"  --sid-multi N            Inject at N hottest layers simultaneously\n");
+            fprintf(stderr,"  --capture DIR             Capture tensor geometry after decode, write to DIR\n");
             fprintf(stderr,"  --count-only              Report tensor counts and exit\n");
             fprintf(stderr,"Chat commands:\n");
             fprintf(stderr,"  /checkpoint NAME          Save checkpoint\n");
@@ -673,6 +682,51 @@ int main(int argc,char**argv){
         free(hcoords);
     }
 
+    /* ── Multi-depth: inject at N hottest layers simultaneously ── */
+    uint8_t *multi_include = NULL;
+    if (opt_sid_multi > 0 && bond_hotness && sid_face > 0) {
+        fprintf(stderr, "\n--- multi-depth injection: %d hottest layers ---\n", opt_sid_multi);
+        /* compute per-layer hotness average */
+        float layer_hot[64] = {0};
+        int layer_cnt[64] = {0};
+        for (int i = 0; i < n_found; i++) {
+            int l = th_extract_layer(found_tensors[i].name);
+            if (l < 0 || l >= 64) continue;
+            layer_hot[l] += bond_hotness[i];
+            layer_cnt[l]++;
+        }
+        for (int l = 0; l < 64; l++)
+            if (layer_cnt[l] > 0) layer_hot[l] /= layer_cnt[l];
+
+        /* find N hottest layers */
+        int hot_layers[64] = {0};
+        int n_hot_layers = opt_sid_multi;
+        if (n_hot_layers > n_layers) n_hot_layers = n_layers;
+        for (int n = 0; n < n_hot_layers; n++) {
+            int best = -1;
+            for (int l = 0; l < n_layers; l++) {
+                int skip = 0;
+                for (int k = 0; k < n; k++) { if (hot_layers[k] == l) { skip = 1; break; } }
+                if (skip) continue;
+                if (best < 0 || layer_hot[l] > layer_hot[best]) best = l;
+            }
+            hot_layers[n] = best;
+        }
+        fprintf(stderr, "[multi] selected layers: ");
+        for (int n = 0; n < n_hot_layers; n++)
+            fprintf(stderr, "L%d(%.2f)%s", hot_layers[n], layer_hot[hot_layers[n]], n < n_hot_layers-1 ? " " : "\n");
+
+        multi_include = (uint8_t*)calloc((size_t)n_found, 1);
+        int n_multi = 0;
+        for (int i = 0; i < n_found; i++) {
+            int l = th_extract_layer(found_tensors[i].name);
+            for (int n = 0; n < n_hot_layers; n++) {
+                if (l == hot_layers[n]) { multi_include[i] = 1; n_multi++; break; }
+            }
+        }
+        fprintf(stderr, "[multi] %d / %d tensors from %d layers\n", n_multi, n_found, n_hot_layers);
+    }
+
     /* ── SID coordinate: (face, spoke, slot) → tensor filter ── */
     /*    face  = chooses SID face data (currently just on/off)        */
     /*    spoke = layer index (0..23) or -1=all, matches blk.<spoke>.  */
@@ -682,7 +736,9 @@ int main(int argc,char**argv){
         fprintf(stderr, "\n--- SID swap setup (face=%d, spoke=%d, slot=\"%s\") ---\n",
             sid_face, sid_spoke, sid_slot);
         if (bond_hotness) {
-            if (opt_hybrid)
+            if (opt_sid_multi > 0 && multi_include)
+                fprintf(stderr, "[sid] multi-depth filter active: %d hottest layers\n", opt_sid_multi);
+            else if (opt_hybrid)
                 fprintf(stderr, "[sid] hybrid filter active: hot epicenter + geodesic neighbors\n");
             else if (opt_swap_cold)
                 fprintf(stderr, "[sid] bond filter inverted (--swap-cold): will skip hot/warm tensors (hotness >= 0.3)\n");
@@ -693,7 +749,8 @@ int main(int argc,char**argv){
             const char *name = found_tensors[i].name;
             /* bond prediction filter */
             if (bond_hotness) {
-                if (opt_hybrid)        { if (!hybrid_include[i]) continue; }
+                if (opt_sid_multi > 0 && multi_include) { if (!multi_include[i]) continue; }
+                else if (opt_hybrid)        { if (!hybrid_include[i]) continue; }
                 else if (opt_swap_cold) { if (bond_hotness[i] >= 0.3f) continue; }
                 else                   { if (bond_hotness[i] < 0.3f)  continue; }
             }
@@ -708,7 +765,19 @@ int main(int argc,char**argv){
             uint8_t *cached = NULL; size_t cached_sz = 0;
             if (sid_cache_get(&sid_cache, name, &cached, &cached_sz) != 0) continue;
 
+            /* encode per-tensor sid_mode based on hotness */
+            uint8_t sid_mode = 0;
+            if (bond_hotness) {
+                float h = bond_hotness[i];
+                if (h >= 0.9f)      sid_mode = geo_encode_sid(0, 0);   /* xor:0 — hot */
+                else if (h >= 0.3f) sid_mode = geo_encode_sid(1, 0);   /* set:0 — warm */
+                else                sid_mode = geo_encode_sid(2, 1);   /* rot:1 — cold */
+            } else {
+                sid_mode = geo_encode_sid(0, 1);  /* xor:1 — default */
+            }
+
             sid_swaps[n_sid_swaps].ft_idx = i;
+            sid_swaps[n_sid_swaps].geo_addr = geo_addr(name, i, sid_mode);
             sid_swaps[n_sid_swaps].sid_data = cached;
             sid_swaps[n_sid_swaps].sid_size = cached_sz;
             sid_swaps[n_sid_swaps].is_malloc = 0;
@@ -746,7 +815,10 @@ int main(int argc,char**argv){
                     if (sid_cache_get(&sid_cache, found_tensors[t].name, &cached, &cached_sz) != 0)
                         continue;
                     in_swap[t] = 1;
+                    /* encode sid_mode for geodesic neighbor (rot:1 — mild) */
+                    uint8_t geo_sid_mode = geo_encode_sid(2, 1);
                     sid_swaps[n_sid_swaps].ft_idx = t;
+                    sid_swaps[n_sid_swaps].geo_addr = geo_addr(found_tensors[t].name, t, geo_sid_mode);
                     sid_swaps[n_sid_swaps].sid_data = cached;
                     sid_swaps[n_sid_swaps].sid_size = cached_sz;
                     sid_swaps[n_sid_swaps].is_malloc = 0;
@@ -767,20 +839,49 @@ int main(int argc,char**argv){
             if (sid_corrupt) {
                 int v = sid_corrupt_val;
                 int n_adaptive = 0;
+                int n_geo = 0;
                 for (int i = 0; i < n_sid_swaps; i++) {
                     SIDSwapEntry *e = &sid_swaps[i];
                     uint8_t *d = e->sid_data;
                     size_t sz = e->sid_size;
                     size_t limit = sz < (size_t)sid_corrupt ? sz : (size_t)sid_corrupt;
                     size_t effective_limit = limit;
-                    if (opt_sid_adaptive && bond_hotness) {
-                        float h = bond_hotness[e->ft_idx];
-                        size_t scaled = (size_t)(limit * h + 0.5f);
-                        effective_limit = scaled < 1 ? 1 : scaled;
-                        if (effective_limit > sz) effective_limit = sz;
-                        n_adaptive++;
-                    }
-                    if (sid_pattern) {
+
+                    /* decode per-tensor pattern from geo_addr */
+                    uint8_t geo_mode = geo_sid_mode(e->geo_addr);
+                    uint8_t geo_pattern = geo_sid_pattern(geo_mode);
+                    uint8_t geo_byte = geo_sid_byte(geo_mode);
+                    int use_geo = (e->geo_addr != 0);
+
+                    if (use_geo) {
+                        /* per-tensor pattern from geo_addr */
+                        if (geo_pattern == 0) {
+                            /* xor:geo_byte */
+                            for (size_t j = 0; j < effective_limit; j++)
+                                d[j] ^= geo_byte;
+                        } else if (geo_pattern == 1) {
+                            /* set:geo_byte */
+                            memset(d, geo_byte, effective_limit);
+                        } else if (geo_pattern == 2) {
+                            /* rot:geo_byte (K) */
+                            int k = geo_byte; if (k <= 0) k = 1;
+                            for (size_t j = 0; j < effective_limit; j++)
+                                d[j] = (uint8_t)((d[j] + k) & 0xFF);
+                        } else {
+                            /* reserved — xor:1 */
+                            for (size_t j = 0; j < effective_limit; j++)
+                                d[j] ^= 1;
+                        }
+                        n_geo++;
+                    } else if (sid_pattern) {
+                        /* original pattern-based corruption */
+                        if (opt_sid_adaptive && bond_hotness) {
+                            float h = bond_hotness[e->ft_idx];
+                            size_t scaled = (size_t)(limit * h + 0.5f);
+                            effective_limit = scaled < 1 ? 1 : scaled;
+                            if (effective_limit > sz) effective_limit = sz;
+                            n_adaptive++;
+                        }
                         char pat[64]; strncpy(pat, sid_pattern, 63); pat[63] = 0;
                         char *colon = strchr(pat, ':');
                         if (colon) *colon++ = 0;
@@ -801,6 +902,9 @@ int main(int argc,char**argv){
                         for (size_t j = 0; j < effective_limit; j++)
                             d[j] ^= (uint8_t)v;
                     }
+                }
+                if (n_geo > 0) {
+                    fprintf(stderr, "[sid] GEO_ADDR: per-tensor patterns for %d tensors\n", n_geo);
                 }
                 if (opt_sid_adaptive && bond_hotness) {
                     fprintf(stderr, "[sid] ADAPTIVE: corruption scaled by hotness for %d tensors (base=%d bytes)\n",
@@ -855,10 +959,10 @@ int main(int argc,char**argv){
                 fprintf(stderr, "ERROR: cannot write %s\n", opt_dump_logits);
             }
         }
-        free(bond_hotness); free(hybrid_include);
+        free(bond_hotness); free(hybrid_include); free(multi_include);
         goto cleanup;
     }
-    free(bond_hotness); free(hybrid_include);
+    free(bond_hotness); free(hybrid_include); free(multi_include);
 
     if(opt_chat){
         char*roles[MAX_CHAT_HISTORY],*content[MAX_CHAT_HISTORY];int cc=0;
@@ -909,6 +1013,22 @@ int main(int argc,char**argv){
             sid_swap_apply();
             if(llama_decode(lctx,pb)!=0){llama_batch_free(pb);free(ta);sid_swap_restore();break;}
             sid_swap_restore();
+            if (opt_capture) {
+                #ifdef _WIN32
+                _mkdir(opt_capture);
+                #else
+                mkdir(opt_capture, 0755);
+                #endif
+                CaptureTensor ctens[MAX_TENSORS];
+                for (int ci = 0; ci < n_found; ci++) {
+                    ctens[ci].name   = found_tensors[ci].name;
+                    ctens[ci].data   = found_tensors[ci].orig_data;
+                    ctens[ci].nbytes = found_tensors[ci].nbytes;
+                    ctens[ci].dtype  = (int)found_tensors[ci].dtype;
+                }
+                CaptureResult cr;
+                capture_run_full(&cr, opt_capture, ctens, n_found, 0);
+            }
             llama_batch_free(pb);
             Sampler gs=sp;gs.count=0;int32_t pos=nt;
             struct llama_batch gb=llama_batch_init(1,0,1);
@@ -941,6 +1061,22 @@ int main(int argc,char**argv){
         sid_swap_apply();
         if(llama_decode(lctx,pb)!=0){fprintf(stderr,"[dbg] decode fail\n");llama_batch_free(pb);free(toks);sid_swap_restore();return 1;}
         sid_swap_restore();
+        if (opt_capture) {
+            #ifdef _WIN32
+            _mkdir(opt_capture);
+            #else
+            mkdir(opt_capture, 0755);
+            #endif
+            CaptureTensor ctens[MAX_TENSORS];
+            for (int ci2 = 0; ci2 < n_found; ci2++) {
+                ctens[ci2].name   = found_tensors[ci2].name;
+                ctens[ci2].data   = found_tensors[ci2].orig_data;
+                ctens[ci2].nbytes = found_tensors[ci2].nbytes;
+                ctens[ci2].dtype  = (int)found_tensors[ci2].dtype;
+            }
+            CaptureResult cr;
+            capture_run_full(&cr, opt_capture, ctens, n_found, 0);
+        }
         llama_batch_free(pb);
 
         Sampler gs=sp;gs.count=0;int32_t pos=nt;
