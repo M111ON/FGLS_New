@@ -1,23 +1,21 @@
 /*
- * tw_rewind_bridge.h — SID TW Face Rewind ↔ geo_rewind.h Bridge
+ * tw_rewind_bridge.h — SID node_id ↔ geo_rewind.h Bridge
  * ═══════════════════════════════════════════════════════════════
  *
- * Connects the SID coordinate system (1440-slot TWFaceRewind with hex+tri
- * centroids) to the legacy temporal rewind buffer (972-slot RewindBuffer
- * with hex-only GEO_WALK enc).
+ * Connects the SID Y-triangle system (20736-slot TWFaceRewind with node_id)
+ * to the temporal rewind buffer (972-slot RewindBuffer with GEO_WALK enc).
  *
- *   SID world          → TWFaceRewind (1440 slots, 8-byte keys, hex+tri)
- *   TStream world      → RewindBuffer (972 slots, 4104B chunks, hex-only enc)
+ *   SID world          → TWFaceRewind (20736 slots, 8-byte keys, node_id)
+ *   TStream world      → RewindBuffer (972 slots, 4104B chunks, GEO_WALK enc)
  *
- * Hex captures (is_tri=0): tring_pos (0..719) = GEO_WALK walk position.
- *   → enc = GEO_WALK[tring_pos] for geo_rewind.h.
- *
- * Tri captures (is_tri=1): tring_pos (60..779) sits between hex centroids.
- *   → Not stored in geo_rewind.h (hex-only buffer). TWFaceRewind only.
+ * node_id → enc mapping:
+ *   local = node_id % 1728  (position within pentagon, 1728 = GEO_FULL/12)
+ *   walk_pos = local % 720  (hex walk cycle within pentagon)
+ *   enc = GEO_WALK[walk_pos]
  *
  * Unified lookup flow:
- *   1. Look up TWFaceRewind by tring_pos (O(1), hex+tri, 1440 slots)
- *   2. If hex capture, also check RewindBuffer by enc (O(1), 972 slots)
+ *   1. Look up TWFaceRewind by node_id (O(1), 20736 slots)
+ *   2. Also check RewindBuffer by derived enc (O(1), 972 slots)
  *   3. Return combined result
  *
  * Include this AFTER both tw_face_bridge.h and core/core/geo_rewind.h.
@@ -35,83 +33,47 @@
 #include "core/core/geo_rewind.h"
 
 /* ══════════════════════════════════════════════════════════════
-   SID tring_pos ↔ packed enc conversion
+   SID node_id ↔ packed enc conversion
    ══════════════════════════════════════════════════════════════ */
 
+/* One pentagon = 1728 nodes, hex walk = 720 positions */
+#define SID_PENTAGON_NODES  (GEO_FULL / GEO_PENTAGONS)  /* 1728 */
+
 /*
- * Convert SID tring_pos (0..1439) to packed GEO_WALK enc value.
+ * Convert SID node_id (0..20735) to packed GEO_WALK enc value.
  *
- * For hex captures (is_tri=0):  walk_pos = tring_pos (0..719)
- * For tri captures (is_tri=1):  walk_pos = (tring_pos - 60) % 720
- *                                (maps to hex counterpart position)
+ * local = node_id % 1728  (position within pentagon)
+ * walk_pos = local % 720  (hex walk cycle)
+ * enc = GEO_WALK[walk_pos]
  *
  * Returns packed enc for use with rewind_store/rewind_find in geo_rewind.h.
  * Returns 0xFFFFFFFF if the position is out of range or unmappable.
  */
-static inline uint32_t tw_sid_tring_to_enc(uint16_t sid_tring, uint8_t is_tri) {
-    if (sid_tring >= TW_TRING_1440) return 0xFFFFFFFFu;
+static inline uint32_t tw_sid_node_to_enc(uint32_t node_id) {
+    if (node_id >= GEO_FULL) return 0xFFFFFFFFu;
 
-    uint16_t walk_pos;
-    if (is_tri) {
-        if (sid_tring < 60) return 0xFFFFFFFFu;
-        walk_pos = (sid_tring - 60u) % 720u;
-    } else {
-        walk_pos = sid_tring % 720u;
-    }
+    uint16_t local = (uint16_t)(node_id % SID_PENTAGON_NODES);
+    uint16_t walk_pos = local % 720u;
 
     return GEO_WALK[walk_pos];
 }
 
 /*
- * Convert packed GEO_WALK enc to SID tring_pos.
+ * Convert packed GEO_WALK enc to SID walk position (0..719).
  *
- * Uses tring_pos() from geo_temporal_ring.h to get the walk position (0..719).
- * Returns the hex-only tring_pos (tri position is not recoverable from enc alone).
+ * Uses tring_pos() from geo_temporal_ring.h to get the walk position.
+ * Returns the hex-only walk position (0..711).
  */
-static inline uint16_t tw_enc_to_sid_tring(uint32_t enc) {
+static inline uint16_t tw_enc_to_sid_walk(uint32_t enc) {
     return tring_pos(enc);
 }
 
 /*
- * Check whether a given enc has a valid mapping (walk position within 0..719).
+ * Check whether a given enc has a valid mapping.
  * Returns 1 if valid, 0 if the enc doesn't correspond to any walk position.
  */
 static inline int tw_enc_is_valid(uint32_t enc) {
     return (enc & 0x7FFu) < 2048u && GEO_WALK_IDX[enc & 0x7FFu] != 0xFFFFu;
-}
-
-/* ══════════════════════════════════════════════════════════════
-   TWFaceCapture ↔ TStreamChunk packing
-   ══════════════════════════════════════════════════════════════ */
-
-/*
- * Pack a TWFaceCapture into a TStreamChunk for geo_rewind.h storage.
- * The chunk carries the 8-byte packed key as metadata.
- * size = 8, remaining 4088 bytes are zeroed.
- */
-static inline TStreamChunk tw_cap_pack_chunk(const TWFaceCapture *cap) {
-    TStreamChunk ch;
-    memset(&ch, 0, sizeof(ch));
-    uint64_t key = tw_face_pack_key(cap);
-    memcpy(ch.data, &key, 8);
-    ch.size = 8;
-    return ch;
-}
-
-/*
- * Unpack a TStreamChunk back to TWFaceCapture + packed key.
- * Returns 1 on success, 0 if chunk data is too small or all-zero.
- */
-static inline int tw_chunk_unpack_cap(const TStreamChunk *chunk, TWFaceCapture *cap, uint64_t *key_out) {
-    if (!chunk || chunk->size < 8) return 0;
-
-    uint64_t key;
-    memcpy(&key, chunk->data, 8);
-    if (key == 0) return 0;
-
-    if (cap) tw_face_unpack_key(key, cap);
-    if (key_out) *key_out = key;
-    return 1;
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -123,37 +85,41 @@ static inline int tw_chunk_unpack_cap(const TStreamChunk *chunk, TWFaceCapture *
  *
  * Fields:
  *   tw_key    — packed key from TWFaceRewind (0 = not found)
- *   cap       — TWFaceCapture unpacked from tw_key
+ *   node_id   — node_id from TWFaceRewind (0 = not found)
  *   has_geo   — geo_rewind.h also had this tensor
  *   geo_chunk — TStreamChunk from geo_rewind.h (valid only if has_geo=1)
  */
 typedef struct {
     uint64_t        tw_key;
-    TWFaceCapture   cap;
+    uint32_t        node_id;
     int             has_geo;
     TStreamChunk    geo_chunk;
 } TWBRewindResult;
 
 /*
- * Store a TWFaceCapture in both TWFaceRewind and RewindBuffer.
+ * Store a node_id + key in both TWFaceRewind and RewindBuffer.
  *
- * Hex captures (is_tri=0): stored in both systems.
- * Tri captures (is_tri=1): stored in TWFaceRewind only.
+ * Always stored in TWFaceRewind (by node_id).
+ * Also stored in RewindBuffer (by GEO_WALK enc) if enc is valid.
  *
  * Returns the enc used for geo_rewind.h (0xFFFFFFFF if skipped).
  */
 static inline uint32_t tw_bridge_rewind_store(TWFaceRewind *tw_rb,
                                                RewindBuffer *geo_rb,
-                                               const TWFaceCapture *cap)
+                                               uint64_t key,
+                                               uint32_t node_id)
 {
-    if (!tw_rb || !cap) return 0xFFFFFFFFu;
+    if (!tw_rb || node_id >= GEO_FULL) return 0xFFFFFFFFu;
 
-    tw_face_rewind_store(tw_rb, cap);
+    tw_rewind_store(tw_rb, key, node_id);
 
-    if (!cap->is_tri && geo_rb) {
-        uint32_t enc = tw_sid_tring_to_enc(cap->tring_pos, 0);
+    if (geo_rb) {
+        uint32_t enc = tw_sid_node_to_enc(node_id);
         if (enc != 0xFFFFFFFFu) {
-            TStreamChunk ch = tw_cap_pack_chunk(cap);
+            TStreamChunk ch;
+            memset(&ch, 0, sizeof(ch));
+            memcpy(ch.data, &key, 8);
+            ch.size = 8;
             rewind_store(geo_rb, enc, &ch);
             return enc;
         }
@@ -163,26 +129,26 @@ static inline uint32_t tw_bridge_rewind_store(TWFaceRewind *tw_rb,
 }
 
 /*
- * Unified lookup by SID tring_pos.
+ * Unified lookup by SID node_id.
  *
- * First checks TWFaceRewind (fast O(1), supports hex+tri, 1440 slots).
- * Then checks RewindBuffer by derived enc (hex-only, 972 slots).
+ * First checks TWFaceRewind (fast O(1), 20736 slots).
+ * Then checks RewindBuffer by derived enc (O(1), 972 slots).
  *
  * Returns a TWBRewindResult struct with combined results.
  */
 static inline TWBRewindResult tw_bridge_rewind_find(TWFaceRewind *tw_rb,
                                                      RewindBuffer *geo_rb,
-                                                     uint16_t sid_tring)
+                                                     uint32_t node_id)
 {
     TWBRewindResult r;
     memset(&r, 0, sizeof(r));
 
-    r.tw_key = tw_rewind_find(tw_rb, sid_tring);
+    r.tw_key = tw_rewind_find(tw_rb, node_id);
     if (r.tw_key) {
-        tw_face_unpack_key(r.tw_key, &r.cap);
+        r.node_id = node_id;
 
-        if (geo_rb && !r.cap.is_tri) {
-            uint32_t enc = tw_sid_tring_to_enc(sid_tring, 0);
+        if (geo_rb) {
+            uint32_t enc = tw_sid_node_to_enc(node_id);
             if (enc != 0xFFFFFFFFu) {
                 const TStreamChunk *p = rewind_find(geo_rb, enc);
                 if (p) {
@@ -197,29 +163,17 @@ static inline TWBRewindResult tw_bridge_rewind_find(TWFaceRewind *tw_rb,
 }
 
 /*
- * Unified lookup by TWFaceCapture (extracts tring_pos internally).
- * Convenience wrapper around tw_bridge_rewind_find.
- */
-static inline TWBRewindResult tw_bridge_rewind_find_cap(TWFaceRewind *tw_rb,
-                                                         RewindBuffer *geo_rb,
-                                                         const TWFaceCapture *cap)
-{
-    return tw_bridge_rewind_find(tw_rb, geo_rb, cap ? cap->tring_pos : 0xFFFFu);
-}
-
-/*
- * Check if a SID position is present in either store.
+ * Check if a SID node_id is present in either store.
  * Returns 1 if found in TWFaceRewind OR RewindBuffer, 0 if neither.
  */
 static inline int tw_bridge_rewind_has(TWFaceRewind *tw_rb,
                                         RewindBuffer *geo_rb,
-                                        uint16_t sid_tring,
-                                        uint8_t is_tri)
+                                        uint32_t node_id)
 {
-    if (tw_rewind_has(tw_rb, sid_tring)) return 1;
+    if (tw_rewind_has(tw_rb, node_id)) return 1;
 
-    if (!is_tri && geo_rb) {
-        uint32_t enc = tw_sid_tring_to_enc(sid_tring, 0);
+    if (geo_rb) {
+        uint32_t enc = tw_sid_node_to_enc(node_id);
         if (enc != 0xFFFFFFFFu)
             return rewind_has(geo_rb, enc);
     }
@@ -229,18 +183,17 @@ static inline int tw_bridge_rewind_has(TWFaceRewind *tw_rb,
 
 /*
  * Evict a SID position from the RewindBuffer.
- * TWFaceRewind is write-once (key is overwritten on next store at same pos).
+ * TWFaceRewind is write-once (key is overwritten on next store at same node_id).
  * Returns the enc that was evicted (0xFFFFFFFF if not found/skipped).
  */
 static inline uint32_t tw_bridge_rewind_evict_geo(TWFaceRewind *tw_rb,
                                                     RewindBuffer *geo_rb,
-                                                    uint16_t sid_tring,
-                                                    uint8_t is_tri)
+                                                    uint32_t node_id)
 {
     (void)tw_rb;
-    if (is_tri || !geo_rb) return 0xFFFFFFFFu;
+    if (!geo_rb || node_id >= GEO_FULL) return 0xFFFFFFFFu;
 
-    uint32_t enc = tw_sid_tring_to_enc(sid_tring, 0);
+    uint32_t enc = tw_sid_node_to_enc(node_id);
     if (enc == 0xFFFFFFFFu) return 0xFFFFFFFFu;
 
     uint16_t slot = tring_pos(enc) % REWIND_SLOTS;

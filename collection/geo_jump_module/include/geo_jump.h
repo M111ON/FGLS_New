@@ -122,13 +122,7 @@ GEO_JUMP_DEF uint32_t geo_capo(uint32_t node, uint32_t key);
 GEO_JUMP_DEF GeoFieldClimate geo_field_climate(uint32_t node, uint32_t anchor_id);
 #endif
 
-#ifdef GEO_JUMP_INLINE
-
-/* forward decls — needed by _jump_pentagon and geo_field_climate below */
-static inline uint32_t geo_pentagon_id(uint32_t node_id);
-static inline uint32_t geo_shell_level(uint32_t node_id);
-static inline uint32_t geo_clock_tick(uint32_t node_id);
-
+/* always-available helpers (not dependent on GEO_JUMP_INLINE) */
 static inline uint32_t _hilbert_idx(uint32_t x, uint32_t y, uint32_t n) {
     uint32_t d = 0;
     for (uint32_t s = n >> 1; s > 0; s >>= 1) {
@@ -148,6 +142,13 @@ static inline uint32_t _peano_idx(uint32_t x, uint32_t y, uint32_t cols __attrib
         return x * rows + (rows - 1u - y);
     return x * rows + y;
 }
+
+#ifdef GEO_JUMP_INLINE
+
+/* forward decls — needed by _jump_pentagon and geo_field_climate below */
+static inline uint32_t geo_pentagon_id(uint32_t node_id);
+static inline uint32_t geo_shell_level(uint32_t node_id);
+static inline uint32_t geo_clock_tick(uint32_t node_id);
 
 static inline uint32_t _jump_hilbert(uint32_t node, uint32_t col, uint32_t row, uint32_t floor) {
     if (col < 1 || col > GEO_METATRON_COLS) col = 1;

@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-200 -200 400 400" width="900" height="900">
+  <defs>
+    <style>
+      .bg { fill: #0d0d0d; }
+      .pentA { fill: none; stroke: #4fc3f7; stroke-width: 1.5; }
+      .pentB { fill: none; stroke: #81c784; stroke-width: 1.5; }
+      .edge  { stroke: #ffb74d; stroke-width: 2; stroke-dasharray: 4 3; }
+      .tri   { stroke: #ffb74d; stroke-width: 0.5; fill-opacity: 0.06; }
+      .tri-h  { fill: rgba(255,82,82,0.08); stroke: #ff5252; stroke-width: 0.5; }
+      .tri-p  { fill: rgba(68,130,255,0.08); stroke: #448aff; stroke-width: 0.5; }
+      .tri-c  { fill: rgba(224,64,251,0.06); stroke: #e040fb; stroke-width: 0.5; }
+      .pgram  { stroke: #ffd54f; stroke-width: 0.7; stroke-dasharray: 2 4; fill: none; }
+      .label  { fill: #666; font: 8px monospace; }
+      .l-bl   { fill: #4fc3f7; font: 9px monospace; }
+      .l-gr   { fill: #81c784; font: 9px monospace; }
+      .l-or   { fill: #ffb74d; font: 9px monospace; }
+      .dot-a  { fill: #4fc3f7; }
+      .dot-b  { fill: #81c784; }
+      .title  { fill: #eee; font: 13px sans-serif; }
+    </style>
+  </defs>
+
+  <rect class="bg" x="-200" y="-200" width="400" height="400"/>
+
+  <!-- ====== CONSTANTS ====== -->
+  <!-- r=80 for pentA, pentB -->
+  <!-- pentA: 0°=a0(0,-80), 72°=a1(76,-25), 144°=a2(47,65), 216°=a3(-47,65), 288°=a4(-76,-25) -->
+  <!-- pentB (rot36): b0(47,-65), b1(81,10), b2(0,80), b3(-81,10), b4(-47,-65) -->
+
+  <!-- ====== 10 TRIANGLES (radial bands between pentA and pentB) ====== -->
+  <!-- i=0: tri (a0,b0,a1) + tri (b0,a1,b1) = hex-like -->
+  <polygon class="tri-h" points="0,-80 47,-64.7 76.1,-24.7"/>
+  <polygon class="tri-p" points="47,-64.7 76.1,-24.7 80.9,9.8"/>
+  <!-- i=1: tri (a1,b1,a2) + tri (b1,a2,b2) -->
+  <polygon class="tri-h" points="76.1,-24.7 80.9,9.8 47,64.7"/>
+  <polygon class="tri-p" points="80.9,9.8 47,64.7 0,80"/>
+  <!-- i=2: tri (a2,b2,a3) + tri (b2,a3,b3) -->
+  <polygon class="tri-h" points="47,64.7 0,80 -47,64.7"/>
+  <polygon class="tri-p" points="0,80 -47,64.7 -80.9,9.8"/>
+  <!-- i=3: tri (a3,b3,a4) + tri (b3,a4,b4) -->
+  <polygon class="tri-h" points="-47,64.7 -80.9,9.8 -76.1,-24.7"/>
+  <polygon class="tri-p" points="-80.9,9.8 -76.1,-24.7 -47,-64.7"/>
+  <!-- i=4: tri (a4,b4,a0) + tri (b4,a0,b0) -->
+  <polygon class="tri-h" points="-76.1,-24.7 -47,-64.7 0,-80"/>
+  <polygon class="tri-p" points="-47,-64.7 0,-80 47,-64.7"/>
+
+  <!-- ====== CENTER REGIONS (between pentA inner and pentB inner) ====== -->
+  <!-- center pentagram -->
+  <line class="pgram" x1="0" y1="-80" x2="47" y2="64.7"/>
+  <line class="pgram" x1="76.1" y1="-24.7" x2="-47" y2="64.7"/>
+  <line class="pgram" x1="47" y1="64.7" x2="-76.1" y2="-24.7"/>
+  <line class="pgram" x1="-47" y1="64.7" x2="0" y2="-80"/>
+  <line class="pgram" x1="-76.1" y1="-24.7" x2="76.1" y2="-24.7"/>
+
+  <!-- ====== PENTAGON OUTLINES ====== -->
+  <polygon class="pentA" points="0,-80 76.1,-24.7 47,64.7 -47,64.7 -76.1,-24.7"/>
+  <polygon class="pentB" points="47,-64.7 80.9,9.8 0,80 -80.9,9.8 -47,-64.7"/>
+
+  <!-- ====== HIGHLIGHTED BASE EDGE ====== -->
+  <line class="edge" x1="0" y1="-80" x2="80.9" y2="9.8"/>
+
+  <!-- ====== LEGEND ====== -->
+  <rect class="tri-h" x="-190" y="155" width="10" height="10"/>
+  <text class="label" fill="#ff5252" x="-175" y="164">hex triangle (60°)</text>
+  <rect class="tri-p" x="-190" y="170" width="10" height="10"/>
+  <text class="label" fill="#448aff" x="-175" y="179">pent triangle (54°)</text>
+  <line class="edge" x1="-190" y1="188" x2="-180" y2="188"/>
+  <text class="label" fill="#ffb74d" x="-175" y="192">base edge</text>
+  <line class="pgram" x1="-190" y1="200" x2="-180" y2="200"/>
+  <text class="label" fill="#ffd54f" x="-175" y="204">pentagram (φ)</text>
+
+  <!-- ====== DOTS ====== -->
+  <!-- pentA -->
+  <circle class="dot-a" cx="0" cy="-80" r="3"/>
+  <circle class="dot-a" cx="76.1" cy="-24.7" r="3"/>
+  <circle class="dot-a" cx="47" cy="64.7" r="3"/>
+  <circle class="dot-a" cx="-47" cy="64.7" r="3"/>
+  <circle class="dot-a" cx="-76.1" cy="-24.7" r="3"/>
+  <!-- pentB -->
+  <circle class="dot-b" cx="47" cy="-64.7" r="3"/>
+  <circle class="dot-b" cx="80.9" cy="9.8" r="3"/>
+  <circle class="dot-b" cx="0" cy="80" r="3"/>
+  <circle class="dot-b" cx="-80.9" cy="9.8" r="3"/>
+  <circle class="dot-b" cx="-47" cy="-64.7" r="3"/>
+
+  <!-- ====== LABELS ====== -->
+  <text class="l-bl" x="3" y="-83">a0</text>
+  <text class="l-bl" x="78" y="-27">a1</text>
+  <text class="l-bl" x="50" y="69">a2</text>
+  <text class="l-bl" x="-52" y="69">a3</text>
+  <text class="l-bl" x="-82" y="-27">a4</text>
+  <text class="l-gr" x="50" y="-67">b0</text>
+  <text class="l-gr" x="84" y="4">b1</text>
+  <text class="l-gr" x="4" y="84">b2</text>
+  <text class="l-gr" x="-86" y="4">b3</text>
+  <text class="l-gr" x="-52" y="-67">b4</text>
+
+  <text class="l-or" x="30" y="-42">BASE</text>
+  <text class="label" fill="#ffd54f" x="-8" y="-8">pentagram</text>
+
+  <text class="title" x="-100" y="-175">Blueprint — 10 Radial Triangles + φ Pentagram</text>
+  <text class="label" x="-100" y="-162">5 hex triangles (red, 60°) + 5 pent triangles (blue, 54°)</text>
+</svg>

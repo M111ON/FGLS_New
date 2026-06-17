@@ -1,18 +1,23 @@
 /*
  * zone_card_sid.h — ZoneCard + SID coordinate + inference signal
- * Layout: resid(16) + card(12) + inf(8) + tring_pos(2) + face/zone/slot/pad(4) = 42B packed
+ * Layout: resid(16) + card(12) + inf(8) + node_id(4) + capo_key(2) = 42B packed
  *
  * Two-phase:
  *   1. zcsid_make()       — static capture (weight-time)
  *   2. zcsid_hook_logits() — runtime update (forward pass)
  *
- * NOTE: ZoneCardExt in zone_card.h needs __attribute__((packed))
+ * Y-Triangle retarget (replaces old TRing 1440 / dodeca 12-face):
+ *   geo_pentagon_id(node_id) → face 1..12
+ *   geo_shell_level(node_id) → layer 0..11
+ *   geo_clock_tick(node_id)  → position within pentagon (0..1439)
+ *   geo_capo(node_id, key)   → offset routing within pentagon
  */
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
 #include "zone_card.h"
-#include "tw_capture_int.h"
+#define GEO_JUMP_INLINE
+#include "geo_jump.h"
 
 #define ZCSID_FLAG_FROZEN 0x01
 #define ZCSID_FLAG_DRAIN  0x02
@@ -24,45 +29,45 @@ typedef struct {
     uint8_t  confidence;    /* 255 - logit_entropy                           */
     uint16_t tick;          /* token position in sequence                    */
     uint8_t  flags;         /* FROZEN | DRAIN | ACTIVE                       */
-    uint8_t  face;          /* dodeca face 0-11                              */
-    uint16_t tring_pos;     /* 0-1439 (hex+tri centroids)                    */
+    uint8_t  layer;         /* geo_shell_level(node_id) 0..11               */
+    uint16_t clock_tick;    /* geo_clock_tick(node_id) 0..1439              */
 } ZCSIDInference;
 
-/* 42B packed — core unit for geometric KV compression */
+_Static_assert(sizeof(ZCSIDInference) == 8, "ZCSIDInference must be 8B packed");
+
+/* 42B packed — core unit for geometric tensor memory */
 typedef struct __attribute__((packed)) {
     int64_t        resid_x;   /* residual X (TW_SCALE units)      */
     int64_t        resid_y;   /* residual Y (TW_SCALE units)      */
     ZoneCard       card;      /* 12B: pattern/entropy/neighbors   */
     ZCSIDInference inf;       /* 8B: runtime signal               */
-    uint16_t       tring_pos; /* face*60 + zone*6 + slot          */
-    uint8_t        face;      /* dodeca face 0-11                 */
-    uint8_t        zone;      /* 0-9                              */
-    uint8_t        slot;      /* 0-5                              */
-    uint8_t        pad;       /* padding to 40B                   */
+    uint32_t       node_id;   /* Y-triangle address 0..20735      */
+    uint16_t       capo_key;  /* geo_capo routing key             */
 } ZoneCardSID;
 
 _Static_assert(sizeof(ZoneCardSID) == 42, "ZoneCardSID must be 42B (packed)");
 
 /* Phase 1: static capture from weight data */
-static inline ZoneCardSID zcsid_make(const ZoneCard *card, uint16_t id, uint16_t nl, uint16_t nr, uint8_t face, uint8_t is_tri, const TWCaptureInt *cap)
+static inline ZoneCardSID zcsid_make(const ZoneCard *card,
+                                     uint32_t node_id,
+                                     uint16_t capo_key,
+                                     uint16_t tick,
+                                     uint8_t flags,
+                                     int64_t resid_x, int64_t resid_y)
 {
     ZoneCardSID z;
-    z.resid_x   = cap->resid_x;
-    z.resid_y   = cap->resid_y;
+    z.resid_x   = resid_x;
+    z.resid_y   = resid_y;
     z.card      = *card;
-    /* TRing 1440: face*120 + is_tri*60 + zone*6 + slot */
-    z.tring_pos = (uint16_t)(face * 120u + is_tri * 60u + cap->zone * 6u + cap->slot % 6u);
-    z.face      = face;
-    z.zone      = cap->zone;
-    z.slot      = cap->slot % 6u;
-    z.pad       = 0;
+    z.node_id   = node_id;
+    z.capo_key  = capo_key;
     z.inf = (ZCSIDInference){
-        .logit_entropy = z.card.entropy,
-        .confidence    = (uint8_t)(255 - z.card.entropy),
-        .tick          = id,
-        .flags         = cap->drain ? ZCSID_FLAG_DRAIN : ZCSID_FLAG_ACTIVE,
-        .face          = face,
-        .tring_pos     = z.tring_pos,
+        .logit_entropy = card->entropy,
+        .confidence    = (uint8_t)(255 - card->entropy),
+        .tick          = tick,
+        .flags         = flags,
+        .layer         = (uint8_t)geo_shell_level(node_id),
+        .clock_tick    = (uint16_t)geo_clock_tick(node_id),
     };
     return z;
 }
@@ -79,10 +84,12 @@ static inline void zcsid_hook_logits(ZoneCardSID *z,
     z->inf.flags        |= ZCSID_FLAG_ACTIVE;
 }
 
-/* Topology check: same face + adjacent zone = same dependency cluster */
+/* Topology check: same pentagon + adjacent layer = same dependency cluster */
 static inline int zcsid_linked(const ZoneCardSID *a, const ZoneCardSID *b)
 {
-    if (a->inf.face != b->inf.face) return 0;
-    int dz = (int)a->zone - (int)b->zone;
-    return (dz < 0 ? -dz : dz) <= 1;
+    uint32_t pa = geo_pentagon_id(a->node_id);
+    uint32_t pb = geo_pentagon_id(b->node_id);
+    if (pa != pb) return 0;
+    int dl = (int)a->inf.layer - (int)b->inf.layer;
+    return (dl < 0 ? -dl : dl) <= 1;
 }

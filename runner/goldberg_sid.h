@@ -78,13 +78,15 @@ static void goldberg_tangent_basis(int face, double *u, double *v) {
 
 /* Map THCoord → 3D unit vector on the goldberg sphere */
 static void goldberg_from_thcoord(THCoord c, double *ox, double *oy, double *oz) {
+    int face = th_pentagon(c) - 1;
     double cx, cy, cz;
-    goldberg_face_center(c.face, &cx, &cy, &cz);
-    uint8_t local = th_local(c.tring_pos);
-    uint8_t is_tri, sector, slot;
-    th_unpack(local, &is_tri, &sector, &slot);
+    goldberg_face_center(face, &cx, &cy, &cz);
+    uint16_t local = th_local(c.node_id);
+    /* decompose local: sector = local / 6, slot = local % 6 */
+    uint8_t sector = (uint8_t)(local / TW_SLOTS_PER);
+    uint8_t slot   = (uint8_t)(local % TW_SLOTS_PER);
     double tu[3], tv[3];
-    goldberg_tangent_basis(c.face, &tu[0], &tv[0]);
+    goldberg_tangent_basis(face, &tu[0], &tv[0]);
     double angle = sector * 3.141592653589793 / 3.0;
     double dir_u = cos(angle), dir_v = sin(angle);
     double offset = (double)(slot + 1) * 0.02;
@@ -180,8 +182,8 @@ static void goldberg_print_coords(const char **names, int n, const THCoord *coor
     for (int i = 0; i < n && i < 16; i++) {
         double x, y, z;
         goldberg_from_thcoord(coords[i], &x, &y, &z);
-        fprintf(stderr, "  face=%d tring=%d → (%.4f, %.4f, %.4f) %s\n",
-                coords[i].face, coords[i].tring_pos, x, y, z, names[i]);
+        fprintf(stderr, "  pentagon=%d node=%u → (%.4f, %.4f, %.4f) %s\n",
+                th_pentagon(coords[i]), coords[i].node_id, x, y, z, names[i]);
     }
     if (n > 16) fprintf(stderr, "  ... (%d more)\n", n - 16);
 }

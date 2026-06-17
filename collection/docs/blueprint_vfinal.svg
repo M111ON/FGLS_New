@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-220 -220 440 440" width="880" height="880">
+  <defs>
+    <style>
+      .bg { fill: #0d0d0d; }
+      .edge  { stroke: #ffb74d; stroke-width: 3; }
+      .a36   { stroke: #e040fb; stroke-width: 2; }
+      .a72   { stroke: #4fc3f7; stroke-width: 2; }
+      .a72b  { stroke: #81c784; stroke-width: 2; }
+      .a60   { stroke: #ff5252; stroke-width: 2; }
+      .pentA { fill: none; stroke: #4fc3f7; stroke-width: 1.5; }
+      .pentB { fill: none; stroke: #81c784; stroke-width: 1.5; }
+      .petal { fill: rgba(255,82,82,0.05); stroke: #ff5252; stroke-width: 0.7; }
+      .pgram { stroke: #ffd54f; stroke-width: 0.7; stroke-dasharray: 2 4; fill: none; }
+      .label  { fill: #777; font: 8px monospace; }
+      .l-bl   { fill: #4fc3f7; font: 9px monospace; }
+      .l-gr   { fill: #81c784; font: 9px monospace; }
+      .l-or   { fill: #ffb74d; font: 9px monospace; font-weight: bold; }
+      .l-pu   { fill: #e040fb; font: 9px monospace; }
+      .l-re   { fill: #ff5252; font: 9px monospace; }
+      .dot-a  { fill: #4fc3f7; }
+      .dot-b  { fill: #81c784; }
+      .dot-p  { fill: #e040fb; }
+    </style>
+  </defs>
+  <rect class="bg" x="-220" y="-220" width="440" height="440"/>
+
+  <!-- ====== PENTAGONS: accurate coordinates r=70 ====== -->
+  <!-- a0(0,-70), a1(66.6,-21.7), a2(41.1,56.6), a3(-41.1,56.6), a4(-66.6,-21.7) -->
+  <!-- b0(44.1,-56.6), b1(66.6,21.7), b2(0,70), b3(-66.6,21.7), b4(-44.1,-56.6) -->
+  <!-- center = (0,0) -->
+
+  <!-- Pentagon A (cyan) -->
+  <polygon class="pentA" points="0,-70 66.6,-21.7 41.1,56.6 -41.1,56.6 -66.6,-21.7"/>
+  <!-- Pentagon B (green, 36° offset) -->
+  <polygon class="pentB" points="44.1,-56.6 66.6,21.7 0,70 -66.6,21.7 -44.1,-56.6"/>
+
+  <!-- ====== FOUNDATION: base edge a0-b1 ====== -->
+  <line class="edge" x1="0" y1="-70" x2="66.6" y2="21.7"/>
+  <text class="l-or" x="30" y="-35">BASE</text>
+
+  <!-- ====== STEP 2: 36° → center C ====== -->
+  <line class="a36" x1="0" y1="-70" x2="0" y2="0" stroke-dasharray="4 4"/>
+  <line class="a36" x1="66.6" y1="21.7" x2="0" y2="0" stroke-dasharray="4 4"/>
+  <circle class="dot-p" cx="0" cy="0" r="4"/>
+  <text class="l-pu" x="5" y="-3">C</text>
+  <text class="l-pu" x="8" y="-50">36°</text>
+  <text class="l-pu" x="45" y="12">36°</text>
+
+  <!-- ====== STEP 3: 72° FROM C-a0, C-b1 → pentagon complete ====== -->
+  <line class="a72" x1="0" y1="0" x2="0" y2="-70"/>
+  <line class="a72" x1="0" y1="0" x2="66.6" y2="21.7"/>
+  <line class="a72" x1="0" y1="0" x2="44.1" y2="-56.6"/>
+  <line class="a72b" x1="0" y1="0" x2="66.6" y2="-21.7"/>
+  <line class="a72b" x1="0" y1="0" x2="-44.1" y2="-56.6"/>
+
+  <!-- 72° arc -->
+  <path class="a72" d="M 20,-35 A 10,10 0 0,1 10,-15" stroke-width="1"/>
+  <text class="l-bl" x="25" y="-20">72°</text>
+
+  <!-- ====== STEP 4: 60° OUTWARD → HEX PETALS ====== -->
+  <!-- Petal 0: from a[0]-b[1] base edge, opens 60° outward -->
+  <polygon class="petal" points="0,-70 66.6,21.7 110,-20 50,-110 -60,-80 -30,-10"/>
+  <polygon class="petal" points="66.6,21.7 0,70 110,-20 50,-110"/>
+  <!-- Petal 1: from a[1]-b[2] -->
+  <polygon class="petal" points="66.6,-21.7 0,70 130,100 40,130 -30,70"/>
+  <!-- Petal 2: from a[2]-b[3] -->
+  <polygon class="petal" points="41.1,56.6 -66.6,21.7 -60,130 -130,90 -120,10"/>
+  <!-- Petal 3: from a[3]-b[4] -->
+  <polygon class="petal" points="-41.1,56.6 -44.1,-56.6 -130,-40 -90,-110 0,-90"/>
+  <!-- Petal 4: from a[4]-b[0] -->
+  <polygon class="petal" points="-66.6,-21.7 44.1,-56.6 -50,-110 60,-110 90,-40"/>
+
+  <!-- 60° outward lines from pentagon vertices -->
+  <line class="a60" x1="0" y1="-70" x2="-60" y2="-80"/>
+  <line class="a60" x1="66.6" y1="21.7" x2="110" y2="-20"/>
+  <line class="a60" x1="66.6" y1="21.7" x2="130" y2="30"/>
+  <line class="a60" x1="0" y1="70" x2="-30" y2="70"/>
+  <line class="a60" x1="41.1" y1="56.6" x2="130" y2="100"/>
+  <line class="a60" x1="-41.1" y1="56.6" x2="-60" y2="130"/>
+  <line class="a60" x1="-66.6" y1="21.7" x2="-120" y2="10"/>
+  <line class="a60" x1="-41.1" y1="56.6" x2="-130" y2="70"/>
+  <line class="a60" x1="-66.6" y1="-21.7" x2="-130" y2="-40"/>
+  <line class="a60" x1="44.1" y1="-56.6" x2="60" y2="-110"/>
+
+  <text class="l-re" x="50" y="30">60°</text>
+
+  <!-- ====== PENTAGRAM (from pentA and pentB overlap) ====== -->
+  <line class="pgram" x1="0" y1="-70" x2="41.1" y2="56.6"/>
+  <line class="pgram" x1="66.6" y1="-21.7" x2="-41.1" y2="56.6"/>
+  <line class="pgram" x1="41.1" y1="56.6" x2="-66.6" y2="-21.7"/>
+  <line class="pgram" x1="-41.1" y1="56.6" x2="0" y2="-70"/>
+  <line class="pgram" x1="-66.6" y1="-21.7" x2="66.6" y2="-21.7"/>
+
+  <!-- ====== LABELS ====== -->
+  <text class="l-bl" x="3" y="-73">a0</text>
+  <text class="l-bl" x="69" y="-23">a1</text>
+  <text class="l-bl" x="43" y="60">a2</text>
+  <text class="l-bl" x="-46" y="60">a3</text>
+  <text class="l-bl" x="-78" y="-24">a4</text>
+  <text class="l-gr" x="46" y="-59">b0</text>
+  <text class="l-gr" x="68" y="24">b1</text>
+  <text class="l-gr" x="3" y="73">b2</text>
+  <text class="l-gr" x="-73" y="24">b3</text>
+  <text class="l-gr" x="-55" y="-59">b4</text>
+
+  <text class="l-re" x="60" y="90">p0</text>
+  <text class="l-re" x="-80" y="90">p1</text>
+  <text class="l-re" x="-110" y="-50">p2</text>
+  <text class="l-re" x="0" y="-90">p3</text>
+  <text class="l-re" x="90" y="-60">p4</text>
+
+  <!-- Legend -->
+  <line class="edge" x1="-210" y1="140" x2="-185" y2="140"/>
+  <text class="label" x="-180" y="143">1 base edge a0-b1</text>
+  <line class="a36" x1="-210" y1="155" x2="-185" y2="155"/>
+  <text class="label" fill="#e040fb" x="-180" y="158">2 36° → center C</text>
+  <line class="a72" x1="-210" y1="170" x2="-185" y2="170"/>
+  <text class="label" fill="#4fc3f7" x="-180" y="173">3 72° → pentA + pentB</text>
+  <line class="a60" x1="-210" y1="185" x2="-185" y2="185"/>
+  <text class="label" fill="#ff5252" x="-180" y="188">4 60° → 5 hex petals</text>
+
+  <text class="label" x="-140" y="-195" font-size="13" fill="#eee">Blueprint — 1 Edge → All Geometry</text>
+  <text class="label" x="-140" y="-182">a0-b1 → 36° center → 72° dual pentagons → 60° petals → φ pentagram</text>
+</svg>

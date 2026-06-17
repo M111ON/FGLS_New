@@ -3,26 +3,6 @@
 
 #ifndef GEO_JUMP_INLINE
 
-static uint32_t _hilbert_idx(uint32_t x, uint32_t y, uint32_t n) {
-    uint32_t d = 0;
-    for (uint32_t s = n >> 1; s > 0; s >>= 1) {
-        uint32_t rx = (x & s) > 0;
-        uint32_t ry = (y & s) > 0;
-        d = (d << 2) | (((uint32_t)(3u * rx)) ^ ry);
-        if (ry == 0) {
-            if (rx == 1) { x = n - 1u - x; y = n - 1u - y; }
-            uint32_t t = x; x = y; y = t;
-        }
-    }
-    return d;
-}
-
-static uint32_t _peano_idx(uint32_t x, uint32_t y, uint32_t cols __attribute__((unused)), uint32_t rows) {
-    if (x & 1u)
-        return x * rows + (rows - 1u - y);
-    return x * rows + y;
-}
-
 static uint32_t _jump_hilbert(uint32_t node, uint32_t col, uint32_t row, uint32_t floor) {
     if (col < 1 || col > GEO_METATRON_COLS) col = 1;
     if (row < 1 || row > GEO_METATRON_ROWS) row = 1;

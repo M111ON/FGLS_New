@@ -26,31 +26,43 @@
 
 ---
 
-## 🧪 Session June 18 — CORRECTION: Backend Reads tensor->data Per-Decode (Not Cached at Init)
+## ✅ Session June 18 — ZoneCardSID Y-Triangle + Tensor Memory Store + SID E2E Verified
 
-### tl;dr
-**The CPU backend reads `tensor->data` on EVERY `llama_decode` call, NOT cached at `llama_init_from_model`.** 
-- Swapping tensor->data **after** context creation, then calling `llama_decode` → logits change (proven: 151935/151936 logits differ, max_diff=0.358)
-- `llama_free(ctx)` + new `llama_init_from_model` somehow resets state (old test with 2 contexts showed no difference)
-- **Correct flow: swap between decodes, same context**
+### Goal
+Retarget ZoneCardSID to Y-triangle, create tensor memory store, get SID pipeline to run end-to-end with real model.
 
-### What Changed from Earlier Claim
-Earlier AGENTS.md entry claimed "swap before context works, swap after = zero effect." This was WRONG.
-- The old proof test (test_swap_debug.c) found only 13/291 tensors via model struct scan
-- Old test created 2 separate contexts (baseline + test) → `llama_free` + new context masked the swap effect
-- New test (test_swap_all.c) uses **same context, 2 decodes** — swap BETWEEN decodes works definitively
+### What Changed
 
-### Key Implementations Now Working
-1. **`gguf_idx_open`** (existing in `gguf_index.h`) — reads tensor names from GGUF file. Replaces hardcoded 291 name list.
-2. **Model struct scan** (`scan_region_for_tensors`) — scans model struct (64KB) + layers heap allocation for tensor pointers matching GGUF names. Uses VirtualQuery for memory safety (no SEH, no process-wide scan).
-3. **291/291 tensors found** — both direct model tensors (3) + all layer tensors (288) via layers-pointer discovery.
-4. **Per-decode swap proven** — set tensor->data to copies (with 1-byte sentinel flip) → decode sees changed data.
+#### New/Modified Files
+- **`collection/zone_card_sid.h`**: Retargeted — `node_id(4B)+capo_key(2B)` replaces `face(1B)+zone(1B)+slot(1B)+tring_pos(2B)`. Uses `geo_jump.h` with `GEO_JUMP_INLINE`.
+- **`collection/sid.h`**: Removed 5 dead functions referencing old ZoneCardSID fields (`sid_coord_from_zcsid`, `sid_comm_payload`, `sid_capture`, `sid_summon`, `sid_summon_sig`).
+- **`collection/src/tensor_memory.h`**: New — TensorMemStore with TMEM_NONE/TMEM_DELTA compression, mask-based query (`tmem_query`), save/load (`tmem_save`/`tmem_load`), `tmem_foreach`. 31/31 tests pass.
+- **`collection/tests/test_tensor_memory.c`**: New — 31 tests covering query, save/load, foreach, delta compression.
+- **`runner/llama_pogls_runner_sid_v2.c`**: Added `--mem-store PATH` (logging at wrong level — see below), `sid_mem_store_log()`, `geo_jump.c` in build command. Updated build command in header.
 
-### Implications for SID
-- No need to intercept context creation
-- SID swap happens BETWEEN `llama_decode` calls
-- Flow: decode(token_n) → swap tensor->data to SID cache → decode(token_n+1) → swap back
-- Works with any backend (CPU, GPU, Vulkan) — backend reads tensor->data per-decode
+### SID E2E Pipeline Status
+- **Model load**: 458-503 ms ✓
+- **Tensor scan**: Both `-O0` and `-O2` find **291/291** (previously reported 13/291 is resolved; Tier 2 ``find_layers_ptr`` works correctly with both opt levels) ✓
+- **SID cache init**: 170 weight tensors read = 485 MB, verified ✓
+- **SID swap setup**: 170/291 tensors selected for per-decode swap ✓
+- **Reaches decode with swaps**: Running inference reaches `llama_decode` with swapped tensor->data pointers ✓
+- **GPU backend**: Hardcoded CPU (`ggml-cpu-sse42.dll`); `ggml-vulkan.dll` exists but not yet integrated
+
+### Key Findings
+- **`geo_jump.c` must be linked explicitly**: `tw_bridge.h` includes `geo_jump.h` without `GEO_JUMP_INLINE`, so geo_jump functions become `extern` and need `geo_jump.c` in the link line.
+- **TensorMemStore integration at wrong level**: Current `--mem-store` logs per-decode tensor data (raw swap log), but vision is condensed user behavioral profile. Needs redesign.
+- **`_hilbert_idx` warning**: pre-existing in `tw_bridge.h:267`; inside `#ifdef GEO_JUMP_INLINE` block, unavailable when `geo_jump.h` included without it.
+
+### Still Pending
+1. **`--mem-store` redesign**: Align with vision (user behavioral profile, not raw swap log)
+2. **`--capture` pipeline**: Not tested with real model yet
+3. **GPU backend**: Unblock Vulkan for faster inference
+4. **`_hilbert_idx` warning**: Fix or suppress
+
+### Bug Fix (June 18) — `sid_summon` node_id/shell_id confusion
+- **Root cause:** `sid_summon()` at `collection/sid.h:312` passed `coord->node_id` (0..20735) directly to `geo_shell_decode()` which expects a `shell_id` (0..287). `shell_id % 288` corrupted face/ring info.
+- **Effect:** 5/20 tensors failed roundtrip in real model test. Wrong face/ring → wrong centroid → wrong (vx,vy) → recapture node_id mismatch.
+- **Fix:** `geo_shell_decode(coord->node_id, ...)` → `geo_shell_face(coord->node_id)` + `geo_shell_ring(coord->node_id)`. These extract face/ring from `node_id = face*1728 + ring*144 + side*72`, the correct inverse of `tw_to_node()`.
 
 ---
 

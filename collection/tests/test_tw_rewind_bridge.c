@@ -1,12 +1,12 @@
 /*
- * test_tw_rewind_bridge.c — Smoke test for SID↔geo_rewind.h bridge
+ * test_tw_rewind_bridge.c — Smoke test for SID node_id ↔ geo_rewind.h bridge
  *
  * Compile:
- *   gcc -O2 -I. -Isrc -Icore/core -Itests -o build/test_tw_rewind_bridge tests/test_tw_rewind_bridge.c
+ *   gcc -O2 -I. -Isrc -Icore/core -Igeo_jump_module/include -Itests -o build/test_tw_rewind_bridge tests/test_tw_rewind_bridge.c
  *
  * Verifies:
- *   1. tw_sid_tring_to_enc / tw_enc_to_sid_tring roundtrip
- *   2. tw_cap_pack_chunk / tw_chunk_unpack_cap roundtrip
+ *   1. tw_sid_node_to_enc / tw_enc_to_sid_walk roundtrip
+ *   2. tw_node_pack_key / tw_node_unpack_key roundtrip
  *   3. tw_bridge_rewind_store / tw_bridge_rewind_find roundtrip
  *   4. tw_bridge_stats
  */
@@ -21,135 +21,112 @@
 } while(0)
 
 int test_sid_enc_roundtrip(void) {
-    printf("\n=== SID tring ↔ enc roundtrip ===\n");
+    printf("\n=== SID node_id ↔ enc roundtrip ===\n");
 
-    CHK(tw_sid_tring_to_enc(0, 0) == GEO_WALK[0], "sid_tring=0 hex → enc = GEO_WALK[0]");
-    CHK(tw_sid_tring_to_enc(719, 0) == GEO_WALK[719], "sid_tring=719 hex → enc = GEO_WALK[719]");
-    CHK(tw_sid_tring_to_enc(1440, 0) == 0xFFFFFFFFu, "out of range → 0xFFFFFFFF");
+    CHK(tw_sid_node_to_enc(0) == GEO_WALK[0], "node_id=0 → enc = GEO_WALK[0]");
+    CHK(tw_sid_node_to_enc(719) == GEO_WALK[719], "node_id=719 → enc = GEO_WALK[719]");
+    CHK(tw_sid_node_to_enc(1728) == GEO_WALK[0], "node_id=1728 → enc = GEO_WALK[0] (pentagon wrap)");
+    /* 20735 % 1728 = 1727, 1727 % 720 = 287 */
+    CHK(tw_sid_node_to_enc(20735) == GEO_WALK[287], "node_id=20735 → enc = GEO_WALK[287]");
+    CHK(tw_sid_node_to_enc(20736) == 0xFFFFFFFFu, "node_id >= GEO_FULL → 0xFFFFFFFF");
 
-    /* Tri: tring_pos = face*120 + 60 + zone*6 + slot = 60 for face=0,zone=0,slot=0,tri */
-    CHK(tw_sid_tring_to_enc(60, 1) == GEO_WALK[0], "tri tring=60 → walk_pos=0");
-    CHK(tw_sid_tring_to_enc(61, 1) == GEO_WALK[1], "tri tring=61 → walk_pos=1");
-    CHK(tw_sid_tring_to_enc(719, 1) == GEO_WALK[659], "tri tring=719 → walk_pos=659");
-
-    /* Roundtrip: enc → sid_tring (batch verify, single result) */
-    uint32_t enc = GEO_WALK[0];
-    CHK(tw_enc_to_sid_tring(enc) == 0, "enc=GEO_WALK[0] → sid_tring=0");
-    enc = GEO_WALK[719];
-    CHK(tw_enc_to_sid_tring(enc) == 719, "enc=GEO_WALK[719] → sid_tring=719");
+    /* Roundtrip: enc → walk_pos (batch verify all 720 walk positions) */
+    uint32_t enc = tw_sid_node_to_enc(0);
+    CHK(tw_enc_to_sid_walk(enc) == 0, "enc=GEO_WALK[0] → walk_pos=0");
+    enc = tw_sid_node_to_enc(719);
+    CHK(tw_enc_to_sid_walk(enc) == 719, "enc=GEO_WALK[719] → walk_pos=719");
 
     int ok = 1;
-    for (uint16_t pos = 0; pos < 720; pos++) {
-        uint32_t e = GEO_WALK[pos];
-        if (tw_enc_to_sid_tring(e) != pos) { ok = 0; break; }
+    for (uint32_t nid = 0; nid < 720; nid++) {
+        uint32_t e = tw_sid_node_to_enc(nid);
+        if (!tw_enc_is_valid(e)) { ok = 0; break; }
+        uint16_t wp = tw_enc_to_sid_walk(e);
+        if (wp != (nid % 720u)) { ok = 0; break; }
     }
-    CHK(ok, "all 720 enc→sid_tring roundtrip");
+    CHK(ok, "all 720 node_id → enc → walk_pos roundtrip");
 
     return 0;
 }
 
-int test_chunk_pack_unpack(void) {
-    printf("\n=== Chunk pack/unpack ===\n");
+int test_node_key_roundtrip(void) {
+    printf("\n=== Node key pack/unpack ===\n");
 
-    TWFaceCapture cap;
-    memset(&cap, 0, sizeof(cap));
-    cap.face = 3;
-    cap.zone = 5;
-    cap.slot = 2;
-    cap.is_tri = 1;
-    cap.resid_x = 12345;
-    cap.resid_y = -6789;
-    cap.tring_pos = 3*120 + 1*60 + 5*6 + 2;
+    uint64_t k0 = tw_node_pack_key(0, 100, -50, 1);
+    CHK(k0 != 0, "pack node_id=0 → non-zero key");
 
-    TStreamChunk ch = tw_cap_pack_chunk(&cap);
-    CHK(ch.size == 8, "chunk size = 8");
+    uint32_t nid; int64_t rx, ry; uint8_t pent;
+    tw_node_unpack_key(k0, &nid, &rx, &ry, &pent);
+    CHK(nid == 0, "unpack node_id = 0");
+    CHK(rx == 100, "unpack resid_x = 100");
+    CHK(ry == -50, "unpack resid_y = -50");
+    CHK(pent == 1, "unpack pentagon = 1");
 
-    uint64_t key;
-    TWFaceCapture cap2;
-    memset(&cap2, 0xFF, sizeof(cap2));
-    CHK(tw_chunk_unpack_cap(&ch, &cap2, &key) == 1, "unpack success");
-    CHK(cap2.face == 3, "face preserved");
-    CHK(cap2.zone == 5, "zone preserved");
-    CHK(cap2.slot == 2, "slot preserved");
-    CHK(cap2.is_tri == 1, "is_tri preserved");
+    uint64_t k1 = tw_node_pack_key(1379, -200, 300, 3);
+    tw_node_unpack_key(k1, &nid, &rx, &ry, &pent);
+    CHK(nid == 1379, "unpack node_id = 1379");
+    CHK(rx == -200, "unpack resid_x = -200");
+    CHK(ry == 300, "unpack resid_y = 300");
+    CHK(pent == 3, "unpack pentagon = 3");
 
-    TStreamChunk empty;
-    memset(&empty, 0, sizeof(empty));
-    CHK(tw_chunk_unpack_cap(&empty, NULL, NULL) == 0, "empty chunk → fail");
+    /* Boundary values */
+    uint64_t k2 = tw_node_pack_key(20735, 8191, -8192, 12);
+    tw_node_unpack_key(k2, &nid, &rx, &ry, &pent);
+    CHK(nid == 20735, "unpack node_id = 20735 (max)");
+    CHK(rx == 8191, "unpack resid_x = 8191 (max)");
+    CHK(ry == -8192, "unpack resid_y = -8192 (min)");
+    CHK(pent == 12, "unpack pentagon = 12 (max)");
 
-    printf("  ALL chunk pack/unpack: PASS\n");
+    printf("  ALL node key roundtrip: PASS\n");
     return 0;
 }
 
 int test_bridge_store_find(void) {
-    static RewindBuffer geo_rb;   /* static (BSS, not stack — RewindBuffer is ~4MB) */
+    static RewindBuffer geo_rb;
     printf("\n=== Bridge store/find ===\n");
 
     TWFaceRewind tw_rb;
     tw_rewind_init(&tw_rb);
 
-    /* Hex capture: should store in both */
-    TWFaceCapture hex_cap;
-    memset(&hex_cap, 0, sizeof(hex_cap));
-    hex_cap.face = 0;
-    hex_cap.zone = 1;
-    hex_cap.slot = 3;
-    hex_cap.is_tri = 0;
-    hex_cap.resid_x = 100;
-    hex_cap.resid_y = 200;
-    hex_cap.tring_pos = 0*120 + 0*60 + 1*6 + 3;
+    /* Store a node_id with a known key */
+    uint64_t key1 = tw_node_pack_key(42, 100, 200, 5);
+    uint32_t enc1 = tw_bridge_rewind_store(&tw_rb, &geo_rb, key1, 42);
+    CHK(enc1 != 0xFFFFFFFFu, "store node_id=42 returned valid enc");
+    CHK(enc1 == GEO_WALK[42 % 720u], "store enc = GEO_WALK[walk_pos]");
 
-    uint16_t hex_tring = hex_cap.tring_pos;
-    CHK(hex_tring == 9, "hex cap tring_pos = 9");
+    /* TWFaceRewind has it */
+    CHK(tw_rewind_has(&tw_rb, 42), "TWFaceRewind has node_id=42");
+    CHK(tw_rewind_find(&tw_rb, 42) == key1, "TWFaceRewind key matches");
 
-    uint32_t enc = tw_bridge_rewind_store(&tw_rb, &geo_rb, &hex_cap);
-    CHK(enc != 0xFFFFFFFFu, "hex store returned valid enc");
-    CHK(enc == GEO_WALK[9], "hex store enc = GEO_WALK[9]");
+    /* RewindBuffer has it */
+    const TStreamChunk *p = rewind_find(&geo_rb, enc1);
+    CHK(p != NULL, "RewindBuffer has enc1");
 
-    /* Verify TWFaceRewind has it */
-    CHK(tw_rewind_has(&tw_rb, hex_tring), "TWFaceRewind has hex cap");
-
-    /* Verify RewindBuffer has it */
-    const TStreamChunk *p = rewind_find(&geo_rb, enc);
-    CHK(p != NULL, "RewindBuffer has hex cap");
-    CHK(p->size == 8, "chunk size = 8");
-
-    /* Check bridge find */
-    TWBRewindResult r = tw_bridge_rewind_find(&tw_rb, &geo_rb, hex_tring);
-    CHK(r.tw_key != 0, "bridge find: tw_key non-zero");
+    /* Bridge find — combined result */
+    TWBRewindResult r = tw_bridge_rewind_find(&tw_rb, &geo_rb, 42);
+    CHK(r.tw_key == key1, "bridge find: tw_key matches");
+    CHK(r.node_id == 42, "bridge find: node_id=42");
     CHK(r.has_geo == 1, "bridge find: has_geo=1");
-    CHK(r.cap.zone == 1, "bridge find: zone=1");
-    CHK(r.cap.slot == 3, "bridge find: slot=3");
+    CHK(tw_enc_is_valid(enc1), "enc1 is valid");
 
-    /* Tri capture: store in TWFaceRewind only */
-    TWFaceCapture tri_cap;
-    memset(&tri_cap, 0, sizeof(tri_cap));
-    tri_cap.face = 0;
-    tri_cap.zone = 1;
-    tri_cap.slot = 3;
-    tri_cap.is_tri = 1;
-    tri_cap.resid_x = 50;
-    tri_cap.resid_y = -50;
-    tri_cap.tring_pos = 0*120 + 1*60 + 1*6 + 3;
+    /* Store a second node */
+    uint64_t key2 = tw_node_pack_key(500, -50, 75, 8);
+    uint32_t enc2 = tw_bridge_rewind_store(&tw_rb, &geo_rb, key2, 500);
+    CHK(enc2 != 0xFFFFFFFFu, "store node_id=500 returned valid enc");
 
-    uint16_t tri_tring = tri_cap.tring_pos;
-    CHK(tri_tring == 69, "tri cap tring_pos = 69");
+    TWBRewindResult r2 = tw_bridge_rewind_find(&tw_rb, &geo_rb, 500);
+    CHK(r2.tw_key == key2, "bridge find 2: tw_key matches");
+    CHK(r2.node_id == 500, "bridge find 2: node_id=500");
+    CHK(r2.has_geo == 1, "bridge find 2: has_geo=1");
 
-    uint32_t enc2 = tw_bridge_rewind_store(&tw_rb, &geo_rb, &tri_cap);
-    CHK(enc2 == 0xFFFFFFFFu, "tri store skipped geo (returns 0xFFFFFFFF)");
+    /* Lookup non-existent node */
+    TWBRewindResult r3 = tw_bridge_rewind_find(&tw_rb, &geo_rb, 9999);
+    CHK(r3.tw_key == 0, "bridge find miss: tw_key=0");
+    CHK(r3.has_geo == 0, "bridge find miss: has_geo=0");
 
-    /* TWFaceRewind has tri */
-    CHK(tw_rewind_has(&tw_rb, tri_tring), "TWFaceRewind has tri cap");
-
-    /* RewindBuffer should NOT have tri */
-    TWBRewindResult r2 = tw_bridge_rewind_find(&tw_rb, &geo_rb, tri_tring);
-    CHK(r2.tw_key != 0, "bridge find tri: tw_key non-zero");
-    CHK(r2.has_geo == 0, "bridge find tri: has_geo=0");
-    CHK(r2.cap.is_tri == 1, "bridge find tri: is_tri=1");
-
-    /* Check has() */
-    CHK(tw_bridge_rewind_has(&tw_rb, &geo_rb, hex_tring, 0) == 1, "bridge_has hex");
-    CHK(tw_bridge_rewind_has(&tw_rb, &geo_rb, tri_tring, 1) == 1, "bridge_has tri");
+    /* bridge_has */
+    CHK(tw_bridge_rewind_has(&tw_rb, &geo_rb, 42) == 1, "bridge_has node_id=42");
+    CHK(tw_bridge_rewind_has(&tw_rb, &geo_rb, 500) == 1, "bridge_has node_id=500");
+    CHK(tw_bridge_rewind_has(&tw_rb, &geo_rb, 9999) == 0, "bridge_has miss");
 
     printf("  ALL bridge store/find: PASS\n");
     return 0;
@@ -160,7 +137,7 @@ int test_bridge_stats(void) {
 
     TWFaceRewind tw_rb;
     tw_rewind_init(&tw_rb);
-    static RewindBuffer geo_rb;   /* ~4MB struct — must be static/BSS, not stack */
+    static RewindBuffer geo_rb;
     rewind_init(&geo_rb);
     geo_rb.stored = 0;
 
@@ -169,15 +146,10 @@ int test_bridge_stats(void) {
     CHK(st.tw_occupied == 0, "initial TW occupied = 0");
     CHK(st.geo_occupied == 0, "initial geo occupied = 0");
 
-    /* Store a few caps */
-    TWFaceCapture cap;
+    /* Store a few nodes */
     for (int i = 0; i < 5; i++) {
-        memset(&cap, 0, sizeof(cap));
-        cap.face = 0;
-        cap.zone = 0;
-        cap.slot = i;
-        cap.tring_pos = i;
-        tw_bridge_rewind_store(&tw_rb, &geo_rb, &cap);
+        uint64_t key = tw_node_pack_key(i, i * 10, -i * 10, 1);
+        tw_bridge_rewind_store(&tw_rb, &geo_rb, key, (uint32_t)i);
     }
 
     tw_bridge_stats(&tw_rb, &geo_rb, &st);
@@ -193,7 +165,7 @@ int main(void) {
 
     int fail = 0;
     fail += test_sid_enc_roundtrip();
-    fail += test_chunk_pack_unpack();
+    fail += test_node_key_roundtrip();
     fail += test_bridge_store_find();
     fail += test_bridge_stats();
 

@@ -1,0 +1,130 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-160 -160 320 320" width="640" height="640">
+  <defs>
+    <style>
+      .bg { fill: #0d0d0d; }
+      .base { stroke: #fff; stroke-width: 4; }
+      .d54  { stroke: #e040fb; stroke-width: 2; }
+      .d72  { stroke: #4fc3f7; stroke-width: 2; }
+      .tri  { fill: rgba(79,195,247,0.06); stroke: #4fc3f7; stroke-width: 0.7; }
+      .arc  { fill: none; stroke-width: 1.2; }
+      .label { fill: #777; font: 7px monospace; }
+      .l-w  { fill: #eee; font: 9px monospace; }
+      .l-pu { fill: #e040fb; font: 8px monospace; }
+      .l-bl { fill: #4fc3f7; font: 8px monospace; }
+      .dot-w { fill: #fff; }
+      .dot-p { fill: #e040fb; }
+    </style>
+  </refs>
+  <rect class="bg" x="-160" y="-160" width="320" height="320"/>
+
+  <!-- Using golden ratio φ ≈ 1.618 -->
+  <!-- Base edge = 100 units -->
+  <!-- C-a0 = C-b1 = 100/φ = 61.8 units (shorter than base) -->
+  <!-- a0 ≈ (0, -61.8), b1 ≈ (100cos54°, 100sin54°-61.8) ≈ (58.8, 19.1) -->
+  <!-- Wait let me recalculate properly -->
+
+  <!-- Actually: triangle a0-C-b1 is 54-54-72 -->
+  <!-- Base a0-b1 = 100, each equal side = x -->
+  <!-- By law of sines: x/sin(54°) = 100/sin(72°) → x = 100*sin(54°)/sin(72°) -->
+  <!-- sin(54°) ≈ 0.809, sin(72°) ≈ 0.951 → x = 100*0.809/0.951 ≈ 85.1 -->
+  <!-- So the RADIUS (C to vertex) is 85.1, and the base edge (chord) is 100 -->
+
+  <!-- That means: C-a0 = C-b1 = 85, a0-b1 = 100 -->
+  <!-- OK so the sides of the triangle are SHORTER than the base -->
+
+  <!-- From the user: "72° line from C is shorter than base" → the RADIUS (72° from C) = 85 < 100 ✓ -->
+
+  <!-- a0 = (0, -85), b1 = (100cosθ, 100sinθ) where θ = angle between a0-C and C-b1 -->
+  <!-- Angle at a0 = 54° → the direction from a0 to C is rotated 54° from a0-b1 -->
+  <!-- Let me just place it nicely -->
+
+  <!-- C = (0, 0), a0 = (-40, -75), b1 = (60, -60) for visual clarity -->
+  <!-- C-a0 = 85, C-b1 = 85 (both radii = 85) -->
+  <!-- a0-b1 = 100 (base = 100) -->
+  <!-- These are approximate: 85² = 7225, 100² = 10000 -->
+
+  <!-- a0 = (0, -85), b1 by law of cos: -->
+  <!-- 100² = 85² + 85² - 2*85*85*cos(72°) -->
+  <!-- 10000 = 7225 + 7225 - 14450*cos72 → still checking... -->
+
+  <!-- SKIP CALC — use approximate: a0(0,-85), b1(81,-26) with cos72° ≈ 0.309 -->
+  <!-- C-a0 = (0,-85), C-b1 = (81,-26), check: 81²+26² = 7237 ≈ 85² ✓ -->
+  <!-- a0-b1 = (81, 59), length = sqrt(81²+59²) = sqrt(6561+3481) = sqrt(10042) ≈ 100 ✓ -->
+
+  <!-- So: C(0,0), a0(0,-85), b1(81,-26), base=~100, radii=85 -->
+  <!-- The 72° lines from C: 72° from a0 direction → a1(81,-26) which is the same as b1! -->
+  <!-- And 72° from b1 direction → a_other? -->
+
+  <!-- Plot points -->
+  <!-- a0 = (0, -85) -->
+  <!-- a1 = rotate a0 by 72°: (85sin72°, -85cos72°) = (85*0.951, -85*0.309) ≈ (81, -26) = b1! -->
+
+  <!-- OH! a1 = b1! Because b1 is pentagon B rotated 36° from pentagon A, and a1 is pentagon A rotated 72° from a0. But wait... -->
+
+  <!-- Let me recalculate. -->
+  <!-- In pentagon A (upright): a0 at 90° → a0 = (0, -R) -->
+  <!-- a1 = R at 18° (90-72) = (R*sin72°, -R*cos72°) = (81, -26) -->
+  <!-- In pentagon B (rotated 36° CCW): b0 = R at 126° (90+36) = (-R*sin36°, -R*cos36°) = (-50, -69) -->
+  <!-- b1 = R at 54° (90-36) = (R*sin36°, -R*cos36°) = (50, -69)... hmm that gives b1 = (50,-69) -->
+
+  <!-- But earlier I computed C-b1 = (81,-26) which is a1, not b1. -->
+  <!-- The issue: b1 is at 126° wait no. Let me just use the known pentagon coordinates: -->
+  <!-- pentA: a0(0,-85), a1(81,-26), a2(50,69), b1 = pentB vertex at 90-36=54° = (50,-69) -->
+
+  <!-- Hmm this keeps changing. Let me just use the CORRECT pentagon relationship. -->
+  <!-- For the user's construction with base edge a0-b1 where b1 is from pentagon B rotated 36°: -->
+
+  <!-- Actually the user's construction doesn't need me to compute coordinates at all! -->
+  <!-- The geometry is: -->
+  <!-- 1. Base edge of length L -->
+  <!-- 2. 54° at each end → C (the apex of 54-54-72) -->
+  <!-- 3. At C, the apex angle is 72° -->
+  <!-- 4. All RADII from C to vertices = shorter than base edge L -->
+
+  <!-- For a 54-54-72 triangle with base L: -->
+  <!-- radius = L × sin(54°) / sin(72°) = L × 0.809/0.951 = L × 0.851 -->
+  <!-- So side from C to vertex = 0.851 × L < L ✓ -->
+
+  <!-- Now I can draw ANY 54-54-72 triangle and it's correct by definition. -->
+  <!-- Let me use L = 100, radius = 85.1. -->
+
+  <polygon class="tri" points="-20,-83 0,0 79,-32"/>
+  <line class="base" x1="-20" y1="-83" x2="79" y2="-32"/>
+  <line class="d54" x1="-20" y1="-83" x2="0" y2="0"/>
+  <line class="d54" x1="79" y1="-32" x2="0" y2="0"/>
+
+  <!-- 54° arcs -->
+  <path class="arc d54" d="M -11,-73 A 8,8 0 0,1 -4,-68"/>
+  <text class="l-pu" x="-20" y="-60">54°</text>
+  <path class="arc d54" d="M 68,-25 A 8,8 0 0,0 62,-21"/>
+  <text class="l-pu" x="62" y="-12">54°</text>
+
+  <!-- 72° at C -->
+  <path class="arc d72" d="M 10,-5 A 12,12 0 0,1 18,4"/>
+  <text class="l-bl" x="22" y="6">72°</text>
+
+  <!-- C side lines labeled with radii -->
+  <text class="l-pu" x="30" y="-60">radius = base×0.851</text>
+  <text class="l-pu" x="30" y="-52">(shorter than base)</text>
+
+  <!-- Dots -->
+  <circle class="dot-w" cx="-20" cy="-83" r="4"/>
+  <circle class="dot-w" cx="79" cy="-32" r="4"/>
+  <circle class="dot-p" cx="0" cy="0" r="5"/>
+
+  <text class="l-w" x="-15" y="-86">a0</text>
+  <text class="l-w" x="83" y="-32">b1</text>
+  <text class="l-pu" x="5" y="-3">C</text>
+
+  <!-- Legend -->
+  <rect class="bg" x="-150" y="80" width="170" height="55" rx="3" stroke="#333" stroke-width="0.5"/>
+  <line class="base" x1="-140" y1="92" x2="-120" y2="92"/>
+  <text class="label" fill="#fff" x="-115" y="95">base edge (ยาว)</text>
+  <line class="d54" x1="-140" y1="107" x2="-120" y2="107"/>
+  <text class="label" fill="#e040fb" x="-115" y="110">54° → C</text>
+  <line class="d72" x1="-140" y1="122" x2="-120" y2="122"/>
+  <text class="label" fill="#4fc3f7" x="-115" y="125">72° ที่ C (radius สั้นกว่า base)</text>
+
+  <text class="label" x="-100" y="-130" font-size="12" fill="#eee">54-54-72 triangle</text>
+  <text class="label" x="-100" y="-118" fill="#555">base=100, radius=85.1 (×φ)</text>
+</svg>

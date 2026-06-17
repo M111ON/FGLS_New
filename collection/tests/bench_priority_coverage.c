@@ -1,4 +1,4 @@
-/* bench_priority_coverage.c — benchmark priority capture with real tri grid
+/* bench_priority_coverage.c — benchmark priority capture with Y-triangle node_id
  * Build:
  *   gcc -O2 -DGEO_JUMP_INLINE -I. -I./geo_jump_module/include -I./src -I../src
  *       -o tests/bench_priority_coverage.exe
@@ -13,6 +13,7 @@
 #define GEOM_RAW_BRIDGE_IMPLEMENTATION
 #include "geom_raw_bridge.h"
 #include "sid.h"
+#include "geo_jump.h"
 
 static int64_t now_us(void) {
     LARGE_INTEGER freq, cnt;
@@ -24,7 +25,7 @@ static int64_t now_us(void) {
 int main(int argc, char **argv) {
     const char *tensors_dir = argc > 1 ? argv[1] : "../build/smollm2_tensors_raw";
 
-    printf("═══ Priority Capture Coverage (Real Tri Grid) ═══\n\n");
+    printf("═══ Priority Capture Coverage (Y-Triangle node_id) ═══\n\n");
 
     RawBridge rb;
     memset(&rb, 0, sizeof(rb));
@@ -35,7 +36,7 @@ int main(int argc, char **argv) {
     const char *labels[] = {"1f x2", "2f x4", "3f x6", "4f x8", "5f x10", "6f x12", "7f x14"};
 
     printf("├────────┬──────────┬──────────┬──────────┬──────────┬──────────┤\n");
-    printf("│ config │ coverage │ tri used │  slots   │ time(ms) │ face0_ok │\n");
+    printf("│ config │ coverage │ pent used│ pentagons │ time(ms) │ rt_ok    │\n");
     printf("├────────┼──────────┼──────────┼──────────┼──────────┼──────────┤\n");
 
     for (int ci = 0; ci < 7; ci++) {
@@ -45,24 +46,22 @@ int main(int argc, char **argv) {
         cfg.use_tri    = 1;
         cfg.face_order = NULL;
 
-        int n_ok = 0, n_total = 0, n_tri = 0;
-        int slot_used[1440] = {0};
-        int n_face0_ok = 0;
+        int n_ok = 0, n_total = 0;
+        int pent_used[12] = {0};
+        int n_rt_ok = 0;
+
+        int64_t t_start = now_us();
 
         for (uint32_t i = 0; i < RB_MAX_ENTRIES; i++) {
             if (!rb.entries[i].occupied) continue;
             n_total++;
 
-            int64_t vx, vy;
-            if (rb.entries[i].dtype == 0) {
-                if (sid_signature_f32(rb.entries[i].data, rb.entries[i].size, &vx, &vy) != 0) continue;
-            } else {
-                if (sid_signature_q80(rb.entries[i].data, rb.entries[i].size, &vx, &vy) != 0) continue;
-            }
+            SIDCoord fc0;
+            if (sid_capture(rb.entries[i].data, rb.entries[i].size,
+                            rb.entries[i].dtype, &fc0) != 0) continue;
 
-            TWFaceCapture fc0;
-            tw_capture_face(vx, vy, 0, &fc0);
-            int64_t resid0 = fc0.resid_x * fc0.resid_x + fc0.resid_y * fc0.resid_y;
+            int64_t resid0 = (int64_t)fc0.resid_x * fc0.resid_x
+                           + (int64_t)fc0.resid_y * fc0.resid_y;
 
             SIDCoord coord;
             if (sid_capture_with_config(rb.entries[i].data, rb.entries[i].size,
@@ -72,116 +71,102 @@ int main(int argc, char **argv) {
                                + (int64_t)coord.resid_y * coord.resid_y;
 
             if (resid_best <= resid0) n_ok++;
-            if (coord.is_tri) n_tri++;
-            if (coord.tring_pos < 1440) slot_used[coord.tring_pos]++;
+            if (coord.node_id < GEO_FULL) pent_used[geo_pentagon_id(coord.node_id) - 1]++;
 
-            /* Face-0 roundtrip (exact for face=0, expected quantization error for face≠0) */
-            if (coord.face == 0) {
+            /* Roundtrip: summon back and verify exact reconstruction */
+            {
                 int64_t svx, svy;
-                sid_summon_legacy(&coord, &svx, &svy);
-                if (svx == vx && svy == vy) n_face0_ok++;
+                sid_summon(&coord, &svx, &svy);
+                int64_t vx, vy;
+                if (rb.entries[i].dtype == 0)
+                    sid_signature_f32(rb.entries[i].data, rb.entries[i].size, &vx, &vy);
+                else
+                    sid_signature_q80(rb.entries[i].data, rb.entries[i].size, &vx, &vy);
+                if (svx == vx && svy == vy) n_rt_ok++;
             }
         }
 
-        int n_slots = 0;
-        for (int i = 0; i < 1440; i++) if (slot_used[i]) n_slots++;
+        int64_t t_end = now_us();
+        double elapsed_ms = (double)(t_end - t_start) / 1000.0;
+
+        int n_pents = 0;
+        for (int i = 0; i < 12; i++) if (pent_used[i]) n_pents++;
 
         double cov = 100.0 * n_ok / n_total;
-        double tri = 100.0 * n_tri / n_total;
-        double slt = 100.0 * n_slots / 1440.0;
+        double plt = 100.0 * n_pents / 12.0;
 
-        printf("│ %6s │ %8.1f%% │ %8.1f%% │ %6d/%d │ %8s │ %8d │\n",
-               labels[ci], cov, tri, n_slots, 1440, "-", n_face0_ok);
+        printf("│ %6s │ %8.1f%% │ %6d/%d │ %8.1f%% │ %8.1f │ %6d/%d │\n",
+               labels[ci], cov, n_pents, 12, plt, elapsed_ms, n_rt_ok, n_total);
     }
     printf("├────────┴──────────┴──────────┴──────────┴──────────┴──────────┤\n");
-    printf("│ Note: face=0 roundtrip is 100%% exact. face≠0 has integer     │\n");
-    printf("│ rotation quantization (RCOS²+RSIN²≠SCALE²). Coverage metric   │\n");
-    printf("│ compares resid magnitudes (rotation-invariant = always exact).│\n");
+    printf("│ Coverage: config resid ≤ basic resid (rotation-invariant).     │\n");
+    printf("│ Pentagon: how many of 12 pentagons are occupied by captures.   │\n");
+    printf("│ rt_ok: roundtrip exact match (summon back = original signature)│\n");
     printf("└──────────────────────────────────────────────────────────────┘\n");
 
-    /* ── Speed comparison: virtual rotation vs real tri grid ── */
-    printf("\n═══ Speed Comparison (290 tensors, n_faces=4) ═══\n\n");
+    /* ── Speed comparison: basic capture vs config capture ── */
+    printf("\n═══ Speed Comparison (single-pass capture) ═══\n\n");
 
-    /* Collect sigs once */
+    enum { N_ITERS = 100 };
     enum { MAX_SIGS = 512 };
     int64_t sigs[MAX_SIGS][2];
+    int dtype_buf[MAX_SIGS];
     int n_sigs = 0;
     for (uint32_t i = 0; i < RB_MAX_ENTRIES && n_sigs < MAX_SIGS; i++) {
         if (!rb.entries[i].occupied) continue;
         int64_t vx, vy;
-        if (rb.entries[i].dtype == 0) {
-            if (sid_signature_f32(rb.entries[i].data, rb.entries[i].size, &vx, &vy) == 0)
-                { sigs[n_sigs][0] = vx; sigs[n_sigs][1] = vy; n_sigs++; }
-        } else {
-            if (sid_signature_q80(rb.entries[i].data, rb.entries[i].size, &vx, &vy) == 0)
-                { sigs[n_sigs][0] = vx; sigs[n_sigs][1] = vy; n_sigs++; }
+        int rc = (rb.entries[i].dtype == 0)
+            ? sid_signature_f32(rb.entries[i].data, rb.entries[i].size, &vx, &vy)
+            : sid_signature_q80(rb.entries[i].data, rb.entries[i].size, &vx, &vy);
+        if (rc == 0) {
+            sigs[n_sigs][0] = vx;
+            sigs[n_sigs][1] = vy;
+            dtype_buf[n_sigs] = rb.entries[i].dtype;
+            n_sigs++;
         }
     }
 
-    /* Collect sigs once */
-    enum { MAX_SIGS = 512 };
-    /* Virtual rotation approach (old): rotate 30° then hex capture */
+    /* Basic capture (n_faces=1): single pentagon, fastest */
+    SIDArchConfig cfg_fast;
+    cfg_fast.n_faces    = 1;
+    cfg_fast.use_tri    = 0;
+    cfg_fast.face_order = NULL;
+
     int64_t t0 = now_us();
-    for (int iter = 0; iter < n_iters; iter++) {
+    for (int iter = 0; iter < N_ITERS; iter++) {
         for (int s = 0; s < n_sigs; s++) {
-            int64_t vx = sigs[s][0], vy = sigs[s][1];
-            static const int32_t RC[12] = {207360,179580,103680,0,-103680,-179580,-207360,-179580,-103680,0,103680,179580};
-            static const int32_t RS[12] = {0,103680,179580,207360,179580,103680,0,-103680,-179580,-207360,-179580,-103680};
-            static const uint8_t PR[7] = {0,3,5,6,2,1,4};
-            int64_t best_mag = -1;
-            for (int p = 0; p < 4; p++) {
-                uint8_t f = PR[p];
-                int64_t rx = (vx * RC[f] - vy * RS[f]) / TW_SCALE;
-                int64_t ry = (vx * RS[f] + vy * RC[f]) / TW_SCALE;
-                TWCaptureInt hex; tw_capture_int(rx, ry, &hex);
-                int64_t hm = hex.resid_x*hex.resid_x + hex.resid_y*hex.resid_y;
-                if (best_mag < 0 || hm < best_mag) best_mag = hm;
-                /* Virtual tri: 30° rotation then hex capture */
-                int64_t tx = (rx * 179580 - ry * 103680) / TW_SCALE;
-                int64_t ty = (rx * 103680 + ry * 179580) / TW_SCALE;
-                TWCaptureInt tri; tw_capture_int(tx, ty, &tri);
-                int64_t tm = tri.resid_x*tri.resid_x + tri.resid_y*tri.resid_y;
-                if (tm < best_mag) best_mag = tm;
-            }
+            SIDCoord coord;
+            sid_capture_with_config(rb.entries[s].data, rb.entries[s].size,
+                                    dtype_buf[s], cfg_fast, &coord);
         }
     }
     int64_t t1 = now_us();
 
-    /* Real tri grid approach (new): no rotation, use tri table directly */
+    /* Config capture (n_faces=4): 4 pentagons, typical quality */
+    SIDArchConfig cfg_typ;
+    cfg_typ.n_faces    = 4;
+    cfg_typ.use_tri    = 0;
+    cfg_typ.face_order = NULL;
+
     int64_t t2 = now_us();
-    for (int iter = 0; iter < n_iters; iter++) {
+    for (int iter = 0; iter < N_ITERS; iter++) {
         for (int s = 0; s < n_sigs; s++) {
-            int64_t vx = sigs[s][0], vy = sigs[s][1];
-            static const int32_t RC[12] = {207360,179580,103680,0,-103680,-179580,-207360,-179580,-103680,0,103680,179580};
-            static const int32_t RS[12] = {0,103680,179580,207360,179580,103680,0,-103680,-179580,-207360,-179580,-103680};
-            static const uint8_t PR[7] = {0,3,5,6,2,1,4};
-            int64_t best_mag = -1;
-            for (int p = 0; p < 4; p++) {
-                uint8_t f = PR[p];
-                int64_t rx = (vx * RC[f] - vy * RS[f]) / TW_SCALE;
-                int64_t ry = (vx * RS[f] + vy * RC[f]) / TW_SCALE;
-                TWCaptureInt hex; tw_capture_int(rx, ry, &hex);
-                int64_t hm = hex.resid_x*hex.resid_x + hex.resid_y*hex.resid_y;
-                if (best_mag < 0 || hm < best_mag) best_mag = hm;
-                /* Real tri: use tri grid directly, no rotation */
-                TWCaptureInt tri; tw_capture_int_tri(rx, ry, &tri);
-                int64_t tm = tri.resid_x*tri.resid_x + tri.resid_y*tri.resid_y;
-                if (tm < best_mag) best_mag = tm;
-            }
+            SIDCoord coord;
+            sid_capture_with_config(rb.entries[s].data, rb.entries[s].size,
+                                    dtype_buf[s], cfg_typ, &coord);
         }
     }
     int64_t t3 = now_us();
 
-    double time_virtual = (double)(t1 - t0) * 1000.0 / n_iters / n_sigs;
-    double time_real    = (double)(t3 - t2) * 1000.0 / n_iters / n_sigs;
-    printf("  Virtual rotation (30° rotate + hex grid):  %.1f ns/tensor (%.0fK t/s)\n",
-           time_virtual, 1e6 / time_virtual / 1000.0);
-    printf("  Real tri grid (direct tri table):         %.1f ns/tensor (%.0fK t/s)\n",
-           time_real, 1e6 / time_real / 1000.0);
-    printf("  Speed-up:                                 %.1f%%\n",
-           100.0 * (1.0 - time_real / time_virtual));
-    printf("  Note: 8 directions (4 faces × hex+tri), %d tensors × %d iters\n",
-           n_sigs, n_iters);
+    double time_fast = (double)(t1 - t0) * 1000.0 / N_ITERS / n_sigs;
+    double time_typ  = (double)(t3 - t2) * 1000.0 / N_ITERS / n_sigs;
+    printf("  Basic (1 pentagon):  %.1f ns/tensor (%.0fK t/s)\n",
+           time_fast, 1e6 / time_fast / 1000.0);
+    printf("  Config (4 pentagons): %.1f ns/tensor (%.0fK t/s)\n",
+           time_typ, 1e6 / time_typ / 1000.0);
+    printf("  Overhead:            %.1f%%\n",
+           100.0 * (time_typ / time_fast - 1.0));
+    printf("  Note: %d tensors × %d iters\n", n_sigs, N_ITERS);
 
     rb_free(&rb);
     printf("\n═══ Done ═══\n");

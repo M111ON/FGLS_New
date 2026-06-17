@@ -20,9 +20,12 @@
 #define TW_FACE_BRIDGE_IMPLEMENTATION
 #include "tw_face_bridge.h"
 
-/* sid.h gives us capture via sid_capture_legacy */
+/* sid.h gives us capture via sid_capture */
 #define SID_IMPLEMENTATION
 #include "sid.h"
+
+#define GEO_JUMP_INLINE
+#include "geo_jump.h"
 
 static const char *layer_names[] = {
     "UNKNOWN", "ATTN_Q", "ATTN_K", "ATTN_V", "ATTN_OUT",
@@ -93,9 +96,9 @@ static TensorInfo *capture_using_sid(const char *tensors_dir, int *out_n) {
         size_t sz = rb.entries[i].size;
         int dtype = rb.entries[i].dtype;
         
-        /* Capture using SID API (legacy) */
+        /* Capture using SID API */
         SIDCoord coord;
-        if (sid_capture_legacy(data, sz, dtype, 0, &coord) != 0) continue;
+        if (sid_capture(data, sz, dtype, &coord) != 0) continue;
         
         /* Also get 2D signature vx, vy by dequanting first 64 values */
         int n_blocks = sz / 34;
@@ -160,8 +163,8 @@ static void print_face0_stats(TensorInfo *tensors, int n) {
         int t = tensors[i].layer_type;
         if (t < 0 || t >= 12) continue;
         stats[t].count++;
-        stats[t].tring_sum += tensors[i].coord.tring_pos;
-        stats[t].tring_ss  += tensors[i].coord.tring_pos * tensors[i].coord.tring_pos;
+        stats[t].tring_sum += tensors[i].coord.node_id;
+        stats[t].tring_ss  += tensors[i].coord.node_id * tensors[i].coord.node_id;
     }
     
     printf("\n  Face-0 TRing by layer type:\n");
@@ -172,24 +175,24 @@ static void print_face0_stats(TensorInfo *tensors, int n) {
         double mu = (double)stats[t].tring_sum / stats[t].count;
         double var = (double)stats[t].tring_ss / stats[t].count - mu*mu;
         if (var < 0) var = 0;
-        /* Zone entropy */
-        int zhist[10] = {0};
+        /* Pentagon entropy */
+        int zhist[12] = {0};
         double zmu = 0;
         for (int i = 0; i < n; i++) {
             if (tensors[i].layer_type == t) {
-                int z = tensors[i].coord.zone;
-                if (z >= 0 && z < 10) zhist[z]++;
+                int z = (int)geo_pentagon_id(tensors[i].coord.node_id) - 1;
+                if (z >= 0 && z < 12) zhist[z]++;
                 zmu += z;
             }
         }
         zmu /= stats[t].count;
         double zent = 0;
-        for (int z = 0; z < 10; z++) {
+        for (int z = 0; z < 12; z++) {
             if (zhist[z] > 0) { double p = (double)zhist[z]/stats[t].count; zent -= p * log2(p); }
         }
         char zsig[32] = {0}; int p = 0;
-        for (int z = 0; z < 10 && p < 30; z++) {
-            if (zhist[z] > 0) p += snprintf(zsig+p, sizeof(zsig)-p, "z%d:%d ", z, zhist[z]);
+        for (int z = 0; z < 12 && p < 30; z++) {
+            if (zhist[z] > 0) p += snprintf(zsig+p, sizeof(zsig)-p, "p%d:%d ", z+1, zhist[z]);
         }
         printf("  %-12s %5d %8.0f %8.0f %8.0f %8.3f %s\n",
                layer_names[t], stats[t].count, mu, sqrt(var), zmu, zent, zsig);
@@ -205,7 +208,7 @@ static void print_12face_stats(const char *tensors_dir, const char *label) {
     printf("\n  %s — 12-Face Full TRing 720 Analysis:\n", label);
     
     /* For each type, collect TRing positions from BEST face (min resid) */
-    typedef struct { int count; int tring_hist[720]; } THist;
+    typedef struct { int count; int pent_hist[12]; } THist;
     THist stats[12]; memset(stats, 0, sizeof(stats));
     
     int n_proc = 0;
@@ -222,7 +225,7 @@ static void print_12face_stats(const char *tensors_dir, const char *label) {
         int dtype = rb.entries[i].dtype;
         
         SIDCoord coord;
-        if (sid_capture_legacy(data, sz, dtype, 0, &coord) != 0) continue;
+        if (sid_capture(data, sz, dtype, &coord) != 0) continue;
         /* Get vx, vy from dequant */
         int n_blocks = sz / 34;
         int n_vals = n_blocks * 32;
@@ -251,21 +254,14 @@ static void print_12face_stats(const char *tensors_dir, const char *label) {
         int64_t vx = (int64_t)((sum_a / half) * TW_SCALE);
         int64_t vy = (int64_t)((sum_b / half) * TW_SCALE);
         
-        /* Run 12-face bridge */
-        TWFaceIterResult iter;
-        tw_iterate_faces(vx, vy, &iter);
+        /* Run capo ×12 capture */
+        uint32_t capo_nodes[12];
+        tw_capture_capo_all(vx, vy, capo_nodes);
         
-        /* Pick best face (min resid magnitude) */
-        int best_f = 0;
-        int64_t best_resid = INT64_MAX;
-        for (int f = 0; f < 12; f++) {
-            int64_t rm = iter.faces[f].resid_x * iter.faces[f].resid_x
-                       + iter.faces[f].resid_y * iter.faces[f].resid_y;
-            if (rm < best_resid) { best_resid = rm; best_f = f; }
-        }
-        
-        uint16_t tring = iter.faces[best_f].tring_pos;
-        if (tring < 720) stats[lt].tring_hist[tring]++;
+        /* Pick first node as primary */
+        uint32_t primary_node = capo_nodes[0];
+        uint8_t pent = (uint8_t)geo_pentagon_id(primary_node);
+        if (pent >= 1 && pent <= 12) stats[lt].pent_hist[pent-1]++;
         stats[lt].count++;
         n_proc++;
         if (n_proc % 100 == 0) printf("  Processed %d...\n", n_proc);
@@ -274,23 +270,15 @@ static void print_12face_stats(const char *tensors_dir, const char *label) {
     printf("  Processed: %d tensors\n", n_proc);
     
     /* Print per-type stats */
-    printf("  %-12s %5s %8s %8s %8s\n", "TYPE", "COUNT", "TR_μ", "TR_σ", "UNIQ");
+    printf("  %-12s %5s %8s\n", "TYPE", "COUNT", "UNIQ");
     for (int t = 0; t < 12; t++) {
         if (stats[t].count == 0) continue;
-        double mu = 0; int uniq = 0;
-        for (int i = 0; i < 720; i++) {
-            mu += i * stats[t].tring_hist[i];
-            if (stats[t].tring_hist[i] > 0) uniq++;
+        int uniq = 0;
+        for (int i = 0; i < 12; i++) {
+            if (stats[t].pent_hist[i] > 0) uniq++;
         }
-        mu /= stats[t].count;
-        double var = 0;
-        for (int i = 0; i < 720; i++) {
-            double d = i - mu;
-            var += stats[t].tring_hist[i] * d * d;
-        }
-        var /= stats[t].count;
-        printf("  %-12s %5d %8.0f %8.0f %5d/720\n",
-               layer_names[t], stats[t].count, mu, sqrt(var), uniq);
+        printf("  %-12s %5d %5d/12\n",
+               layer_names[t], stats[t].count, uniq);
     }
     
     rb_free(&rb);
@@ -308,13 +296,13 @@ static void compare_face0(TensorInfo *lm2, int n1, TensorInfo *vlm, int n2) {
     
     for (int i = 0; i < n1; i++) {
         int t = lm2[i].layer_type; if (t<0||t>=12) continue;
-        comp[t].c1++; comp[t].m1 += lm2[i].coord.tring_pos;
-        comp[t].s1 += lm2[i].coord.tring_pos * lm2[i].coord.tring_pos;
+        comp[t].c1++; comp[t].m1 += lm2[i].coord.node_id;
+        comp[t].s1 += lm2[i].coord.node_id * lm2[i].coord.node_id;
     }
     for (int i = 0; i < n2; i++) {
         int t = vlm[i].layer_type; if (t<0||t>=12) continue;
-        comp[t].c2++; comp[t].m2 += vlm[i].coord.tring_pos;
-        comp[t].s2 += vlm[i].coord.tring_pos * vlm[i].coord.tring_pos;
+        comp[t].c2++; comp[t].m2 += vlm[i].coord.node_id;
+        comp[t].s2 += vlm[i].coord.node_id * vlm[i].coord.node_id;
     }
     
     printf("  %-12s %8s %8s %8s %8s %8s\n",
@@ -336,19 +324,23 @@ static void compare_face0(TensorInfo *lm2, int n1, TensorInfo *vlm, int n2) {
     printf("  Mean |Δ| per type: %.1f  (lower = more architecture-stable)\n",
            total_abs_diff / n_comp);
     
-    /* Zone distribution comparison */
-    int z1[10] = {0}, z2[10] = {0};
-    for (int i = 0; i < n1; i++)
-        if (lm2[i].coord.zone < 10) z1[lm2[i].coord.zone]++;
-    for (int i = 0; i < n2; i++)
-        if (vlm[i].coord.zone < 10) z2[vlm[i].coord.zone]++;
-    printf("\n  Zone distribution:\n  %5s %10s %10s\n", "Zone", "SmolLM2", "SmolVLM");
-    for (int z = 0; z < 10; z++)
-        printf("  %5d %10d %10d\n", z, z1[z], z2[z]);
+    /* Pentagon distribution comparison */
+    int z1[12] = {0}, z2[12] = {0};
+    for (int i = 0; i < n1; i++) {
+        int p = (int)geo_pentagon_id(lm2[i].coord.node_id) - 1;
+        if (p >= 0 && p < 12) z1[p]++;
+    }
+    for (int i = 0; i < n2; i++) {
+        int p = (int)geo_pentagon_id(vlm[i].coord.node_id) - 1;
+        if (p >= 0 && p < 12) z2[p]++;
+    }
+    printf("\n  Pentagon distribution:\n  %5s %10s %10s\n", "Pent", "SmolLM2", "SmolVLM");
+    for (int z = 0; z < 12; z++)
+        printf("  %5d %10d %10d\n", z+1, z1[z], z2[z]);
     
-    /* Key: how many zones overlap between the two models? */
+    /* Key: how many pentagons overlap between the two models? */
     int overlap = 0;
-    for (int z = 0; z < 10; z++)
+    for (int z = 0; z < 12; z++)
         if (z1[z] > 0 && z2[z] > 0) overlap++;
     printf("  Zone overlap: %d/10\n", overlap);
 }

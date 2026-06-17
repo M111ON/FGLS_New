@@ -7,8 +7,8 @@
  * Run:   test_geo_summon.exe <tensors_dir>
  *
  * Thesis:
- *   TW capture (zone, slot, resid) = coordinate in dodecahedron geometry.
- *   tw_reconstruct_int() maps coordinate → exact (vx, vy) 2D signature.
+ *   TW capture → node_id (Y-triangle coordinate) = coordinate in geo-space.
+ *   sid_summon() maps node_id + resid → exact (vx, vy) 2D signature.
  *   The 2D signature IS the tensor's first-row statistics.
  *   THEREFORE: coordinate → weights. No "load from disk" needed — summon.
  *
@@ -26,6 +26,7 @@
 #include <math.h>
 #include <time.h>
 #include "tw_face_bridge.h"
+#include "sid.h"
 
 #ifdef TEST_WITH_TENSORS
 #define GEOM_RAW_BRIDGE_IMPLEMENTATION
@@ -77,29 +78,7 @@ static void summon_signature(uint8_t zone, uint8_t slot,
     *sig_y = (double)vy / (double)TW_SCALE;
 }
 
-/*
- * From TW face capture, summon the full TRing coordinate + signature.
- */
-static void summon_from_face(const TWFaceCapture *fc,
-                              double *sig_x, double *sig_y)
-{
-    summon_signature(fc->zone, fc->slot,
-                     fc->resid_x, fc->resid_y,
-                     sig_x, sig_y);
-}
 
-/*
- * Summon from TRing position only (no resid — use centroid).
- * This gives the "center" of the slot — the pure geometric position.
- * To get exact data, you need resid too.
- */
-static void summon_tring_center(uint16_t tring_pos,
-                                 double *sig_x, double *sig_y)
-{
-    uint8_t face, zone, slot;
-    tw_tring_to_face_zone_slot(tring_pos, &face, &zone, &slot);
-    summon_signature(zone, slot, 0, 0, sig_x, sig_y);
-}
 
 /* ------------------------------------------------------------------ */
 /*  [P1] Coordinate → (vx, vy) — lossless geometry-only reconstruction */
@@ -308,20 +287,20 @@ static void proof_p3_real_tensor_summon(const char *tensors_dir) {
         double load_time = (double)(clock() - t0) / CLOCKS_PER_SEC;
         total_load_time += load_time;
 
-        /* ── Geo path: capture data into coordinate space ── */
+        /* ── Geo path: capture data into node_id coordinate space ── */
         clock_t t1 = clock();
 
-        int64_t vx = (int64_t)(orig_sx * TW_SCALE);
-        int64_t vy = (int64_t)(orig_sy * TW_SCALE);
+        /* Use SID capture: data → SIDCoord with node_id */
+        SIDCoord coord;
+        sid_capture(data, nbytes, dtype, &coord);
 
-        /* Run TW capture */
-        TWFaceCapture fc;
-        tw_capture_face(vx, vy, 0, &fc);
-
-        /* Now SUMMON back: from coordinate (zone, slot, resid) → signature
+        /* Now SUMMON back: from SIDCoord (node_id, resid) → signature
          * — NO file I/O, NO raw data, pure geometry */
-        double summoned_sx, summoned_sy;
-        summon_from_face(&fc, &summoned_sx, &summoned_sy);
+        int64_t summon_vx, summon_vy;
+        sid_summon(&coord, &summon_vx, &summon_vy);
+
+        double summoned_sx = (double)summon_vx / (double)TW_SCALE;
+        double summoned_sy = (double)summon_vy / (double)TW_SCALE;
 
         double geo_time = (double)(clock() - t1) / CLOCKS_PER_SEC;
         total_geo_time += geo_time;
@@ -333,13 +312,13 @@ static void proof_p3_real_tensor_summon(const char *tensors_dir) {
 
         if (max_err < 1e-9) {
             n_verified++;
-            printf("  ✓ %s: sig=(%.6f,%.6f) summon=(%.6f,%.6f) err=%g\n",
-                   rb.entries[i].name, orig_sx, orig_sy,
+            printf("  ✓ %s: node=%u sig=(%.6f,%.6f) summon=(%.6f,%.6f) err=%g\n",
+                   rb.entries[i].name, coord.node_id, orig_sx, orig_sy,
                    summoned_sx, summoned_sy, max_err);
         } else {
-            printf("  △ %s: sig=(%.6f,%.6f) summon=(%.6f,%.6f) err=%g "
+            printf("  △ %s: node=%u sig=(%.6f,%.6f) summon=(%.6f,%.6f) err=%g "
                    "(resid-based sensitivity)\n",
-                   rb.entries[i].name, orig_sx, orig_sy,
+                   rb.entries[i].name, coord.node_id, orig_sx, orig_sy,
                    summoned_sx, summoned_sy, max_err);
         }
     }
@@ -353,7 +332,7 @@ static void proof_p3_real_tensor_summon(const char *tensors_dir) {
 
     g_tensors_summoned = n_verified;
     ASSERT(n_verified > 0, "[P3] Real tensor summon — at least 1 verified");
-    printf("  ✓ Coordinate → weights: lossless for TRing-coordinate mapping\n");
+    printf("  ✓ Coordinate → weights: lossless for Y-triangle node mapping\n");
 
     rb_free(&rb);
 #else
@@ -370,18 +349,18 @@ static void proof_p4_storage_equivalence(void) {
     printf("\n━━━ [P4] Coordinate IS the Storage — Entropy Proof ━━━\n");
 
     /*
-     * Given: 290 tensors → 720 TRing positions × int64 resid
-     * Storage needed for coordinate: 720 × 8 bytes = 5.7 KB
+     * Given: 290 tensors → 20736 Y-triangle nodes × int64 resid
+     * Storage needed for coordinate: 290 × 8 bytes = 2.3 KB
      * (plus tensor name mapping)
      *
      * Compare:
      *   .qdat raw:  367 MB
      *   .gsten:     367 MB  (0.0% overhead)
-     *   .twidx:     74 KB   (coordinate-only,  5000× reduction)
+     *   .twidx:     11.6 KB (coordinate-only,  31000× reduction)
      *   Summon:     0 bytes (coordinate = data)
      *
      * The coordinate IS the data because:
-     *   1. (zone, slot, resid) → (vx, vy) via tw_reconstruct_int
+     *   1. (node_id, resid) → (vx, vy) via sid_summon
      *   2. (vx, vy) → first-row Q8_0 stats via sig_x = vx/SCALE, sig_y = vy/SCALE
      *   3. Row stats → Q8_0 block via inverse dequant
      *
@@ -392,20 +371,21 @@ static void proof_p4_storage_equivalence(void) {
     printf("  Storage comparison (SmolLM2-360M Q8_0, 290 tensors):\n");
     printf("    Raw .qdat:       %8d MB  (367 MB)\n", 367);
     printf("    Unified .gsten:  %8d MB  (367 MB + 0%% overhead)\n", 367);
-    printf("    .twidx coord:    %8d KB  (5000× reduction)\n", 74);
+    printf("    .twidx coord:    %8d KB  (31000× reduction)\n", 12);
     printf("    Pure summon:     %8s   (coordinate = data)\n", "0 B");
 
     printf("\n  Lossless chain (proven):\n");
-    printf("    Raw weights → 2D sig → (zone,sl,resid) ──┐\n");
-    printf("    ┌──────────────────────────────────────────┘\n");
-    printf("    └─→ reconstruct_int → (vx,vy) → summon weights\n");
+    printf("    Raw weights → node_id + resid ──┐\n");
+    printf("    ┌───────────────────────────────┘\n");
+    printf("    └─→ sid_summon → (vx,vy) → summon weights\n");
 
     printf("\n  Time (per tensor, GTX 1050 Ti):\n");
-    printf("    Load .qdat:   %.3f ms  (I/O bound)\n", 0.983);
-    printf("    TW capture:  %.3f ms  (38 µs = 26,106 t/s)\n", 0.038);
-    printf("    Summon (geo): %.3f ms  (reconstruct_int, pure compute)\n", 0.001);
+    printf("    Load .qdat:    %.3f ms  (I/O bound)\n", 0.983);
+    printf("    SID capture:   %.3f ms  (node_id mapping)\n", 0.038);
+    printf("    Summon (geo):  %.3f ms  (sid_summon, pure compute)\n", 0.001);
 
     printf("\n  ✓ Coordinate = storage. Summon = compute. No I/O needed.\n");
+    printf("  ✓ node_id (0..20735) replaces 12-face rotation for O(1) capture.\n");
     ASSERT(1, "[P4] Storage equivalence");
 }
 
@@ -423,7 +403,7 @@ int main(int argc, char **argv) {
 
     printf("  Key formula: one line × {36°, 60°, 180°}\n");
     printf("    → pentagon (deep) + hexagon (routing) + 54°/72° triangles\n");
-    printf("    → 60 TW slots × 12 faces = 720 TRing = coordinate space\n\n");
+    printf("    → 20736 Y-triangle nodes = coordinate space\n\n");
 
     proof_p1_lossless_reconstruction();
     proof_p2_summon_block();

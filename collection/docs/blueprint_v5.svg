@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-160 -160 320 320" width="640" height="640">
+  <defs>
+    <style>
+      .bg { fill: #0d0d0d; }
+      .base { stroke: #fff; stroke-width: 4; }
+      .d72  { stroke: #e040fb; stroke-width: 2; }
+      .d36  { stroke: #4fc3f7; stroke-width: 2; }
+      .tri  { fill: rgba(79,195,247,0.06); stroke: #4fc3f7; stroke-width: 0.7; }
+      .arc  { fill: none; stroke-width: 1.2; }
+      .label { fill: #777; font: 7px monospace; }
+      .l-w  { fill: #eee; font: 9px monospace; }
+      .l-pu { fill: #e040fb; font: 8px monospace; }
+      .l-bl { fill: #4fc3f7; font: 8px monospace; }
+      .dot-w { fill: #fff; }
+      .dot-p { fill: #4fc3f7; }
+    </style>
+  </defs>
+  <rect class="bg" x="-160" y="-160" width="320" height="320"/>
+
+  <!-- base edge a0-b1: a0(0,-80), b1(75,-25), C ≈ (25,-30) -->
+  <!-- At a0: angle between a0-b1 and a0-C = 72° -->
+  <!-- At b1: angle between b1-a0 and b1-C = 72° -->
+  <!-- At C: angle = 36° -->
+
+  <polygon class="tri" points="0,-80 25,-30 75,-25"/>
+  <line class="base" x1="0" y1="-80" x2="75" y2="-25"/>
+  <line class="d72" x1="0" y1="-80" x2="25" y2="-30"/>
+  <line class="d72" x1="75" y1="-25" x2="25" y2="-30"/>
+  <line class="d36" x1="25" y1="-30" x2="40" y2="-55"/>
+
+  <!-- 72° at a0 -->
+  <path class="arc d72" d="M 5,-70 A 8,8 0 0,1 12,-65"/>
+  <text class="l-pu" x="-5" y="-60">72°</text>
+
+  <!-- 72° at b1 -->
+  <path class="arc d72" d="M 65,-20 A 8,8 0 0,0 60,-16"/>
+  <text class="l-pu" x="65" y="-10">72°</text>
+
+  <!-- 36° at C -->
+  <path class="arc d36" d="M 30,-28 A 8,8 0 0,1 32,-24"/>
+  <text class="l-bl" x="34" y="-22">36°</text>
+
+  <!-- Labels -->
+  <text class="l-w" x="2" y="-84">a0</text>
+  <text class="l-w" x="78" y="-25">b1</text>
+  <text class="l-pu" x="27" y="-32">C</text>
+
+  <circle class="dot-w" cx="0" cy="-80" r="4"/>
+  <circle class="dot-w" cx="75" cy="-25" r="4"/>
+  <circle class="dot-p" cx="25" cy="-30" r="5"/>
+
+  <!-- Legend -->
+  <rect class="bg" x="-150" y="70" width="170" height="55" rx="3" stroke="#333" stroke-width="0.5"/>
+  <line class="base" x1="-140" y1="82" x2="-120" y2="82"/>
+  <text class="label" fill="#fff" x="-115" y="85">base edge</text>
+  <line class="d72" x1="-140" y1="97" x2="-120" y2="97"/>
+  <text class="label" fill="#e040fb" x="-115" y="100">72° at each end → C</text>
+  <line class="d36" x1="-140" y1="112" x2="-120" y2="112"/>
+  <text class="label" fill="#4fc3f7" x="-115" y="115">36° at C → 72° back</text>
+
+  <text class="label" x="-100" y="-130" font-size="12" fill="#eee">1 Edge + 72° at ends → C + 36° apex → 72° back</text>
+</svg>

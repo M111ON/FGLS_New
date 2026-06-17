@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-220 -220 440 440" width="880" height="880">
+  <defs>
+    <style>
+      .bg { fill: #0d0d0d; }
+      .edge  { stroke: #ffb74d; stroke-width: 3; }
+      .a36   { stroke: #e040fb; stroke-width: 2; }
+      .a72   { stroke: #4fc3f7; stroke-width: 2; }
+      .a60   { stroke: #ff5252; stroke-width: 2; }
+      .pent  { fill: none; stroke: #4fc3f7; stroke-width: 1.5; }
+      .petal { fill: rgba(255,82,82,0.05); stroke: #ff5252; stroke-width: 0.7; }
+      .petal-c { fill: rgba(255,183,77,0.04); stroke: #ffb74d; stroke-width: 0.5; stroke-dasharray: 2 3; }
+      .label  { fill: #666; font: 8px monospace; }
+      .l-bl   { fill: #4fc3f7; font: 9px monospace; }
+      .l-gr   { fill: #81c784; font: 9px monospace; }
+      .l-or   { fill: #ffb74d; font: 9px monospace; font-weight: bold; }
+      .l-pu   { fill: #e040fb; font: 9px monospace; }
+      .l-re   { fill: #ff5252; font: 9px monospace; }
+      .dot-a  { fill: #4fc3f7; }
+      .dot-b  { fill: #81c784; }
+      .dot-p  { fill: #e040fb; }
+      .dot-o  { fill: #ffb74d; }
+      .dot-r  { fill: #ff5252; }
+    </style>
+  </defs>
+  <rect class="bg" x="-220" y="-220" width="440" height="440"/>
+
+  <!-- ====== PENTAGON (from base edge + 36° + 72°) ====== -->
+  <!-- r = 70, a0(0,-70), 36° center, then 72° steps -->
+  <polygon class="pent" points="0,-70 66.6,-21.7 41.1,56.6 -41.1,56.6 -66.6,-21.7"/>
+
+  <!-- ====== 5 HEX PETALS (radial outward from each pentagon edge) ====== -->
+  <!-- Petal 0: from edge a0-a1, opens 60° outward as curved band -->
+  <polygon class="petal" points="0,-70 66.6,-21.7 130,10 90,80 0,60 -50,10"/>
+  <polygon class="petal" points="66.6,-21.7 41.1,56.6 130,10 90,80 0,60"/>
+  <!-- Petal 1: a1-a2 -->
+  <polygon class="petal" points="66.6,-21.7 41.1,56.6 120,110 30,130 -20,90"/>
+  <!-- Petal 2: a2-a3 -->
+  <polygon class="petal" points="41.1,56.6 -41.1,56.6 -60,130 -130,90 -120,10"/>
+  <!-- Petal 3: a3-a4 -->
+  <polygon class="petal" points="-41.1,56.6 -66.6,-21.7 -130,-40 -90,-110 0,-90"/>
+  <!-- Petal 4: a4-a0 -->
+  <polygon class="petal" points="-66.6,-21.7 0,-70 -50,-110 60,-110 90,-40"/>
+
+  <!-- ====== 60° OUTWARD LINES (petal edges from pentagon edge) ====== -->
+  <!-- From each pentagon edge vertex, shoot 60° outward -->
+  <!-- Petal 0: a0→out0, a1→out1; Petal 1: a1→out1, a2→out2; etc -->
+  <line class="a60" x1="0" y1="-70" x2="-50" y2="10"/>
+  <line class="a60" x1="66.6" y1="-21.7" x2="130" y2="10"/>
+  <line class="a60" x1="66.6" y1="-21.7" x2="120" y2="-20"/>
+  <line class="a60" x1="41.1" y1="56.6" x2="120" y2="110"/>
+  <line class="a60" x1="41.1" y1="56.6" x2="-20" y2="90"/>
+  <line class="a60" x1="-41.1" y1="56.6" x2="-60" y2="130"/>
+  <line class="a60" x1="-41.1" y1="56.6" x2="-120" y2="10"/>
+  <line class="a60" x1="-66.6" y1="-21.7" x2="-130" y2="-40"/>
+  <line class="a60" x1="-66.6" y1="-21.7" x2="-40" y2="-100"/>
+  <line class="a60" x1="0" y1="-70" x2="60" y2="-110"/>
+
+  <!-- 60° arc labels -->
+  <path class="a60" d="M 50,-5 A 12,12 0 0,0 58,0" stroke-width="1"/>
+  <path class="a60" d="M 35,70 A 12,12 0 0,0 40,80" stroke-width="1"/>
+
+  <!-- ====== BASE EDGE (highlighted) ====== -->
+  <line class="edge" x1="0" y1="-70" x2="66.6" y2="-21.7"/>
+
+  <!-- ====== CENTER FROM 36° INTERSECTION ====== -->
+  <circle class="dot-p" cx="0" cy="0" r="4"/>
+  <text class="l-pu" x="5" y="-3">C</text>
+
+  <!-- 36° lines (center finders) -->
+  <line class="a36" x1="0" y1="-70" x2="0" y2="0" stroke-dasharray="3 4"/>
+  <line class="a36" x1="66.6" y1="-21.7" x2="0" y2="0" stroke-dasharray="3 4"/>
+
+  <text class="l-pu" x="8" y="-50">36°</text>
+  <text class="l-pu" x="45" y="-15">36°</text>
+
+  <!-- 72° lines (pentagon construction) -->
+  <line class="a72" x1="0" y1="0" x2="0" y2="-70" stroke-dasharray="2 3"/>
+  <line class="a72" x1="0" y1="0" x2="66.6" y2="-21.7" stroke-dasharray="2 3"/>
+
+  <!-- ====== LABELS ====== -->
+  <text class="l-bl" x="3" y="-73">a0</text>
+  <text class="l-bl" x="69" y="-24">a1</text>
+  <text class="l-bl" x="43" y="60">a2</text>
+  <text class="l-bl" x="-46" y="60">a3</text>
+  <text class="l-bl" x="-80" y="-24">a4</text>
+
+  <text class="l-re" x="50" y="-3">60°</text>
+  <text class="l-re" x="22" y="82">60°</text>
+
+  <!-- petal labels -->
+  <text class="l-re" x="80" y="40">petal 0</text>
+  <text class="l-re" x="60" y="100">petal 1</text>
+  <text class="l-re" x="-80" y="100">petal 2</text>
+  <text class="l-re" x="-110" y="-50">petal 3</text>
+  <text class="l-re" x="20" y="-90">petal 4</text>
+
+  <!-- Legend -->
+  <line class="edge" x1="-210" y1="150" x2="-190" y2="150"/>
+  <text class="label" x="-185" y="153">base edge</text>
+  <line class="a36" x1="-210" y1="165" x2="-190" y2="165"/>
+  <text class="label" fill="#e040fb" x="-185" y="168">36° → center</text>
+  <line class="a72" x1="-210" y1="180" x2="-190" y2="180"/>
+  <text class="label" fill="#4fc3f7" x="-185" y="183">72° → pentagon</text>
+  <line class="a60" x1="-210" y1="195" x2="-190" y2="195"/>
+  <text class="label" fill="#ff5252" x="-185" y="198">60° → hex petal</text>
+
+  <text class="label" x="-150" y="-195" font-size="13" fill="#eee">Blueprint: 1 Edge → 5 Hex Petals</text>
+  <text class="label" x="-150" y="-182">base edge a0-a1 → 36° center C → 72° pentagon → 60° outward petals</text>
+</svg>

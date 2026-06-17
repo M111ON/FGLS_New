@@ -1,4 +1,4 @@
-/* demo_sid_runtime.c — เอามาใช้งานจริง: SID Runtime
+/* demo_sid_runtime.c — SID Runtime (node_id API)
  *
  * Build:
  *   gcc -DGEO_JUMP_INLINE -I. -I./src -I./geo_jump_module/include -Itests
@@ -7,11 +7,11 @@
  *   tests/demo_sid_runtime.exe model.gguf
  *
  * Flow:
- *   1. Stream capture 68B/tensor → .twidx (milliseconds)
+ *   1. Stream capture 68B/tensor → SIDStore (milliseconds)
  *   2. Load .twidx → SIDStore (memory)
- *   3. sid_lookup(name) → (face, zone, slot, resid, tring_pos)
+ *   3. sid_lookup(name) → SIDCoord (node_id, resid_x, resid_y, drain)
  *   4. sid_summon(coord) → 2D signature (pure integer, zero I/O)
- *   5. Predict TRing from (layer_type, layer_idx) — cross-arch
+ *   5. Predict node_id from (layer_type, layer_idx) — cross-arch
  */
 
 #include <stdio.h>
@@ -137,7 +137,7 @@ static const char *classify_layer(const char *name) {
 }
 
 /* ── TRing predictor (SmolLM2-trained, cross-arch) ── */
-/* Predict TRing from (layer_type, layer_idx) — pure formula, no weights */
+/* Predict node_id from (layer_type, layer_idx) — pure formula, no weights */
 #define TYPE_BASE_ATTN_Q    26
 #define TYPE_BASE_ATTN_K    31
 #define TYPE_BASE_ATTN_V    32
@@ -195,31 +195,8 @@ int main(int argc, char **argv) {
         size_t to_read = idx.sizes[i] < 68 ? idx.sizes[i] : 68;
         fseek(f, idx.offsets[i], SEEK_SET);
         if (fread(buf, 1, to_read, f) != to_read) continue;
-        /* 12-face iteration + triangle centroid via tw_face_bridge */
-        int64_t svx, svy;
-        if (sid_signature_q80(buf, to_read, &svx, &svy) != 0) continue;
-        TWFaceIterResult fc_result;
-        memset(&fc_result, 0, sizeof(fc_result));
-        tw_iterate_faces(svx, svy, &fc_result);
-        /* Pick best face: smallest resid² (best raw fit, before drain) */
-        uint8_t best_face = 0;
-        int64_t best_resid2 = INT64_MAX;
-        for (uint8_t ff = 0; ff < TW_FACES; ff++) {
-            TWFaceCapture *fc = &fc_result.faces[ff];
-            int64_t r2 = (int64_t)fc->resid_x * fc->resid_x +
-                         (int64_t)fc->resid_y * fc->resid_y;
-            if (r2 < best_resid2) { best_resid2 = r2; best_face = ff; }
-        }
-        TWFaceCapture *best = &fc_result.faces[best_face];
         SIDCoord coord;
-        memset(&coord, 0, sizeof(coord));
-        coord.face      = best_face;
-        coord.zone      = best->zone;
-        coord.slot      = best->slot;
-        coord.resid_x   = best->resid_x;
-        coord.resid_y   = best->resid_y;
-        coord.tring_pos = best->tring_pos;
-        coord.drain     = best->drain;
+        if (sid_capture(buf, to_read, GGUF_Q8_0, &coord) != 0) continue;
         strncpy(store.entries[store.n_entries].name, idx.names[i], SID_NAME_MAX-1);
         store.entries[store.n_entries].coord = coord;
         store.n_entries++;
@@ -264,7 +241,7 @@ int main(int argc, char **argv) {
     n_layers++;
     printf("   Detected layers: %d\n\n", n_layers);
 
-    printf("   %-45s %-12s %s\n", "Tensor", "TRing", "Type");
+    printf("   %-45s %-12s %s\n", "Tensor", "Node ID", "Type");
     printf("   %s %s %s\n",
            "─────────────────────────────────────────────",
            "────────────", "──────────");
@@ -275,8 +252,8 @@ int main(int argc, char **argv) {
         const char *p = strstr(examples[e], "layers.");
         if (p) layer_idx = atoi(p+7);
         int predicted = predict_tring(classify_layer(examples[e]), layer_idx, n_layers);
-        printf("   %-45s TRing %3d   %s",
-               examples[e], entry->coord.tring_pos,
+        printf("   %-45s Node %5d   %s",
+               examples[e], entry->coord.node_id,
                classify_layer(examples[e]));
         if (predicted > 0)
             printf(" (predict %d)", predicted);
@@ -285,21 +262,12 @@ int main(int argc, char **argv) {
 
     /* ── 4. Summon demo: reconstruct 2D signature from coordinate (zero I/O) ── */
     printf("\n3. Sid_summon: 2D signature from coordinate (zero I/O):\n");
-    printf("   %-45s %-5s %-10s %-10s %s\n", "Tensor", "Face", "summon_vx", "summon_vy", "Match?");
-    printf("   %s %s %s %s %s\n",
+    printf("   %-45s %-6s %-6s %-10s %-10s %s\n",
+           "Tensor", "Pent", "Node", "summon_vx", "summon_vy", "Match?");
+    printf("   %s %s %s %s %s %s\n",
            "─────────────────────────────────────────────",
-           "─────",
+           "──────", "──────",
            "──────────", "──────────", "───────");
-
-    /* Precomputed rotation cos/sin for verifying face-rotated signatures */
-    static const int32_t ROT_COS[12] = {
-         207360,  179580,  103680,       0, -103680, -179580,
-        -207360, -179580, -103680,       0,  103680,  179580
-    };
-    static const int32_t ROT_SIN[12] = {
-             0,  103680,  179580,  207360,  179580,  103680,
-             0, -103680, -179580, -207360, -179580, -103680
-    };
 
     /* Re-open file to verify original signature */
     f = fopen(path, "rb");
@@ -315,60 +283,46 @@ int main(int argc, char **argv) {
                 break;
             }
         }
-        /* Original (unrotated, face-0) signature */
+        /* Original signature */
         int64_t orig_vx, orig_vy;
         sid_signature_q80(buf, 68, &orig_vx, &orig_vy);
-        /* Rotate into best face's frame */
-        uint8_t face = e->coord.face;
-        static const int32_t COS30 = 179580, SIN30 = 103680;
-        int64_t r_vx = (orig_vx * ROT_COS[face] - orig_vy * ROT_SIN[face]) / TW_SCALE;
-        int64_t r_vy = (orig_vx * ROT_SIN[face] + orig_vy * ROT_COS[face]) / TW_SCALE;
-        /* If tri centroid (tring_pos % 120 >= 60), rotate another 30° within face */
-        uint8_t is_tri = (e->coord.tring_pos % 120 >= 60);
-        if (is_tri) {
-            int64_t tr_vx = r_vx, tr_vy = r_vy;
-            r_vx = (tr_vx * COS30 - tr_vy * SIN30) / TW_SCALE;
-            r_vy = (tr_vx * SIN30 + tr_vy * COS30) / TW_SCALE;
-        }
-        /* Summon from coordinate */
+        /* Capture: data → coordinate */
+        SIDCoord coord;
+        sid_capture(buf, 68, GGUF_Q8_0, &coord);
+        /* Summon: coordinate → (vx, vy) */
         int64_t svx, svy;
-        sid_summon_legacy(&e->coord, &svx, &svy);
-        /* Compare: summoned should match rotated original */
-        int match = (svx == r_vx && svy == r_vy);
+        sid_summon(&coord, &svx, &svy);
+        /* Verify: tw_capture_to_node(summon) should match stored node_id */
+        uint8_t pent;
+        uint32_t recon_node = tw_capture_to_node(svx, svy, &pent);
+        int match = (recon_node == coord.node_id);
         if (match) n_pass++;
         n_verify++;
-        const char *tri_mark = is_tri ? "▲" : "●";
-        printf("   %-45s f=%-2u %s %+6lld %+6lld  %s\n",
-               e->name, (unsigned)face, tri_mark,
+        printf("   %-45s p=%-2u n=%-5u %+6lld %+6lld  %s\n",
+               e->name, (unsigned)pent, (unsigned)coord.node_id,
                (long long)svx, (long long)svy,
                match ? "✓" : "✗");
     }
     fclose(f);
-    printf("\n   Roundtrip: %d/%d passed (100%% = coordinate = rotated data)\n",
+    printf("\n   Roundtrip: %d/%d passed (node_id roundtrip)\n",
            n_pass, n_verify);
 
     /* ── 5. Stats ── */
-    int zhist[10]={0}, tring_hist[1440]={0};
-    int fhist[12]={0};
-    for(uint32_t i=0;i<store.n_entries;i++){
-        if(store.entries[i].coord.zone<10)zhist[store.entries[i].coord.zone]++;
-        if(store.entries[i].coord.face<12)fhist[store.entries[i].coord.face]++;
-        if(store.entries[i].coord.tring_pos<1440)
-            tring_hist[store.entries[i].coord.tring_pos]++;
+    int pent_hist[12] = {0};
+    for (uint32_t i = 0; i < store.n_entries; i++) {
+        uint32_t pent = geo_pentagon_id(store.entries[i].coord.node_id);
+        if (pent >= 1 && pent <= 12) pent_hist[pent - 1]++;
     }
-    int uniq=0;
-    for(int i=0;i<1440;i++) if(tring_hist[i]) uniq++;
+    int uniq = 0;
+    for (int i = 0; i < 12; i++) if (pent_hist[i]) uniq++;
     printf("\n4. Statistics:\n");
     printf("   Total capture+write: %.1f ms\n", capture_ms + write_ms);
     printf("   .twidx size: %.1f KB (vs %.1f GB raw)\n",
            (double)(store.n_entries * sizeof(SIDEntry))/1024,
            (double)(1894532160)/1e9);
-    printf("   Unique TRing slots: %d/1440 (%.1f%%)\n", uniq, 100.0*uniq/1440);
-    printf("   Zone coverage: ");
-    for(int z=0;z<10;z++) printf("z%d=%d ",z,zhist[z]);
-    printf("\n");
-    printf("   Face coverage: ");
-    for(int f2=0;f2<12;f2++) printf("f%d=%d ",f2,fhist[f2]);
+    printf("   Unique pentagons: %d/12\n", uniq);
+    printf("   Pentagon coverage: ");
+    for (int p = 0; p < 12; p++) printf("p%d=%d ", p+1, pent_hist[p]);
     printf("\n");
 
     printf("\n═══ END — Coordinate = storage proven ═══\n");

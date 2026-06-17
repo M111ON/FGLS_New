@@ -224,8 +224,6 @@ static void test_bridge(void) {
     ASSERT(br.tile != TANTRIX_NULL);
     ASSERT(br.shell_id < SHELL_TOTAL);
     ASSERT(br.ring_state < 120);
-    ASSERT(br.face == 0);
-    ASSERT(br.tring_pos < 720);
     ASSERT(br.frozen == 0);
 
     /* with drain */
@@ -239,10 +237,8 @@ static void test_bridge(void) {
     ASSERT(br.drain_tile != TANTRIX_NULL);
     ASSERT(br.frozen == 1);
     ASSERT(br.freeze_addr > 0u);
-    ASSERT(br.face == 5);
-    ASSERT(br.tring_pos >= 300 && br.tring_pos < 360);  /* face 5: 300-359 */
 
-    printf("  PASS: bridge (16 checks)\n");
+    printf("  PASS: bridge (14 checks)\n");
 }
 
 static void test_ring_classified(void) {
@@ -266,25 +262,6 @@ static void test_pipeline(void) {
     printf("  PASS: pipeline\n");
 }
 
-static void test_tring_pos(void) {
-    printf("test_tring_pos...\n");
-    /* face=0, zone=0, slot=0 → 0 */
-    ASSERT(tw_to_tring_pos(0, 0, 0) == 0);
-    /* face=0, zone=0, slot=5 → 5 */
-    ASSERT(tw_to_tring_pos(0, 0, 5) == 5);
-    /* face=0, zone=1, slot=0 → 6 */
-    ASSERT(tw_to_tring_pos(0, 1, 0) == 6);
-    /* face=0, zone=9, slot=5 → 59 */
-    ASSERT(tw_to_tring_pos(0, 9, 5) == 59);
-    /* face=1, zone=0, slot=0 → 60 */
-    ASSERT(tw_to_tring_pos(1, 0, 0) == 60);
-    /* face=11, zone=9, slot=5 → 719 */
-    ASSERT(tw_to_tring_pos(11, 9, 5) == 719);
-    /* wrap-around: face=12 → face=0 */
-    ASSERT(tw_to_tring_pos(12, 0, 0) == 0);
-    printf("  PASS: tring_pos (7 checks)\n");
-}
-
 static void test_boundary_zones(void) {
     printf("test_boundary_zones...\n");
     /* zone 0, slot 0: boundary of first sector
@@ -292,11 +269,10 @@ static void test_boundary_zones(void) {
     TWCaptureInt cap = {0};
     cap.zone = 0; cap.slot = 0;
     cap.drain = 1; cap.drain_zone = 9; cap.drain_slot = 59;
-    TWBridgeResult br = tw_bridge(&cap, 0, 0, 0, 0, 12, 0);  /* face=0 */
+    TWBridgeResult     br = tw_bridge(&cap, 0, 0, 0, 0, 12, 0);  /* face=0 */
     ASSERT(br.node < GEO_FULL);
     ASSERT(br.drain_node > 0u);
     ASSERT(br.frozen == 1);
-    ASSERT(br.tring_pos == 0);  /* face=0, zone=0, slot=0 */
 
     /* zone 9, slot 59: boundary of last sector
      * drain_zone=0, drain_slot=1 (not 0, since shell_to_node(0)=0) */
@@ -306,8 +282,7 @@ static void test_boundary_zones(void) {
     ASSERT(br.node < GEO_FULL);
     ASSERT(br.drain_node > 0u);
     ASSERT(br.frozen == 1);
-    ASSERT(br.tring_pos == 719);  /* face=11, zone=9, slot=5 */
-    printf("  PASS: boundary_zones (8 checks)\n");
+    printf("  PASS: boundary_zones (6 checks)\n");
 }
 
 /* ── Main ───────────────────────────────────────────────────── */
@@ -333,7 +308,6 @@ int main(void) {
     test_bridge();
     test_ring_classified();
     test_pipeline();
-    test_tring_pos();
     test_boundary_zones();
 
     printf("\n══════════════════════════════════════════════════\n");

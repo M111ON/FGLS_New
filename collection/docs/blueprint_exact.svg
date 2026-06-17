@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-220 -220 440 440" width="880" height="880">
+  <defs>
+    <style>
+      .bg { fill: #0d0d0d; }
+      .base { stroke: #fff; stroke-width: 4; }
+      .d54  { stroke: #e040fb; stroke-width: 2; }
+      .d72  { stroke: #4fc3f7; stroke-width: 2; }
+      .d60  { stroke: #ff5252; stroke-width: 2; }
+      .pent { fill: none; stroke: #4fc3f7; stroke-width: 1.5; }
+      .hex  { fill: none; stroke: #ff5252; stroke-width: 1.5; }
+      .tri  { fill: rgba(79,195,247,0.06); stroke: #4fc3f7; stroke-width: 0.7; }
+      .tri60{ fill: rgba(255,82,82,0.06); stroke: #ff5252; stroke-width: 0.7; }
+      .arc  { fill: none; stroke-width: 1.2; }
+      .label { fill: #777; font: 8px monospace; }
+      .l-w  { fill: #eee; font: 10px monospace; }
+      .l-pu { fill: #e040fb; font: 9px monospace; }
+      .l-bl { fill: #4fc3f7; font: 9px monospace; }
+      .l-re { fill: #ff5252; font: 9px monospace; }
+      .l-gr { fill: #81c784; font: 9px monospace; }
+      .dot-w { fill: #fff; }
+      .dot-p { fill: #e040fb; }
+      .dot-c { fill: #4fc3f7; }
+      .dot-r { fill: #ff5252; }
+    </style>
+  </defs>
+  <rect class="bg" x="-220" y="-220" width="440" height="440"/>
+
+  <!-- ====== COORDINATES ====== -->
+  <!-- Base edge: (0,-75) to (71.3,23.2), center C @ (0,0) -->
+
+  <!-- ====== 1. PRIMAL: Base edge (white, thick) ====== -->
+  <line class="base" x1="0" y1="-75" x2="71.3" y2="23.2"/>
+  <text class="l-w" x="25" y="-30">BASE</text>
+  <circle class="dot-w" cx="0" cy="-75" r="4"/>
+  <circle class="dot-w" cx="71.3" cy="23.2" r="4"/>
+  <text class="l-w" x="-25" y="-70">a0</text>
+  <text class="l-w" x="75" y="30">b1</text>
+
+  <!-- ====== 2. 54° from a0 and b1 → intersect at C ====== -->
+  <line class="d54" x1="0" y1="-75" x2="0" y2="0"/>
+  <line class="d54" x1="71.3" y1="23.2" x2="0" y2="0"/>
+  <circle class="dot-p" cx="0" cy="0" r="5"/>
+  <text class="l-pu" x="5" y="-3">C</text>
+
+  <!-- 54° arcs -->
+  <path class="arc d54" d="M 8,-63 A 10,10 0 0,1 3,-53"/>
+  <text class="l-pu" x="15" y="-55">54°</text>
+  <path class="arc d54" d="M 60,20 A 10,10 0 0,0 52,28"/>
+  <text class="l-pu" x="55" y="33">54°</text>
+
+  <!-- ====== 3. Triangle a0-C-b1 (54-54-72) ====== -->
+  <polygon class="tri" points="0,-75 0,0 71.3,23.2"/>
+  <path class="arc d72" d="M 15,-8 A 12,12 0 0,1 25,5"/>
+  <text class="l-bl" x="28" y="5">72°</text>
+
+  <!-- ====== 4. From C at 72° → other pentagon vertices ====== -->
+  <line class="d72" x1="0" y1="0" x2="44.1" y2="60.7"/>
+  <line class="d72" x1="0" y1="0" x2="-44.1" y2="60.7"/>
+  <line class="d72" x1="0" y1="0" x2="-71.3" y2="-23.2"/>
+
+  <!-- Pentagon outline -->
+  <polygon class="pent" points="0,-75 71.3,-23.2 44.1,60.7 -44.1,60.7 -71.3,-23.2"/>
+  <circle class="dot-c" cx="71.3" cy="-23.2" r="3"/>
+  <circle class="dot-c" cx="44.1" cy="60.7" r="3"/>
+  <circle class="dot-c" cx="-44.1" cy="60.7" r="3"/>
+  <circle class="dot-c" cx="-71.3" cy="-23.2" r="3"/>
+  <text class="l-bl" x="73" y="-25">a1</text>
+  <text class="l-bl" x="46" y="64">a2</text>
+  <text class="l-bl" x="-49" y="64">a3</text>
+  <text class="l-bl" x="-80" y="-25">a4</text>
+
+  <!-- ====== 5. 60° outward right triangle → hexagon ====== -->
+  <!-- From base edge, shoot 60° outward -->
+  <line class="d60" x1="0" y1="-75" x2="-50" y2="10"/>
+  <line class="d60" x1="71.3" y1="23.2" x2="120" y2="60"/>
+  <!-- Right triangle showing 60° -->
+  <polygon class="tri60" points="0,-75 71.3,23.2 120,60"/>
+  <path class="arc d60" d="M 55,-12 A 10,10 0 0,1 64,0"/>
+  <text class="l-re" x="60" y="-15">60°</text>
+
+  <!-- Hexagon right triangle centroid = 60/2 intersection -->
+  <!-- Right triangle a0(0,-75), b1(71.3,23.2), hex_tip(~120,60) -->
+  <!-- Centroid of right triangle = (0+71.3+120)/3, (-75+23.2+60)/3 ≈ (63.8, 2.7) -->
+  <circle class="dot-r" cx="63.8" cy="2.7" r="4"/>
+  <text class="l-re" x="68" y="5">HC</text>
+
+  <!-- Full hex petal (dashed outer ring) -->
+  <polygon class="hex" points="0,-75 71.3,23.2 120,60 60,110 -40,100 -50,10"/>
+
+  <!-- Adjacent petals (all 5, light) -->
+  <polygon class="tri60" points="71.3,-23.2 44.1,60.7 120,110"/>
+  <polygon class="tri60" points="44.1,60.7 -44.1,60.7 -60,120"/>
+  <polygon class="tri60" points="-44.1,60.7 -71.3,-23.2 -120,30"/>
+  <polygon class="tri60" points="-71.3,-23.2 0,-75 -40,-110"/>
+
+  <!-- ====== LEGEND ====== -->
+  <rect class="bg" x="-210" y="130" width="200" height="75" rx="3" stroke="#333" stroke-width="0.5"/>
+  <line class="base" x1="-200" y1="142" x2="-180" y2="142"/>
+  <text class="label" fill="#fff" x="-175" y="145">1 base edge a0-b1</text>
+  <line class="d54" x1="-200" y1="157" x2="-180" y2="157"/>
+  <text class="label" fill="#e040fb" x="-175" y="160">2 54° at ends → C</text>
+  <line class="d72" x1="-200" y1="172" x2="-180" y2="172"/>
+  <text class="label" fill="#4fc3f7" x="-175" y="175">3 72° at C → pentagon</text>
+  <line class="d60" x1="-200" y1="187" x2="-180" y2="187"/>
+  <text class="label" fill="#ff5252" x="-175" y="190">4 60° right tri → hex + HC</text>
+
+  <text class="label" x="-120" y="-195" font-size="13" fill="#eee">1 Edge + 3 Angles = Pentagon + Hexagon</text>
+</svg>

@@ -1,7 +1,7 @@
 /*
  * th_grid.h — TriHex Tessellation Coordinate Mapper
  *
- * Maps tensor name → (face, tring_pos) on the trihex tessellation field.
+ * Maps tensor name → node_id on the Y-triangle field.
  * This is the geometry/arena layer for SID — not a bond predictor.
  * Hex grid (hex_grid.h) handles bond discovery and hotness ranking.
  */
@@ -92,7 +92,7 @@ static inline void th_tensor_vxvy(const char *name, int n_layers,
 }
 
 static inline THCoord th_from_name(const char *name, THGridState *gs) {
-    THCoord c = {0, 0};
+    THCoord c = {0};
     if (gs->grid.toggle_level <= 0) return c;
     int face = th_face_index(name);
     if (face < 0) face = 0;
@@ -108,11 +108,8 @@ static inline void th_print_coords(const char **names, int n_names,
             gs->grid.toggle_level, gs->grid.aperture, gs->n_layers);
     for (int i = 0; i < n_names; i++) {
         THCoord c = th_from_name(names[i], gs);
-        uint8_t is_tri, sector, slot;
-        th_unpack(th_local(c.tring_pos), &is_tri, &sector, &slot);
-        fprintf(stderr, "  face=%d tring=%d (sector=%d slot=%d%s) %s\n",
-                c.face, c.tring_pos, sector, slot,
-                is_tri ? " tri" : " hex", names[i]);
+        fprintf(stderr, "  pentagon=%d node=%u (shell=%d) %s\n",
+                th_pentagon(c), c.node_id, th_shell(c.node_id), names[i]);
     }
 }
 

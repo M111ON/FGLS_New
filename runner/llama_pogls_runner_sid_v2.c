@@ -1,7 +1,7 @@
 /*
  * llama_pogls_runner_sid_v2.c — SID-aware inference runner with inline tensor scan
- * Build: gcc -O2 -std=c11 -I. -I../collection -I../collection/src -I../collection/core -I../collection/core/core -I../collection/geopixel -I../collection/geopixel/Metatron/core -I../collection/pogls_engine -II:/llama.cpp/include -II:/llama.cpp/ggml/include -o llama_pogls_runner_sid_v2.exe llama_pogls_runner_sid_v2.c I:/llama/llama-b9528-bin-win-vulkan-x64/llama.dll I:/llama/llama-b9528-bin-win-vulkan-x64/ggml.dll I:/llama/llama-b9528-bin-win-vulkan-x64/ggml-base.dll I:/llama/llama-b9528-bin-win-vulkan-x64/ggml-cpu-x64.dll -lm
- * Usage: llama_pogls_runner_sid_v2.exe model.gguf [options]
+ * Build (from repo root): gcc -O2 -std=c11 -I. -Icollection -Icollection/src -Icollection/core -Icollection/core/core -Icollection/geopixel -Icollection/geopixel/Metatron/core -Icollection/pogls_engine -Icollection/geo_jump_module/include -II:/llama.cpp/include -II:/llama.cpp/ggml/include -o llama_pogls_runner_sid_v2.exe runner/llama_pogls_runner_sid_v2.c collection/geo_jump_module/src/geo_jump.c I:/llama/llama-b9528-bin-win-vulkan-x64/llama.dll I:/llama/llama-b9528-bin-win-vulkan-x64/ggml.dll I:/llama/llama-b9528-bin-win-vulkan-x64/ggml-base.dll I:/llama/llama-b9528-bin-win-vulkan-x64/ggml-cpu-x64.dll -lm
+ * Usage: llama_pogls_runner_sid_v2.exe I:/model/model.gguf [options]
  *
  * KEY DIFFERENCES from v1:
  *   - No DLL dependency (no LoadLibrary/GetProcAddress for sid_tensor_helper.dll)
@@ -206,6 +206,7 @@ static FoundTensor found_tensors[MAX_TENSORS];
 static int n_found = 0;
 
 #include "capture_pipeline.h"
+#include "tensor_memory.h"
 #include "geo_addr.h"
 
 typedef struct {
@@ -230,6 +231,12 @@ static size_t delta_size[MAX_SID_SWAPS];
 
 static SidTimeTravel tt;
 
+/* tensor memory store (--mem-store) */
+static const char *g_opt_mem_store = NULL;
+static uint8_t *g_tmem_buf = NULL;
+static size_t g_tmem_buf_size = 0;
+static TensorMemStore g_tmem_store;
+
 static void sid_swap_apply(void) {
     sid_timetravel_before_decode(&tt, n_sid_swaps,
         delta_ft_idx, delta_tensor_ptr, delta_orig_data, delta_sid_data, delta_size);
@@ -245,6 +252,32 @@ static void sid_swap_restore(void) {
         tensor_set_data(found_tensors[e->ft_idx].ptr, found_tensors[e->ft_idx].orig_data);
     }
     sid_timetravel_after_decode(&tt);
+}
+
+/* ── Tensor memory store: log swapped tensors after decode ── */
+static inline void sid_mem_store_log(struct llama_context *lctx, int nv, uint16_t tick, int sid_face_val) {
+    if (!g_opt_mem_store || !g_tmem_buf || n_sid_swaps == 0) return;
+    const float *logits = llama_get_logits_ith(lctx, -1);
+    uint8_t entropy = 128;
+    if (logits && nv > 0) {
+        uint32_t h = 0;
+        int lim = nv < 4096 ? nv : 4096;
+        for (int i = 0; i < lim; i++) { uint32_t u; memcpy(&u, &logits[i], sizeof(u)); h ^= u; }
+        entropy = (uint8_t)((h >> 16) ^ (h >> 8) ^ h);
+    }
+    for (int si = 0; si < n_sid_swaps; si++) {
+        int fi = sid_swaps[si].ft_idx;
+        int layer = bond_extract_layer(found_tensors[fi].name);
+        ZoneCardSID z;
+        memset(&z, 0, sizeof(z));
+        z.node_id = (uint32_t)fi;
+        z.capo_key = (uint16_t)sid_face_val;
+        z.inf.logit_entropy = entropy;
+        z.inf.tick = tick;
+        z.inf.layer = (uint8_t)(layer < 0 ? 255 : layer);
+        z.card.card_type = 1;
+        tmem_append_raw(&g_tmem_store, &z, found_tensors[fi].name, NULL, 0);
+    }
 }
 
 /* ── main ── */
@@ -294,6 +327,7 @@ int main(int argc,char**argv){
         else if(!strcmp(argv[i],"--sid-adaptive"))opt_sid_adaptive=1;
         else if(!strcmp(argv[i],"--sid-multi")&&i+1<argc)opt_sid_multi=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--capture")&&i+1<argc)opt_capture=argv[++i];
+        else if(!strcmp(argv[i],"--mem-store")&&i+1<argc)g_opt_mem_store=argv[++i];
         else if(!strcmp(argv[i],"--dump-logits")&&i+1<argc)opt_dump_logits=argv[++i];
         else if(!strcmp(argv[i],"-h")||!strcmp(argv[i],"--help")){
             fprintf(stderr,"Usage: %s model.gguf [options]\n",argv[0]);
@@ -329,6 +363,7 @@ int main(int argc,char**argv){
             fprintf(stderr,"  --sid-adaptive           Scale corruption bytes by tensor hotness\n");
             fprintf(stderr,"  --sid-multi N            Inject at N hottest layers simultaneously\n");
             fprintf(stderr,"  --capture DIR             Capture tensor geometry after decode, write to DIR\n");
+            fprintf(stderr,"  --mem-store PATH          Log SID tensor memory timeline to file\n");
             fprintf(stderr,"  --count-only              Report tensor counts and exit\n");
             fprintf(stderr,"Chat commands:\n");
             fprintf(stderr,"  /checkpoint NAME          Save checkpoint\n");
@@ -345,7 +380,8 @@ int main(int argc,char**argv){
     if(!gguf_path){fprintf(stderr,"ERROR: missing model.gguf\n");return 1;}
 
     llama_backend_init();
-    ggml_backend_load("I:/llama/llama-b9528-bin-win-vulkan-x64/ggml-cpu-sse42.dll");
+    ggml_backend_load("I:/llama/llama-b9528-bin-win-vulkan-x64/ggml-cpu-x64.dll");
+    ggml_backend_load("I:/llama/llama-b9528-bin-win-vulkan-x64/ggml-vulkan.dll");
 
     fprintf(stderr, "\n--- load_from_file ---\n");
 
@@ -928,6 +964,23 @@ int main(int argc,char**argv){
             fprintf(stderr, "\n");
         }
     }
+    /* ── Tensor memory store init ── */
+    if (g_opt_mem_store) {
+        g_tmem_buf_size = 64u * 1024 * 1024;
+        g_tmem_buf = (uint8_t*)malloc(g_tmem_buf_size);
+        if (g_tmem_buf) {
+            tmem_init(&g_tmem_store, g_tmem_buf, g_tmem_buf_size, 0);
+            /* try loading existing file (if any) */
+            FILE *tf = fopen(g_opt_mem_store, "rb");
+            if (tf) { fclose(tf); tmem_load(&g_tmem_store, g_tmem_buf, g_tmem_buf_size, g_opt_mem_store); }
+            fprintf(stderr, "[mem-store] initialized (%zu MB buffer, %u existing records)\n",
+                g_tmem_buf_size >> 20, g_tmem_store.n_records);
+        } else {
+            fprintf(stderr, "[mem-store] malloc(%zu) failed, disabled\n", g_tmem_buf_size);
+            g_opt_mem_store = NULL;
+        }
+    }
+
     /* ── Create context (once, for the whole session) ── */
     struct llama_context_params cp=llama_context_default_params();
     cp.n_ctx=256;cp.n_threads=4;cp.n_threads_batch=4;cp.n_batch=128;cp.n_ubatch=64;
@@ -1013,6 +1066,7 @@ int main(int argc,char**argv){
             sid_swap_apply();
             if(llama_decode(lctx,pb)!=0){llama_batch_free(pb);free(ta);sid_swap_restore();break;}
             sid_swap_restore();
+            sid_mem_store_log(lctx, nv, (uint16_t)(nt - 1), sid_face);
             if (opt_capture) {
                 #ifdef _WIN32
                 _mkdir(opt_capture);
@@ -1027,7 +1081,7 @@ int main(int argc,char**argv){
                     ctens[ci].dtype  = (int)found_tensors[ci].dtype;
                 }
                 CaptureResult cr;
-                capture_run_full(&cr, opt_capture, ctens, n_found, 0);
+                capture_run_full(&cr, opt_capture, ctens, n_found, 12);
             }
             llama_batch_free(pb);
             Sampler gs=sp;gs.count=0;int32_t pos=nt;
@@ -1044,6 +1098,7 @@ int main(int argc,char**argv){
                 sid_swap_apply();
                 if(llama_decode(lctx,gb)!=0){sid_swap_restore();break;}
                 sid_swap_restore();
+                sid_mem_store_log(lctx, nv, (uint16_t)(pos - 1), sid_face);
             }
             llama_batch_free(gb);printf("\n");free(ta);
         }
@@ -1061,6 +1116,7 @@ int main(int argc,char**argv){
         sid_swap_apply();
         if(llama_decode(lctx,pb)!=0){fprintf(stderr,"[dbg] decode fail\n");llama_batch_free(pb);free(toks);sid_swap_restore();return 1;}
         sid_swap_restore();
+        sid_mem_store_log(lctx, nv, (uint16_t)(nt - 1), sid_face);
         if (opt_capture) {
             #ifdef _WIN32
             _mkdir(opt_capture);
@@ -1075,7 +1131,7 @@ int main(int argc,char**argv){
                 ctens[ci2].dtype  = (int)found_tensors[ci2].dtype;
             }
             CaptureResult cr;
-            capture_run_full(&cr, opt_capture, ctens, n_found, 0);
+            capture_run_full(&cr, opt_capture, ctens, n_found, 12);
         }
         llama_batch_free(pb);
 
@@ -1093,8 +1149,18 @@ int main(int argc,char**argv){
             sid_swap_apply();
             if(llama_decode(lctx,gb)!=0){sid_swap_restore();break;}
             sid_swap_restore();
+            sid_mem_store_log(lctx, nv, (uint16_t)(pos - 1), sid_face);
         }
         llama_batch_free(gb);printf("\n");free(toks);
+    }
+
+    /* ── Tensor memory store save ── */
+    if (g_opt_mem_store && g_tmem_buf) {
+        tmem_save(&g_tmem_store, g_opt_mem_store);
+        fprintf(stderr, "[mem-store] saved %u records to %s\n",
+            g_tmem_store.n_records, g_opt_mem_store);
+        free(g_tmem_buf);
+        g_tmem_buf = NULL;
     }
 
     /* ── Cleanup ── */

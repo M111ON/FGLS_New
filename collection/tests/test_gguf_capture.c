@@ -241,7 +241,7 @@ int main(int argc, char **argv) {
 
         /* Capture */
         SIDCoord coord;
-        if (sid_capture_legacy(buf, to_read, dtype, 0, &coord) != 0) continue;
+        if (sid_capture(buf, to_read, dtype, &coord) != 0) continue;
 
         /* Manually add to store */
         strncpy(store.entries[store.n_entries].name, idx.names[i], SID_NAME_MAX - 1);
@@ -268,7 +268,7 @@ int main(int argc, char **argv) {
         fseek(f, idx.offsets[i], SEEK_SET);
         if (fread(full_buf, 1, sz, f) != sz) continue;
 
-        int rc = sid_verify_roundtrip_legacy(full_buf, sz, GGUF_F32, idx.names[i]);
+        int rc = sid_verify_roundtrip(full_buf, sz, GGUF_F32, idx.names[i]);
         if (rc == 0) n_verify_ok++;
         n_verify++;
 
@@ -287,26 +287,22 @@ int main(int argc, char **argv) {
     printf("  Ignored (non-Q8/F16): %d\n", n_ignored);
     printf("  .twidx size: %zu bytes\n", store.n_entries * sizeof(SIDEntry));
 
-    /* Per-zone stats */
-    int zhist[10] = {0};
-    int fhist[12] = {0};
-    int tring_hist[1440] = {0};
+    /* Per-pentagon stats */
+    int pent_hist[12] = {0};
     for (uint32_t i = 0; i < store.n_entries; i++) {
-        if (store.entries[i].coord.zone < 10) zhist[store.entries[i].coord.zone]++;
-        if (store.entries[i].coord.face < 12) fhist[store.entries[i].coord.face]++;
-        if (store.entries[i].coord.tring_pos < 1440)
-            tring_hist[store.entries[i].coord.tring_pos]++;
+        uint32_t pent = geo_pentagon_id(store.entries[i].coord.node_id);
+        if (pent >= 1 && pent <= 12) pent_hist[pent-1]++;
     }
 
-    printf("\n  Zone distribution:\n");
-    for (int z = 0; z < 10; z++)
-        printf("    z%d: %d\n", z, zhist[z]);
+    printf("\n  Pentagon distribution:\n");
+    for (int p = 0; p < 12; p++)
+        printf("    p%d: %d\n", p+1, pent_hist[p]);
 
     int uniq = 0;
-    for (int i = 0; i < 1440; i++)
-        if (tring_hist[i]) uniq++;
-    printf("  Unique TRing slots: %d/1440 (%.1f%%)\n",
-           uniq, 100.0*uniq/1440);
+    for (int i = 0; i < 12; i++)
+        if (pent_hist[i]) uniq++;
+    printf("  Unique pentagons: %d/12 (%.1f%%)\n",
+           uniq, 100.0*uniq/12);
 
     /* Write .twidx */
     char twidx_path[1024];

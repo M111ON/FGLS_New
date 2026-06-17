@@ -33,7 +33,7 @@
  *             tensor->data swap level, not model-init.
  *
  *           sid_cache + sid_loader integration: pre-load all Q8_0 weights
- *           into TWFaceRewindSid 1440-slot cache. Verify integrity via hash
+ *           into TWFaceRewindSid 20736-slot cache. Verify integrity via hash
  *           comparison with direct mmap reads. Ready for tensor->data swap
  *           once model tensor pointers are accessible.
  */

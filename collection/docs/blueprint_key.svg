@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-220 -220 440 440" width="880" height="880">
+  <defs>
+    <style>
+      .bg { fill: #0d0d0d; }
+      .base { stroke: #fff; stroke-width: 4; }
+      .d36  { stroke: #e040fb; stroke-width: 1.5; stroke-dasharray: 4 4; }
+      .d72  { stroke: #4fc3f7; stroke-width: 1.5; }
+      .d60  { stroke: #ff5252; stroke-width: 1.5; }
+      .d54  { stroke: #81c784; stroke-width: 1; stroke-dasharray: 3 3; }
+      .pent { fill: none; stroke: #4fc3f7; stroke-width: 1; }
+      .petal { fill: none; stroke: #ff5252; stroke-width: 0.7; stroke-dasharray: 2 4; }
+      .pgram { stroke: #ffd54f; stroke-width: 0.7; stroke-dasharray: 1 5; fill: none; }
+      .arc   { fill: none; stroke-width: 1.2; }
+      .label { fill: #555; font: 8px monospace; }
+      .l-w   { fill: #eee; font: 9px monospace; font-weight: bold; }
+      .l-pu  { fill: #e040fb; font: 8px monospace; }
+      .l-bl  { fill: #4fc3f7; font: 8px monospace; }
+      .l-re  { fill: #ff5252; font: 8px monospace; }
+      .l-gr  { fill: #81c784; font: 8px monospace; }
+      .l-go  { fill: #ffd54f; font: 8px monospace; }
+      .dot-w { fill: #fff; }
+      .dot-p { fill: #e040fb; }
+    </style>
+  </defs>
+  <rect class="bg" x="-220" y="-220" width="440" height="440"/>
+
+  <!-- ====== CONSTANTS: r=75 ====== -->
+  <!-- a0(0,-75), a1(71.3,-23.2), a2(44.1,60.7), a3(-44.1,60.7), a4(-71.3,-23.2) -->
+  <!-- b0(44.1,-60.7), b1(71.3,23.2), b2(0,75), b3(-71.3,23.2), b4(-44.1,-60.7) -->
+  <!-- center (0,0) -->
+
+  <!-- ====== PRIMAL: 1 base edge (white, thick) ====== -->
+  <line class="base" x1="0" y1="-75" x2="71.3" y2="23.2"/>
+  <text class="l-w" x="30" y="-40">BASE EDGE (the only input)</text>
+
+  <!-- ====== 36° → CENTER ====== -->
+  <line class="d36" x1="0" y1="-75" x2="0" y2="0"/>
+  <line class="d36" x1="71.3" y1="23.2" x2="0" y2="0"/>
+  <circle class="dot-p" cx="0" cy="0" r="4"/>
+  <text class="l-pu" x="5" y="-3">C</text>
+  <!-- 36° arcs -->
+  <path class="arc d36" d="M 10,-63 A 11,11 0 0,1 8,-52"/>
+  <text class="l-pu" x="15" y="-55">36°</text>
+  <path class="arc d36" d="M 60,20 A 11,11 0 0,0 52,28"/>
+  <text class="l-pu" x="55" y="33">36°</text>
+
+  <!-- ====== 72° → PENTAGON (proceeds from center) ====== -->
+  <line class="d72" x1="0" y1="0" x2="0" y2="-75"/>
+  <line class="d72" x1="0" y1="0" x2="71.3" y2="23.2"/>
+  <line class="d72" x1="0" y1="0" x2="44.1" y2="60.7"/>
+  <line class="d72" x1="0" y1="0" x2="-44.1" y2="60.7"/>
+  <line class="d72" x1="0" y1="0" x2="-71.3" y2="-23.2"/>
+  <!-- pentagon outline -->
+  <polygon class="pent" points="0,-75 71.3,-23.2 44.1,60.7 -44.1,60.7 -71.3,-23.2"/>
+  <path class="arc d72" d="M 20,-60 A 18,18 0 0,1 40,-38"/>
+  <text class="l-bl" x="30" y="-45">72°</text>
+
+  <!-- ====== 60° → HEX PETALS ====== -->
+  <!-- Petal edges from each pentagon vertex, shooting 60° outward -->
+  <line class="d60" x1="0" y1="-75" x2="-50" y2="10"/>
+  <line class="d60" x1="71.3" y1="-23.2" x2="120" y2="60"/>
+  <line class="d60" x1="44.1" y1="60.7" x2="100" y2="120"/>
+  <line class="d60" x1="-44.1" y1="60.7" x2="-100" y2="120"/>
+  <line class="d60" x1="-71.3" y1="-23.2" x2="-120" y2="20"/>
+  <path class="arc d60" d="M 60,-22 A 12,12 0 0,1 72,-5"/>
+  <text class="l-re" x="70" y="-8">60°</text>
+
+  <!-- Petal arcs (dashed) -->
+  <path class="petal" d="M 0,-75 Q 30,-40 71.3,-23.2 Q 90,20 44.1,60.7 Q 0,90 -44.1,60.7 Q -90,20 -71.3,-23.2 Q -30,-60 0,-75"/>
+
+  <!-- ====== φ PENTAGRAM (from pentagon diagonals) ====== -->
+  <line class="pgram" x1="0" y1="-75" x2="44.1" y2="60.7"/>
+  <line class="pgram" x1="71.3" y1="-23.2" x2="-44.1" y2="60.7"/>
+  <line class="pgram" x1="44.1" y1="60.7" x2="-71.3" y2="-23.2"/>
+  <line class="pgram" x1="-44.1" y1="60.7" x2="0" y2="-75"/>
+  <line class="pgram" x1="-71.3" y1="-23.2" x2="71.3" y2="-23.2"/>
+
+  <!-- ====== 54° OVERLAP TRIANGLES (b0 from pentB) ====== -->
+  <line class="d54" x1="71.3" y1="23.2" x2="44.1" y2="-60.7"/>
+  <line class="d54" x1="71.3" y1="23.2" x2="0" y2="75"/>
+  <path class="arc d54" d="M 67,12 A 10,10 0 0,0 63,22"/>
+  <text class="l-gr" x="68" y="20">54°</text>
+
+  <!-- ====== DOTS ====== -->
+  <circle class="dot-w" cx="0" cy="-75" r="3"/>
+  <circle class="dot-w" cx="71.3" cy="23.2" r="3"/>
+  <circle class="dot-w" cx="71.3" cy="-23.2" r="3"/>
+  <circle class="dot-w" cx="44.1" cy="60.7" r="3"/>
+  <circle class="dot-w" cx="-44.1" cy="60.7" r="3"/>
+  <circle class="dot-w" cx="-71.3" cy="-23.2" r="3"/>
+
+  <!-- ====== LEGEND ====== -->
+  <rect class="bg" x="-210" y="140" width="200" height="75" rx="3"/>
+  <line class="base" x1="-200" y1="152" x2="-180" y2="152"/>
+  <text class="label" fill="#fff" x="-175" y="155">0. primal base edge</text>
+  <line class="d36" x1="-200" y1="167" x2="-180" y2="167"/>
+  <text class="label" fill="#e040fb" x="-175" y="170">1. 36° → center C</text>
+  <line class="d72" x1="-200" y1="182" x2="-180" y2="182"/>
+  <text class="label" fill="#4fc3f7" x="-175" y="185">2. 72° → pentagon</text>
+  <line class="d60" x1="-200" y1="197" x2="-180" y2="197"/>
+  <text class="label" fill="#ff5252" x="-175" y="200">3. 60° → hex petals</text>
+  <line class="pgram" x1="-200" y1="212" x2="-180" y2="212"/>
+  <text class="label" fill="#ffd54f" x="-175" y="215">4. auto: φ pentagram</text>
+
+  <text class="label" x="-140" y="-195" font-size="13" fill="#eee">1 Edge + Angles = All Geometry</text>
+  <text class="label" x="-140" y="-182" fill="#666">No position required — only line direction + known angles</text>
+</svg>

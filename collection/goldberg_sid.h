@@ -1,12 +1,12 @@
 /*
  * goldberg_sid.h — Goldberg/Dodecahedron Spherical Domain for SID
  *
- * Maps flat 12-face × 120-position trihex grid onto a subdivided
+ * Maps Y-triangle node_id (0..20735) onto a subdivided
  * dodecahedron (Goldberg polyhedron) surface.
- * Each face = pentagon on sphere, subdivided by 60° triangles →
+ * Each pentagon face on sphere, subdivided by 60° triangles →
  * hexagons emerge as natural Goldberg cells.
  *
- * SID face 0..11 maps to dodecahedron pentagon face σ(face).
+ * node_id pentagon 1..12 maps to dodecahedron face σ(pentagon-1).
  */
 
 #ifndef GOLDBERG_SID_H
@@ -32,8 +32,6 @@ typedef struct { double x, y, z; } GVec3;
 
 /* ══════════════════════════════════════════════════════════════════
    Dodecahedron face centers (normalized)
-   A regular dodecahedron centered at origin, oriented with
-   one pentagon facing +Z.
    ══════════════════════════════════════════════════════════════════ */
 
 /* 20 vertices of a regular dodecahedron */
@@ -49,7 +47,7 @@ static const GVec3 _goldberg_verts[20] = {
 };
 
 /* Face vertex indices (5 vertices per pentagon, CCW).
-   σ(face) maps SID face → dodecahedron pentagon. */
+   σ(face) maps pentagon face → dodecahedron pentagon. */
 static const uint8_t _goldberg_face_verts[12][5] = {
     { 0,  8,  4, 13, 12},  /* face 0: +X +Y +Z region */
     { 0, 12,  2, 16,  8},  /* face 1 */
@@ -95,15 +93,18 @@ static inline void goldberg_init(void) {
    THCoord → 3D position on sphere
    ══════════════════════════════════════════════════════════════════ */
 
-/* Map local position (0..119) within pentagon face → barycentric
+/* Map local position within pentagon → barycentric
    point on pentagon, then project to sphere.
    Returns unit vector on sphere surface. */
 static inline GVec3 goldberg_from_thcoord(THCoord c) {
     goldberg_init();
-    GVec3 center = _goldberg_centers[c.face % 12];
+    int face = th_pentagon(c) - 1;
+    GVec3 center = _goldberg_centers[face % 12];
 
-    uint8_t is_tri, sector, slot;
-    th_unpack(th_local(c.tring_pos), &is_tri, &sector, &slot);
+    uint16_t local = th_local(c.node_id);
+    /* decompose local: sector = local / 6, slot = local % 6 */
+    uint8_t sector = (uint8_t)(local / TW_SLOTS_PER);
+    uint8_t slot   = (uint8_t)(local % TW_SLOTS_PER);
 
     /* sector 0..9 within pentagon → edge direction.
        TW_N_SECTORS = 10 → 10 sectors per face.
@@ -112,8 +113,8 @@ static inline GVec3 goldberg_from_thcoord(THCoord c) {
     int edge = sector % 5;
     int side = sector / 5;
 
-    int v0i = _goldberg_face_verts[c.face % 12][edge];
-    int v1i = _goldberg_face_verts[c.face % 12][(edge + 1) % 5];
+    int v0i = _goldberg_face_verts[face % 12][edge];
+    int v1i = _goldberg_face_verts[face % 12][(edge + 1) % 5];
 
     GVec3 v0 = _goldberg_verts[v0i];
     GVec3 v1 = _goldberg_verts[v1i];
@@ -232,8 +233,7 @@ static inline float goldberg_cardioid_hotness(int layer, int n_layers) {
     return pass ? 1.0f : 0.5f;
 }
 
-/* ── Predict hotness via cardioid + goldberg bond propagation ──
-   Takes external initial_hotness array (cardioid computed by caller). */
+/* ── Predict hotness via cardioid + goldberg bond propagation ── */
 static inline float *goldberg_predict_hotness(const GoldbergBondGraph *g,
     const float *initial_hotness, int n_names) {
     float *h = (float*)calloc((size_t)n_names, sizeof(float));
@@ -295,8 +295,8 @@ static inline void goldberg_print_coords(const char **names, int n_names,
     fprintf(stderr, "[goldberg] spherical domain:\n");
     for (int i = 0; i < n_names; i++) {
         GVec3 v = goldberg_from_thcoord(coords[i]);
-        fprintf(stderr, "  (%.4f, %.4f, %.4f) face=%d pos=%d %s\n",
-                v.x, v.y, v.z, coords[i].face, coords[i].tring_pos, names[i]);
+        fprintf(stderr, "  (%.4f, %.4f, %.4f) pentagon=%d node=%u %s\n",
+                v.x, v.y, v.z, th_pentagon(coords[i]), coords[i].node_id, names[i]);
     }
 }
 
