@@ -26,6 +26,34 @@
 
 ---
 
+## Session June 20 (current — Cosplay Fix + Experiment + LFM2)
+
+### What Was Done
+1. **Fixed `CP_MAGIC`**: was `0x434F5350` but real `.cpl` files have `0x504F434C` → 170/170 entries load
+2. **Implemented `--cosplay-compare`**: was dead code → now does WITH/WITHOUT comparison (cosine similarity, token diff, top-5 overlap)
+3. **Implemented `--experiment DIR`**: was dead code → runs all `.cpl` + baseline, saves results + report.txt with cosine matrix
+4. **Moved 403 `.ses` files** from root to `runner/ses_profiles/`
+5. **Cleaned `I:\llama`**: deleted old CUDA/SYCL builds → reclaimed ~3.2GB
+6. **Cleaned `I:\model`**: deleted unused models/tokenizer data → reclaimed ~5GB
+7. **Downloaded b9733**: `llama-b9733-bin-win-vulkan-x64.zip` (113MB extracted) — confirmed LFM2 architecture support in `llama.dll` symbols
+8. **Downloaded LFM2.5-1.2B**: Q4_K_M (694 MB) — tested with b9733, generates "Hello!" at 65.4 t/s
+9. **Confirmed: b9528 does NOT support LFM2** — loads metadata + SID cache but fails silently at decode
+
+### Saved Space
+| Location | Reclaimed | Kept |
+|----------|-----------|------|
+| `I:\llama\` | ~3.2 GB | Only b9528-vulkan (current working) |
+| `I:\model\` | ~5 GB | SmolLM2 Q8, Qwen2.5 Q8, Qwen3 Q8, smolVLM dir, LFM2 Q4 |
+| Total: | **~8.2 GB** | |
+
+### Key Binary Facts
+- `CP_MAGIC = 0x504F434C` (not `0x434F5350`)
+- `offsetof(struct ggml_tensor, data) = 248` for b9528
+- b9733: Clang 20.1.8, supports LFM2/LFM2MOE/Qwen3.5/Qwen5/SmolLM3/Mistral3/Step35 etc.
+- ABI compatibility b9528↔b9733: unknown (struct layout may have changed)
+
+---
+
 ## 🎭 Cosplay: Signature-Derived Perturbation Profile (June 19 — Validated)
 
 ### What It Does
@@ -871,3 +899,94 @@ All 9 profile-aware `.cpl` files produce different logits from baseline:
 ### Remaining
 - `llama_pogls_runner_sid_v2_new5.exe` (old b9686 build) — still present but won't work; use `llama_main_b9528.exe` instead
 - `test_tokenize.c`, `test_swap_*.c`, `test_modelonly.c`, etc. — separate test files with their own fflush, unrelated to main pipeline
+
+---
+
+## ✅ Session June 20 (late-late-late) — LFM2 Support Requires b9733+
+
+### LFM2.5-1.2B-Instruct (Q4_K_M, 694 MB)
+
+| Component | Result |
+|-----------|--------|
+| **b9528** (runner DLLs) | Loads metadata, SID cache (103/103 tensors), context created, but `llama_decode()` fails silently → no output. b9528 binary predates LFM2 architecture support. |
+| **b9733** `llama-cli.exe` | ❌ Test with `&` in PowerShell hangs (process wait issue). ✅ Test with `cmd /c` works: loads model, generates "Hello!" at 65.4 t/s. |
+| **b9733** `llama.dll` symbols | Confirmed: `.?AU?$graph@$00@llama_model_lfm2@@` and `.?AU?$graph@$0A@@llama_model_lfm2@@` present in binary. Also supports `llama_model_lfm2moe`. |
+
+### Architecture Details (LFM2)
+- 16 layers, 2048 embd, 32 heads, GQA (n_head_kv varies: some layers 0, some 8)
+- Recurrent architecture: uses `llama_memory_recurrent` (R/S state) in addition to KV cache
+- "fused Gated Delta Net (autoregressive)" and "fused Gated Delta Net (chunked)" both enabled
+- Special layers: `shortconv.conv`, `shortconv.in_proj`, `shortconv.out_proj` per block
+- Some layers have `attn_q_norm` and `attn_k_norm` (5 of 16: layers 2,5,8,10,12,14)
+- 103 weight tensors in SID filter (vs 170 for Qwen2.5-0.5B)
+- Contains VLM reserved tokens (image rows 1-10, image_start/end, thumbnail)
+
+### Implication for SID Pipeline
+- To use LFM2 with SID, need to **recompile runner against b9733 DLLs**
+- b9733 is newer (build 9733, Clang 20.1.8, June 20, 2026) vs b9528
+- b9733 has more architectures: LFM2, LFM2MOE, Qwen3.5, Qwen5, SmolLM3, Mistral3, Step35, etc.
+- b9733 dropped CUDA 12.0 support (needs 12.4+), but still has CUDA 12.4 + 13.3 + Vulkan
+- ABI compatibility between b9528 ↔ b9733 unknown — struct layout may have changed
+
+### New Files
+- `I:\llama\llama-b9733-bin-win-vulkan-x64\` — 113 MB extracted, includes `llama.dll` (2.5 MB), `ggml.dll`, `ggml-cpu-*.dll`, `ggml-vulkan.dll` (74 MB), `libomp140.x86_64.dll`
+- `I:\model\LFM2.5-1.2B-Instruct-Q4_K_M.gguf` — 694 MB, architecture `lfm2`, 148 tensors
+
+### Next Steps
+1. Try **replacing** `runner/llama.dll` + `runner/ggml*.dll` with b9733 versions — if ABI-compatible, runner may work with LFM2
+2. OR: recompile `llama_pogls_runner_sid_v2.c` against b9733 headers + DLLs
+3. Generate profile-aware `.cpl` for LFM2 using `cosplay_profile_train`
+4. Train on LFM2 → experiment with all profiles
+
+---
+
+## ✅ Session June 20 (very late) — KV State Format Parsed + K/V Perturbation via Public API Viable
+
+### Goal
+Understand KV cache state serialization format to perturb K/V data without internal C++ access.
+
+### Key Discovery: `llama_tokenize()` API Change in b9733
+**Returns `-N` (negative needed count) instead of positive** when buffer is NULL:
+```c
+int need = llama_tokenize(vocab, text, len, NULL, 0, add, parse);
+if (need < 0) need = -need;  // new convention: -N means N tokens needed
+```
+Old code interpreting negative as failure allocates huge buffer and crashes at `llama_decode`.
+
+### Key Discovery: State Format Layout (verified with Qwen2.5-0.5B, 1 token, 24 layers = 12900 bytes)
+```
+[magic:4] [seq_id:4]                    ← 8B wrapper (validated on restore)
+[n_stream:4] [cell_count:4]              ← 8B header
+[per cell: pos(4) + n_seq_id(4) + seq_ids(n_seq_id×4)]
+[v_trans:4] [n_layer:4]                  ← 8B data section header
+[per layer × n_layer:
+   k_type(4) + k_size_row(8) + K_data(cell_count × k_size_row)
+   v_type(4) + v_size_row(8) + V_data(cell_count × v_size_row)
+]
+```
+For Qwen2.5-0.5B: `n_layer=24`, `k_size_row=256` (f16, n_embd_k_gqa=128), `v_size_row=256` — layer stride = 536B.
+
+Total = 8 + 8 + 12 + 8 + 24×(12 + 256 + 12 + 256) = **12900** bytes per token.
+
+### Verified
+- **K/V data perturbation works**: flipping bytes in K_data or V_data regions restores successfully (12900/12900). Metadata bytes never touched.
+- **Metadata perturbation FAILS**: flipping pos/k_type/k_size_row/v_type causes restore failures with "mismatched key type" or "invalid seq_id-agnostic kv cell"
+- **Single-cell stride-64 XOR**: restore OK → output token unchanged (logit 17.6 vs 17.8, same argmax). Needs more KV cells for compounding.
+- **State save/restore roundtrip**: 100% lossless, verified across 10+ restore cycles
+
+### KV Virtualization Workflow (Validated)
+1. `llama_state_seq_get_data_ext()` → save state buffer
+2. Parse buffer → locate K/V data byte ranges (skip all headers)
+3. Perturb only data bytes (stride XOR, or per-layer profiles)
+4. `llama_state_seq_set_data_ext()` → restore perturbed state
+5. `llama_decode()` → generates with perturbed KV cache
+6. Buffer size for n_ctx=2048, 24 layers: ~24 MiB — safe on heap
+
+### Still Blocked
+- **LFM2 recurrent R/S state**: Not included in KV state API. `state_seq_write_data()` only handles `llama_kv_cache` (via `memory->state_write()`). Recurrent state in `llama_memory_recurrent` has separate R/S tensors.
+- **Multi-turn re-mapping**: `state_read_meta` calls `find_slot(ubatch)` which re-allocates cell indices. Need per-turn cell-to-position tracking.
+
+### Test Files
+- `runner/test_state_format2.c` → `test_state_format7.c`: progressive investigation (vocab validation, format parsing, perturbation verification)
+- Source: `I:\llama.cpp\src\llama-kv-cache.cpp:1862-2264` (state_write/read/meta/data)
+- Source: `I:\llama.cpp\src\llama-context.cpp:2808-2877` (magic + seq_id wrapper)

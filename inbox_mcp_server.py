@@ -876,6 +876,99 @@ def _cleanup_stale_incoming(state: dict) -> int:
 
 
 # ── run ──────────────────────────────────────────────────────────────
+# ── File Vault (time-travel snapshots) ─────────────────────────────
+try:
+    from file_vault.core import FileVault as _FileVault
+
+    def _fvault() -> _FileVault:
+        return _FileVault(WORKSPACE)
+
+    @mcp.tool()
+    def fvault_checkpoint(label: str = "") -> str:
+        """Take a snapshot of watched files (.h/.c/.py/.dll/.so). Optionally label it."""
+        fv = _fvault()
+        fv.add_root(str(WORKSPACE))
+        has_ch, n, _ = fv.has_changes_since_last()
+        if has_ch:
+            fv.snapshot(label=f"auto_{n}_files_changed")
+        snap_id = fv.checkpoint(label=label)
+        return f"snapshot {snap_id:06d} — {label or '(no label)'}"
+
+    @mcp.tool()
+    def fvault_rewind(snap_id: int, dry_run: bool = False) -> str:
+        """Restore files from a snapshot. Use dry_run=True to preview."""
+        fv = _fvault()
+        has_ch, n, _ = fv.has_changes_since_last()
+        if has_ch:
+            fv.snapshot(label=f"pre_rewind_{n}_files_changed")
+        n_restored = fv.rewind(target_id=snap_id, dry_run=dry_run)
+        mode = "would restore" if dry_run else "restored"
+        return f"{mode} {n_restored} files from snap_{snap_id:06d}"
+
+    @mcp.tool()
+    def fvault_ffwd(from_id: int, to_id: int | None = None, dry_run: bool = False) -> str:
+        """Fast-forward: restore only files changed between two snapshots."""
+        fv = _fvault()
+        n_restored = fv.ffwd(from_id=from_id, to_id=to_id, dry_run=dry_run)
+        target = f"snap_{to_id:06d}" if to_id else "latest"
+        mode = "would restore" if dry_run else "restored"
+        return f"{mode} {n_restored} changed files (snap_{from_id:06d} → {target})"
+
+    @mcp.tool()
+    def fvault_branch(from_id: int, name: str) -> str:
+        """Branch snapshot history from a given snapshot."""
+        snap_id = _fvault().branch(from_id=from_id, branch_name=name)
+        return f"branched snap_{from_id:06d} → snap_{snap_id:06d} ({name})"
+
+    @mcp.tool()
+    def fvault_list(branch: str | None = None, limit: int = 20) -> str:
+        """List snapshot timeline. Optionally filter by branch."""
+        snaps = _fvault().list(branch=branch, limit=limit)
+        if not snaps:
+            return "no snapshots"
+        lines = []
+        for s in reversed(snaps):
+            ts = datetime.fromtimestamp(s['timestamp']).strftime("%Y-%m-%d %H:%M:%S")
+            label = f" [{s['label']}]" if s.get('label') else ""
+            lines.append(f"  {s['id']:06d}  {ts}  {s['branch']:>8}  {s['n_files']:>4} files{label}")
+        return "\n".join(lines)
+
+    @mcp.tool()
+    def fvault_diff(snap_a: int, snap_b: int, verbose: bool = False) -> str:
+        """Compare two snapshots: added, removed, changed files."""
+        d = _fvault().diff(snap_a, snap_b)
+        lines = [
+            f"snap_{snap_a:06d} → snap_{snap_b:06d}",
+            f"  added:   {len(d['added'])}",
+            f"  removed: {len(d['removed'])}",
+            f"  changed: {len(d['changed'])}",
+            f"  same:    {d['same_count']}",
+        ]
+        if verbose:
+            for f in d['added']: lines.append(f"    + {f}")
+            for f in d['removed']: lines.append(f"    - {f}")
+            for f in d['changed']: lines.append(f"    ~ {f}")
+        return "\n".join(lines)
+
+    @mcp.tool()
+    def fvault_status() -> str:
+        """Show file vault status — snapshots, size, roots."""
+        s = _fvault().status()
+        lines = [
+            f"vault: {s['vault_path']}",
+            f"branch: {s['branch']}",
+            f"snapshots: {s['snapshots_total']}",
+            f"size: {s['vault_size_bytes']:,} bytes",
+            f"roots: {len(s['roots'])}",
+        ]
+        return "\n".join(lines)
+
+    print(f"[inbox] file-vault tools registered (snapshot dir: {WORKSPACE / '.file_vault'})", flush=True)
+
+except ImportError:
+    print(f"[inbox] file-vault not available (pip install -e I:\\storage-cleaner)", flush=True)
+
+
 if __name__ == "__main__":
     # ── auto-migrate old vault from workspace root to drive root ──
     _old_vault = WORKSPACE / ".vault"

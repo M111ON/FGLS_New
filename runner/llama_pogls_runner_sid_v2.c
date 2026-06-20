@@ -207,6 +207,7 @@ static int n_found = 0;
 #include "geo_addr.h"
 #include "icosa_bridge_loader.h"
 #include "gear_lock.h"
+#include "kv_swap.h"
 
 static IcosaBridge g_ibridge;
 static void *g_ibridge_ctx = NULL;
@@ -259,10 +260,16 @@ static int g_n_experiment_clean = 0;
 
 /* session profile */
 static SessionProfile g_ses;
+static int g_opt_sid_disable = 0;
 static int g_opt_simulate = 0;
 static const char *g_opt_profile_batch = NULL;
 static int g_turn_count = 0;
 static double g_opt_sem_weight = 0.8, g_opt_hist_weight = 0.2, g_opt_rnd_weight = 0.0, g_opt_decay = 1.0;
+
+/* KV swap */
+static int g_opt_kv_swap = 0;       /* bytes to perturb (0=disabled) */
+static int g_opt_kv_layer = -1;     /* layer filter */
+static KVSwapCtx g_kv_swap;
 
 /* tensor memory store (--mem-store) */
 static const char *g_opt_mem_store = NULL;
@@ -485,6 +492,9 @@ int main(int argc,char**argv){
         else if(!strcmp(argv[i],"--cosplay")&&i+1<argc){g_opt_cosplay=1;cosplay_load(argv[++i],&g_cp);fprintf(stderr,"[cosplay] loaded %s (%u entries)\n",argv[i],g_cp.n);}
         else if(!strcmp(argv[i],"--cosplay-compare"))g_opt_cosplay_compare=1;
         else if(!strcmp(argv[i],"--experiment")&&i+1<argc)g_opt_experiment=argv[++i];
+        else if(!strcmp(argv[i],"--sid-disable"))g_opt_sid_disable=1;
+        else if(!strcmp(argv[i],"--kv-swap")&&i+1<argc)g_opt_kv_swap=atoi(argv[++i]);
+        else if(!strcmp(argv[i],"--kv-layer")&&i+1<argc)g_opt_kv_layer=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--simulate"))g_opt_simulate=1;
         else if(!strcmp(argv[i],"--profile-batch")&&i+1<argc)g_opt_profile_batch=argv[++i];
         else if(!strcmp(argv[i],"--semantic-weight")&&i+1<argc)g_opt_sem_weight=(float)atof(argv[++i]);
@@ -533,6 +543,9 @@ int main(int argc,char**argv){
             fprintf(stderr,"  --cosplay PATH            Load cosplay perturbation profile\n");
             fprintf(stderr,"  --cosplay-compare         Compare output with/without cosplay\n");
             fprintf(stderr,"  --experiment DIR          Run multi-condition experiment\n");
+            fprintf(stderr,"  --sid-disable             Disable all SID swaps (plain inference)\n");
+            fprintf(stderr,"  --kv-swap N              Perturb N bytes in KV state per decode (0=off)\n");
+            fprintf(stderr,"  --kv-layer N             Target specific KV layer (-1=all, 0..N)\n");
             fprintf(stderr,"  --simulate                Simulate session (no model)\n");
             fprintf(stderr,"  --profile-batch FILE      Batch generate session profiles\n");
             fprintf(stderr,"  --semantic-weight N       Semantic hash weight (default: 0.8)\n");
@@ -553,6 +566,11 @@ int main(int argc,char**argv){
         else if(!gguf_path)gguf_path=argv[i];
     }
     if(!gguf_path){fprintf(stderr,"ERROR: missing model.gguf\n");return 1;}
+
+    if (g_opt_sid_disable) {
+        fprintf(stderr, "[sid] disabled by --sid-disable\n");
+        sid_face = 0;
+    }
 
     llama_backend_init();
     ggml_backend_load("ggml-cpu-x64.dll");
@@ -1234,11 +1252,14 @@ int main(int argc,char**argv){
 
     /* ── Create context (once, for the whole session) ── */
     struct llama_context_params cp=llama_context_default_params();
-    cp.n_ctx=2048;cp.n_threads=4;cp.n_threads_batch=4;cp.n_batch=128;cp.n_ubatch=64;
+    cp.n_ctx=2048;cp.n_threads=4;cp.n_threads_batch=4;cp.n_batch=2048;cp.n_ubatch=64;
     struct llama_context *lctx = llama_init_from_model(model, cp);
     if(!lctx){fprintf(stderr,"ERROR: context\n"); sid_loader_close(&slc); gguf_idx_close(&gidx); llama_model_free(model); llama_backend_free(); return 1;}
     const struct llama_vocab *v = llama_model_get_vocab(model);
     int nv = llama_vocab_n_tokens(v);
+
+    /* ── Init KV swap ── */
+    kv_swap_init(&g_kv_swap, lctx, g_opt_kv_swap, g_opt_kv_layer);
 
     /* ── Cosplay-compare: decode WITH and WITHOUT cosplay ── */
     if (g_opt_cosplay_compare && g_opt_cosplay && g_cp.n > 0 && sid_face > 0 && n_sid_swaps > 0 && g_experiment_clean_ptrs) {
@@ -1477,7 +1498,7 @@ int main(int argc,char**argv){
     if(opt_chat){
         char*roles[MAX_CHAT_HISTORY],*content[MAX_CHAT_HISTORY];int cc=0;
         roles[0]="system";content[0]=strdup("You are a helpful assistant.");cc=1;
-        printf("\n=== SID Chat (Qwen format) ===\n/exit  /clear\n\n");
+        printf("\n=== SID Chat ===\n/exit  /clear\n\n");
         char line[MAX_LINE];int32_t cum_pos=0;
         while(1){
             printf(">>> ");fflush(stdout);
@@ -1511,13 +1532,24 @@ int main(int argc,char**argv){
                 continue;
             }
             roles[cc]="user";content[cc]=strdup(line);cc++;
-            size_t flen=0;char*fmt=chat_format_qwen((const char**)roles,(const char**)content,cc,&flen);
-            int na=llama_tokenize(v,fmt,flen,NULL,0,false,false);
+            /* Apply model's chat template (full history each turn) */
+            llama_chat_message *msgs = (llama_chat_message*)malloc((size_t)cc * sizeof(llama_chat_message));
+            for (int _j = 0; _j < cc; _j++) { msgs[_j].role = roles[_j]; msgs[_j].content = content[_j]; }
+            const char *chat_tmpl = llama_model_chat_template(model, NULL);
+            if (!chat_tmpl) chat_tmpl = "";
+            int flen = llama_chat_apply_template(chat_tmpl, msgs, (size_t)cc, true, NULL, 0);
+            char *fmt = (char*)malloc((size_t)flen + 1);
+            llama_chat_apply_template(chat_tmpl, msgs, (size_t)cc, true, fmt, flen + 1);
+            free(msgs);
+            int na=llama_tokenize(v,fmt,flen,NULL,0,true,false);
             int nt=na<0?-na:na;
             if(nt<=0||nt>2048-64){free(fmt);continue;}
             int*ta=(int*)malloc((size_t)nt*4);
-            llama_tokenize(v,fmt,flen,ta,nt,false,false);
+            llama_tokenize(v,fmt,flen,ta,nt,true,false);
             free(fmt);
+            /* Clear KV cache and re-populate from position 0 each turn */
+            llama_memory_seq_rm(llama_get_memory(lctx), 0, -1, -1);
+            cum_pos = 0;
             struct llama_batch pb=llama_batch_init(nt,0,1);pb.n_tokens=nt;
             for(int j=0;j<nt;j++){pb.token[j]=ta[j];pb.pos[j]=cum_pos+j;pb.n_seq_id[j]=1;pb.seq_id[j][0]=0;pb.logits[j]=j==nt-1?1:0;}
             sid_swap_apply();
@@ -1563,17 +1595,30 @@ int main(int argc,char**argv){
     }
 
     if(opt_prompt){
-        int ntokens=llama_tokenize(v,opt_prompt,strlen(opt_prompt),NULL,0,true,false);
+        const char *p_tmpl = llama_model_chat_template(model, NULL);
+        if (!p_tmpl) p_tmpl = "";
+        llama_chat_message p_msg[1] = {{"user", opt_prompt}};
+        int p_flen = llama_chat_apply_template(p_tmpl, p_msg, 1, true, NULL, 0);
+        if (p_flen < 0) { fprintf(stderr, "template error\n"); return 1; }
+        char *p_fmt = (char*)malloc((size_t)p_flen + 1);
+        llama_chat_apply_template(p_tmpl, p_msg, 1, true, p_fmt, p_flen + 1);
+        int ntokens=llama_tokenize(v,p_fmt,(int)strlen(p_fmt),NULL,0,true,false);
         int nt=ntokens<0?-ntokens:ntokens;
-        if(nt<=0){fprintf(stderr,"tokenize fail\n"); return 1;}
+        if(nt<=0){fprintf(stderr,"tokenize fail\n"); free(p_fmt); return 1;}
         int*toks=(int*)malloc((size_t)nt*4);
-        llama_tokenize(v,opt_prompt,strlen(opt_prompt),toks,nt,true,false);
+        llama_tokenize(v,p_fmt,(int)strlen(p_fmt),toks,nt,true,false);
+        free(p_fmt);
         struct llama_batch pb=llama_batch_init(nt,0,1);pb.n_tokens=nt;
         for(int j=0;j<nt;j++){pb.token[j]=toks[j];pb.pos[j]=j;pb.n_seq_id[j]=1;pb.seq_id[j][0]=0;pb.logits[j]=j==nt-1?1:0;}
         sid_swap_apply();
         if(llama_decode(lctx,pb)!=0){fprintf(stderr,"[dbg] decode fail\n");llama_batch_free(pb);free(toks);sid_swap_restore();return 1;}
         sid_swap_restore(); twin_gpu_gear_push();
         sid_mem_store_log(lctx, nv, (uint16_t)(nt - 1), sid_face);
+        /* KV swap: snapshot prompt KV state and inject perturbation */
+        if (g_kv_swap.n_perturb) {
+            kv_swap_snapshot(&g_kv_swap, lctx);
+            kv_swap_inject_perturbed(&g_kv_swap, lctx);
+        }
         if (opt_capture) {
             #ifdef _WIN32
             _mkdir(opt_capture);
@@ -1612,6 +1657,9 @@ int main(int argc,char**argv){
     }
 
     /* ── Tensor memory store save ── */
+    /* ── Cleanup KV swap ── */
+    kv_swap_free(&g_kv_swap);
+
     if (g_opt_mem_store && g_tmem_buf) {
         tmem_save(&g_tmem_store, g_opt_mem_store);
         fprintf(stderr, "[mem-store] saved %u records to %s\n",
