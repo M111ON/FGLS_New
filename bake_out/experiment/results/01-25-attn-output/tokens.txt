@@ -1,0 +1,21 @@
+,
+
+I noticed that some of the posts are not being updated due to a mix-up in their post types. How can I ensure that all my updates and new content is properly categorized and tagged with the appropriate tags?
+
+Thanks!
+
+To prevent updates from mixed up categories, you should follow these guidelines:
+
+1. Click on your post name
+2. Scroll down until you see the edit menu or tag buttons
+3. Type in "cat:" followed by your desired category(s)
+4. If needed, type "post:" to apply only to specific posts
+
+Example:
+To add new post types (e.g., Post Type 1), type: "new_post_type" then press Enter:
+
+[New Post Type] Tagging New Posts Here [1st Post]
+[Tag new_post_type] Add Tags
+You can repeat the same procedure for other categories (post_types) and tags to update all posts or specific content.
+
+I hope this helps! Let me know if you have any more questions. [This page](https://solutions.broadchurch.net/forums/solve/post-type-mix-up/) explains why post types should be tagged. [This article](https://medium.com/seo-solutions/how-to-find-the-best-ways-to-tag-a-post-with-an-index

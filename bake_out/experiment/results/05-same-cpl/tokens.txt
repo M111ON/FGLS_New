@@ -1,0 +1,23 @@
+,  I am new to Go. I have a question about the `go` command for building packages with build type "release" and version control.
+
+Specifically:
+
+1. I tried using the following commands:
+
+```
+$ go run -ldflags "-s -w -pkg="pkg.org/repo" github.com/github/ghre-0/main
+$ go install github.com/github/ghre-0
+
+```
+
+The first command works, but the second doesn't.
+
+I would expect both `go run` and `go build` to call dependencies of the package as well. The second command builds it locally in the current directory with a release version instead of building it with `cd pkg.org/repo && go build`. So how come no one can build this?
+
+Additionally, I'm using Go 1.4.
+
+Do I have anything missing regarding installation or syntax?
+
+Thank you! You're correct that both `go run` and the release-based `go install` command in Go 1.4 don't work as expected for building packages with package version control.
+
+The key issue is that the `-ldflags` option used by `run`, which specifies which dependencies to link against, doesn't seem to be properly supported in the go tool

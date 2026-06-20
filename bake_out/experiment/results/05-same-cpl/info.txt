@@ -1,0 +1,6 @@
+condition: 05-same-cpl
+cpl: bake_out\experiment/same-cpl.cpl
+first_token: 11
+first_piece: ,
+n_tokens: 257
+elapsed_ms: 43840

@@ -1,0 +1,1429 @@
+/*
+ * llama_pogls_runner_sid_v2.c — SID-aware inference runner with inline tensor scan
+ * Build (from repo root): gcc -O2 -std=c11 -I. -Icollection -Icollection/src -Icollection/core -Icollection/core/core -Icollection/core/pogls_engine/core -Icollection/geopixel -Icollection/geopixel/Metatron/core -Icollection/pogls_engine -Icollection/geo_jump_module/include -II:/llama.cpp/include -II:/llama.cpp/ggml/include -o llama_pogls_runner_sid_v2.exe runner/llama_pogls_runner_sid_v2.c collection/geo_jump_module/src/geo_jump.c runner/llama.dll runner/ggml.dll runner/ggml-base.dll runner/ggml-cpu-x64.dll -lm
+ * Usage: llama_pogls_runner_sid_v2.exe I:/model/model.gguf [options]
+ *
+ * KEY DIFFERENCES from v1:
+ *   - No DLL dependency (no LoadLibrary/GetProcAddress for sid_tensor_helper.dll)
+ *   - Inline memory scan for tensor pointers (from test_swap_all.c)
+ *   - Per-decode SID swap: swap tensor->data BETWEEN llama_decode calls
+ *   - --sid-face N: select SID face (0=disabled, 1=swap output.weight to cache)
+ *
+ * Scan flow (after model load):
+ *   1. Open GGUF → get tensor names list
+ *   2. VirtualQuery → model allocation base
+ *   3. Tier 1: scan model struct (64KB) for tensor ptrs matching GGUF names
+ *   4. Tier 2: find layers pointer in model struct
+ *   5. Tier 3: scan layers heap allocation for remaining tensors
+ *   6. Store all found tensor ptrs → per-decode swap
+ *
+ * SID swap pattern (proven by test_swap_all.c):
+ *   swap tensor->data → llama_decode → restore tensor->data
+ */
+
+#ifdef _WIN32
+  #define WIN32_LEAN_AND_MEAN
+  #include <windows.h>
+  #include <direct.h>
+  #define CLOCK_MONOTONIC 0
+  typedef struct{long tv_sec;long tv_nsec;}PoglsTime;
+  static inline int clock_gettime(int _clk,PoglsTime *ts){
+      LARGE_INTEGER f,c;QueryPerformanceFrequency(&f);QueryPerformanceCounter(&c);
+      ts->tv_sec=(long)(c.QuadPart/f.QuadPart);
+      ts->tv_nsec=(long)(c.QuadPart%f.QuadPart*1000000000LL/f.QuadPart);return 0;}
+#else
+  #include <time.h>
+  typedef struct timespec PoglsTime;
+#endif
+
+/* Cross-platform abstraction (VirtualQuery, GetModuleFileName, etc.) */
+#include "pogls_platform.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+#include <stdbool.h>
+#include "llama.h"
+#include "gguf_index.h"
+#include "sid_cache.h"
+#include "sid_loader.h"
+#include "bond_discovery.h"
+#include "hex_grid.h"
+#include "th_grid.h"
+#include "goldberg_sid.h"
+#include "sid_delta_ring.h"
+#include "sid_timetravel.h"
+#include "cosplay.h"
+#include "session_profile.h"
+
+#define MAX_TOKENS_CACHE 4096
+#define MAX_CHAT_HISTORY 128
+#define MAX_LINE 4096
+#define MAX_TENSORS  4096
+#define NAME_MAX 64
+#define SCAN_LIMIT 0x200000
+#define MAX_SID_SWAPS 512
+#define SAVE_LOGITS 15
+
+typedef struct{
+    float temp,top_p,repeat_penalty;int top_k,repeat_last_n;
+    int tokens[MAX_TOKENS_CACHE],count;
+}Sampler;
+
+typedef struct{float p;int idx;}SIDProbPair;
+
+static int prob_cmp_desc(const void*a,const void*b){
+    float x=((const SIDProbPair*)a)->p,y=((const SIDProbPair*)b)->p;
+    return (x>y)?-1:(x<y)?1:0;
+}
+
+static int sample_token(const float*raw,int n,Sampler*sp){
+    float*p=(float*)malloc((size_t)n*4);memcpy(p,raw,(size_t)n*4);
+    if(sp->repeat_penalty!=1.0f&&sp->count>0){
+        int s=sp->count>sp->repeat_last_n?sp->count-sp->repeat_last_n:0;
+        for(int i=s;i<sp->count;i++){int t=sp->tokens[i];
+            if(t>=0&&t<n){if(p[t]<0)p[t]*=sp->repeat_penalty;else p[t]/=sp->repeat_penalty;}}}
+    if(sp->temp>0)for(int i=0;i<n;i++)p[i]/=sp->temp;
+    float mx=p[0];for(int i=1;i<n;i++)if(p[i]>mx)mx=p[i];
+    float s=0;for(int i=0;i<n;i++){p[i]=expf(p[i]-mx);s+=p[i];}
+    if(s>0)for(int i=0;i<n;i++)p[i]/=s;
+    int do_k=sp->top_k>0&&sp->top_k<n;
+    int do_p=sp->top_p<1.0f;
+    if(do_k||do_p){
+        SIDProbPair*a=(SIDProbPair*)malloc((size_t)n*sizeof(SIDProbPair));
+        for(int i=0;i<n;i++){a[i].p=p[i];a[i].idx=i;}
+        qsort(a,(size_t)n,sizeof(SIDProbPair),prob_cmp_desc);
+        if(do_k){float kt=a[sp->top_k-1].p;for(int i=0;i<n;i++)if(p[i]<kt)p[i]=0;
+            s=0;for(int i=0;i<n;i++)s+=p[i];if(s>0)for(int i=0;i<n;i++)p[i]/=s;}
+        if(do_p){float c=0;for(int i=0;i<n;i++){if(c>=sp->top_p){for(int j=i;j<n;j++)p[a[j].idx]=0;break;}c+=a[i].p;}
+            s=0;for(int i=0;i<n;i++)s+=p[i];if(s>0)for(int i=0;i<n;i++)p[i]/=s;}
+        free(a);
+    }
+    float r=(float)rand()/(float)RAND_MAX,c=0;int tok=0;
+    for(int i=0;i<n;i++){c+=p[i];if(r<c){tok=i;break;}}free(p);
+    if(sp->count<MAX_TOKENS_CACHE)sp->tokens[sp->count++]=tok;
+    return tok;
+}
+
+static char*chat_format_qwen(const char*roles[],const char*content[],int cc,size_t*out_len){
+    size_t total=0;for(int i=0;i<cc;i++)total+=64+strlen(content[i]);
+    char*fmt=(char*)calloc(total+128,1);size_t pos=0;
+    for(int i=0;i<cc;i++)pos+=sprintf(fmt+pos,"<|im_start|>%s\n%s<|im_end|>\n",roles[i],content[i]);
+    pos+=sprintf(fmt+pos,"<|im_start|>assistant\n");
+    *out_len=pos;return fmt;
+}
+
+static uint64_t xor_hash(const uint8_t *d, size_t n) {
+    uint64_t h = 0x811c9dc5c3a14b2dULL;
+    for (size_t i = 0; i < n; i++) { h ^= d[i]; h *= 0x100000001b3ULL; }
+    return h;
+}
+
+/* ── Memory-scan helpers (from test_swap_all.c) ── */
+
+static int is_valid_tensor_ptr(const void *cand) {
+    if (!cand || (uintptr_t)cand < 0x10000) return 0;
+    if (!pogls_is_valid_ptr((const char*)cand + 256 + 63)) return 0;
+    const char *name = (const char*)cand + 256;
+    if (name[0] < 32 || name[0] > 126) return 0;
+    int nlen = (int)strnlen(name, 64);
+    if (nlen < 3 || nlen >= 64) return 0;
+    for (int i = 0; i < nlen; i++) {
+        char c = name[i];
+        if (c == '\\' || c == '/' || c == '=' || c == ':' || c == ';') return 0;
+    }
+    if (!((name[0] >= 'a' && name[0] <= 'z') ||
+          (name[0] >= 'A' && name[0] <= 'Z') ||
+          (name[0] >= '0' && name[0] <= '9') ||
+          name[0] == '_' || name[0] == '.')) return 0;
+    int64_t ne0; memcpy(&ne0, (const char*)cand + 16, sizeof(ne0));
+    if (ne0 <= 0 || ne0 > 10000000) return 0;
+    int type; memcpy(&type, cand, sizeof(type));
+    if (type < 0 || type > 43) return 0;
+    void *data; memcpy(&data, (const char*)cand + 248, sizeof(data));
+    if (!data || (uintptr_t)data < 0x10000) return 0;
+    return 1;
+}
+
+static const char* tensor_name(const void *tensor) { return (const char*)tensor + 256; }
+static void* tensor_data(const void *tensor) { void *d; memcpy(&d, (const char*)tensor + 248, sizeof(d)); return d; }
+static void tensor_set_data(void *tensor, void *new_data) { memcpy((char*)tensor + 248, &new_data, sizeof(void*)); }
+
+static int name_wanted(const char *name, const GGUFTensorIndex *gidx) {
+    for (uint64_t i = 0; i < gidx->n_tensors; i++)
+        if (strcmp(name, gidx->names[i]) == 0) return 1;
+    return 0;
+}
+
+static int scan_region(const uint8_t *start, const uint8_t *end,
+    const GGUFTensorIndex *gidx, void **ptrs, int max, int *count)
+{
+    for (const uint8_t *p = start; p + 8 < end && *count < max; p += 8) {
+        void *cand; memcpy(&cand, p, sizeof(cand));
+        if (!cand || (uintptr_t)cand < 0x10000) continue;
+        if (!is_valid_tensor_ptr(cand)) continue;
+        if (!name_wanted(tensor_name(cand), gidx)) continue;
+        int dup = 0;
+        for (int i = 0; i < *count; i++)
+            if (ptrs[i] == cand) { dup = 1; break; }
+        if (dup) continue;
+        ptrs[(*count)++] = cand;
+    }
+    return *count;
+}
+
+static void* find_layers_ptr(const void *model_alloc) {
+    uint8_t *end = (uint8_t*)model_alloc + 65536;
+    for (uint8_t *p = (uint8_t*)model_alloc; p + 8 < end; p += 8) {
+        void *cand; memcpy(&cand, p, sizeof(cand));
+        if (!cand || (uintptr_t)cand < 0x10000) continue;
+        if (!pogls_is_valid_ptr(cand) || !pogls_is_valid_ptr((uint8_t*)cand + 4096 - 1)) continue;
+        for (int off = 0; off < 4096; off += 8) {
+            void *sub; memcpy(&sub, (uint8_t*)cand + off, sizeof(sub));
+            if (!is_valid_tensor_ptr(sub)) continue;
+            if (strncmp(tensor_name(sub), "blk.0.", 6) == 0) return cand;
+        }
+    }
+    return NULL;
+}
+
+/* ── Found tensor tracking ── */
+
+typedef struct {
+    void   *ptr;
+    void   *orig_data;
+    char    name[64];
+    size_t  nbytes;
+    int64_t ne[4];
+    uint32_t dtype;
+} FoundTensor;
+
+static FoundTensor found_tensors[MAX_TENSORS];
+static int n_found = 0;
+
+#include "capture_pipeline.h"
+#include "tensor_memory.h"
+#include "geo_addr.h"
+#include "icosa_bridge_loader.h"
+#include "gear_lock.h"
+
+static IcosaBridge g_ibridge;
+static void *g_ibridge_ctx = NULL;
+static int g_opt_twin_gpu = 0;
+static int g_opt_gear_lock = 0;
+static float g_opt_gear_threshold = 0.30f;
+static int g_opt_gear_log = 16;
+
+/* Icosa event flags (local def — icosa_twin_bridge.h not included in runner) */
+#define ICOSA_EV_NONE      0x00u
+#define ICOSA_EV_FLUSH     0x01u
+#define ICOSA_EV_BOUNDARY  0x02u
+
+/* Gear lock state: per-tensor icosa route history + priority scores */
+static GearLockState g_gear;
+
+typedef struct {
+    int      ft_idx;
+    uint32_t geo_addr;
+    uint8_t *sid_data;
+    size_t   sid_size;
+    int      is_malloc;
+} SIDSwapEntry;
+
+static SIDSwapEntry sid_swaps[MAX_SID_SWAPS];
+static int n_sid_swaps = 0;
+
+/* delta array:  parallel to sid_swaps[], ใช้สำหรับ time travel journal
+ * sid_timetravel_before_decode() อ่าน arrays นี้เพื่อ push delta entry
+ * → runner ไม่ต้อง recompute pointer ทุกครั้ง */
+static int    delta_ft_idx[MAX_SID_SWAPS];
+static void  *delta_tensor_ptr[MAX_SID_SWAPS];
+static void  *delta_orig_data[MAX_SID_SWAPS];
+static void  *delta_sid_data[MAX_SID_SWAPS];
+static size_t delta_size[MAX_SID_SWAPS];
+
+/* Per-cycle gear lock active mask: 1 = apply this swap, 0 = skip */
+static uint8_t gear_active_mask[MAX_SID_SWAPS];
+static int n_gear_active = 0;
+
+static SidTimeTravel tt;
+
+/* cosplay */
+static CosplayProfile g_cp;
+static int g_opt_cosplay = 0;
+static int g_opt_cosplay_compare = 0;
+static const char *g_opt_experiment = NULL;
+static uint8_t **g_experiment_clean_ptrs = NULL;
+static int g_n_experiment_clean = 0;
+
+/* session profile */
+static SessionProfile g_ses;
+static int g_opt_simulate = 0;
+static const char *g_opt_profile_batch = NULL;
+static int g_turn_count = 0;
+static double g_opt_sem_weight = 0.8, g_opt_hist_weight = 0.2, g_opt_rnd_weight = 0.0, g_opt_decay = 1.0;
+
+/* tensor memory store (--mem-store) */
+static const char *g_opt_mem_store = NULL;
+static uint8_t *g_tmem_buf = NULL;
+static size_t g_tmem_buf_size = 0;
+static TensorMemStore g_tmem_store;
+
+/* Apply SID swaps with gear lock filtering.
+ * If mask is non-NULL, only swaps with mask[i] != 0 are applied.
+ * Time travel journals only actually-applied swaps. */
+static void sid_swap_apply_ex(const uint8_t *mask) {
+    int n_apply = 0;
+    int apply_ft_idx[MAX_SID_SWAPS];
+    void *apply_tptr[MAX_SID_SWAPS];
+    void *apply_orig[MAX_SID_SWAPS];
+    void *apply_sid[MAX_SID_SWAPS];
+    size_t apply_sz[MAX_SID_SWAPS];
+
+    for (int i = 0; i < n_sid_swaps; i++) {
+        if (mask && !mask[i]) continue;
+        apply_ft_idx[n_apply] = delta_ft_idx[i];
+        apply_tptr[n_apply] = delta_tensor_ptr[i];
+        apply_orig[n_apply] = delta_orig_data[i];
+        apply_sid[n_apply] = delta_sid_data[i];
+        apply_sz[n_apply] = delta_size[i];
+        n_apply++;
+    }
+
+    if (n_apply == 0) return;
+
+    sid_timetravel_before_decode(&tt, n_apply,
+        apply_ft_idx, apply_tptr, apply_orig, apply_sid, apply_sz);
+
+    for (int i = 0; i < n_apply; i++) {
+        tensor_set_data(found_tensors[apply_ft_idx[i]].ptr, apply_sid[i]);
+    }
+}
+
+/* Rebuild gear active mask from current gear lock state.
+ * On first 3 cycles (no history yet), keeps all swaps active. */
+static inline void gear_rebuild_mask(void) {
+    if (!g_opt_gear_lock) {
+        n_gear_active = n_sid_swaps;
+        memset(gear_active_mask, 1, n_sid_swaps);
+        return;
+    }
+    /* bootstrap: first few cycles have no route history — keep everything */
+    if (g_gear.cycles < 3) {
+        n_gear_active = n_sid_swaps;
+        memset(gear_active_mask, 1, n_sid_swaps);
+        return;
+    }
+    n_gear_active = gear_lock_build_mask(&g_gear, n_sid_swaps, delta_ft_idx,
+                                          gear_active_mask, g_opt_gear_threshold);
+}
+
+static inline void sid_swap_apply(void) {
+    gear_rebuild_mask();
+    sid_swap_apply_ex(g_opt_gear_lock ? gear_active_mask : NULL);
+}
+
+/* Restore SID swaps with gear lock filtering.
+ * Only restores swaps that were actually applied (i.e., pass mask). */
+static void sid_swap_restore_ex(const uint8_t *mask) {
+    int n_restore = 0;
+    int restore_ft_idx[MAX_SID_SWAPS];
+
+    if (mask) {
+        for (int i = 0; i < n_sid_swaps; i++) {
+            if (!mask[i]) continue;
+            restore_ft_idx[n_restore++] = delta_ft_idx[i];
+        }
+    } else {
+        for (int i = 0; i < n_sid_swaps; i++) {
+            restore_ft_idx[n_restore++] = delta_ft_idx[i];
+        }
+    }
+
+    for (int i = 0; i < n_restore; i++) {
+        tensor_set_data(found_tensors[restore_ft_idx[i]].ptr,
+                        found_tensors[restore_ft_idx[i]].orig_data);
+    }
+
+    sid_timetravel_after_decode(&tt);
+}
+
+static inline void sid_swap_restore(void) {
+    sid_swap_restore_ex(g_opt_gear_lock ? gear_active_mask : NULL);
+}
+
+/* ── Icosa lane push: feed tensor data through GPU icosa lane ── */
+
+/* Lightweight 64-bit hash of first 64 bytes of tensor data */
+static inline uint64_t tensor_data_hash64(const void *data, size_t nbytes) {
+    if (!data || nbytes == 0) return 0;
+    size_t n = nbytes < 64 ? nbytes : 64;
+    const uint64_t *p = (const uint64_t *)data;
+    uint64_t h = 0;
+    for (size_t i = 0; i < n / 8; i++) h ^= p[i];
+    return h;
+}
+
+/* Push tensor data through icosa lane with geo_addr + data hash.
+ * Feeds routes + events into GearLockState for dynamic SID swap scheduling. */
+static void twin_gpu_gear_push(void) {
+    if (!g_opt_twin_gpu || !g_ibridge_ctx) return;
+    if (n_sid_swaps <= 0) return;
+
+    uint64_t *addrs = (uint64_t*)malloc((size_t)n_sid_swaps * sizeof(uint64_t));
+    uint64_t *vals  = (uint64_t*)malloc((size_t)n_sid_swaps * sizeof(uint64_t));
+    uint64_t *routes = (uint64_t*)malloc((size_t)n_sid_swaps * sizeof(uint64_t));
+    uint8_t  *events = (uint8_t*)malloc((size_t)n_sid_swaps);
+    if (!addrs || !vals || !routes || !events) { free(addrs); free(vals); free(routes); free(events); return; }
+
+    for (int s = 0; s < n_sid_swaps; s++) {
+        int fi = sid_swaps[s].ft_idx;
+        uint32_t geo = sid_swaps[s].geo_addr;
+        addrs[s] = (uint64_t)geo;
+        vals[s]  = tensor_data_hash64(found_tensors[fi].orig_data,
+                                       found_tensors[fi].nbytes);
+    }
+
+    int ret = g_ibridge.dispatch(g_ibridge_ctx, addrs, vals, (uint32_t)n_sid_swaps,
+                                   0xDEADBEEFCAFEBABEULL, 1, 0x5555555555555555ULL,
+                                   routes, events);
+    if (ret == 0) {
+        /* Feed icosa lane output into gear lock state */
+        gear_lock_update(&g_gear, routes, events, n_sid_swaps, delta_ft_idx);
+        /* Periodic log every g_opt_gear_log cycles */
+        if (g_opt_gear_lock && g_opt_gear_log > 0 && (g_gear.cycles % g_opt_gear_log) == 0) {
+            gear_lock_print_summary(&g_gear,
+                (const char *const *)found_tensors, n_found, 5);
+        }
+    } else {
+        fprintf(stderr, "[twin-gpu] dispatch error %d\n", ret);
+    }
+
+    free(addrs); free(vals); free(routes); free(events);
+}
+
+/* ── Tensor memory store: log swapped tensors after decode ── */
+static inline void sid_mem_store_log(struct llama_context *lctx, int nv, uint16_t tick, int sid_face_val) {
+    if (!g_opt_mem_store || !g_tmem_buf || n_sid_swaps == 0) return;
+    const float *logits = llama_get_logits_ith(lctx, -1);
+    uint8_t entropy = 128;
+    if (logits && nv > 0) {
+        uint32_t h = 0;
+        int lim = nv < 4096 ? nv : 4096;
+        for (int i = 0; i < lim; i++) { uint32_t u; memcpy(&u, &logits[i], sizeof(u)); h ^= u; }
+        entropy = (uint8_t)((h >> 16) ^ (h >> 8) ^ h);
+    }
+    for (int si = 0; si < n_sid_swaps; si++) {
+        int fi = sid_swaps[si].ft_idx;
+        int layer = bond_extract_layer(found_tensors[fi].name);
+        ZoneCardSID z;
+        memset(&z, 0, sizeof(z));
+        z.node_id = (uint32_t)fi;
+        z.capo_key = (uint16_t)sid_face_val;
+        z.inf.logit_entropy = entropy;
+        z.inf.tick = tick;
+        z.inf.layer = (uint8_t)(layer < 0 ? 255 : layer);
+        z.card.card_type = 1;
+        tmem_append_raw(&g_tmem_store, &z, found_tensors[fi].name, NULL, 0);
+    }
+}
+
+/* ── main ── */
+
+int main(int argc,char**argv){
+    if(argc<2){fprintf(stderr,"Usage: %s model.gguf [--chat] [--ngl N] [--sid-face N] [--sid-spoke N|all] [--sid-slot STR] [--sid-corrupt N] [--sid-checkpoint NAME] [--sid-rewind NAME] [--sid-ff NAME] [--sid-branch NAME] [options]\n",argv[0]);return 1;}
+    const char*gguf_path=NULL,*opt_prompt=NULL,*opt_dump_logits=NULL,*opt_capture=NULL;
+    int opt_ngl=0,opt_max_new=256,opt_chat=0,opt_count_only=0,opt_bond=0,opt_hex=0,opt_trihex=0,opt_goldberg=0,sid_face=0,sid_spoke=-1,sid_corrupt=0,opt_swap_cold=0,sid_corrupt_val=1,opt_hybrid=0,opt_sid_adaptive=0,opt_sid_multi=0;
+    float opt_goldberg_threshold = 1.2f;
+    int opt_sid_geodesic = 0; float opt_sid_geo_radius = 0.5f, opt_hybrid_radius = 0.01f;
+    const char*sid_slot="",*sid_pattern=NULL;
+    setbuf(stderr, NULL);
+    Sampler sp={.temp=.7f,.top_p=.9f,.repeat_penalty=1.1f,.top_k=40,.repeat_last_n=64};
+    sid_timetravel_init(&tt);
+    for(int i=1;i<argc;i++){
+        if(!strcmp(argv[i],"--ngl")&&i+1<argc)opt_ngl=atoi(argv[++i]);
+        else if(!strcmp(argv[i],"--temp")&&i+1<argc)sp.temp=(float)atof(argv[++i]);
+        else if(!strcmp(argv[i],"--top-p")&&i+1<argc)sp.top_p=(float)atof(argv[++i]);
+        else if(!strcmp(argv[i],"--top-k")&&i+1<argc)sp.top_k=atoi(argv[++i]);
+        else if(!strcmp(argv[i],"--repeat-penalty")&&i+1<argc)sp.repeat_penalty=(float)atof(argv[++i]);
+        else if(!strcmp(argv[i],"--max-new")&&i+1<argc)opt_max_new=atoi(argv[++i]);
+        else if(!strcmp(argv[i],"--prompt")&&i+1<argc)opt_prompt=argv[++i];
+        else if(!strcmp(argv[i],"--chat"))opt_chat=1;
+        else if(!strcmp(argv[i],"--sid-face")&&i+1<argc)sid_face=atoi(argv[++i]);
+        else if(!strcmp(argv[i],"--sid-spoke")&&i+1<argc){const char*v=argv[++i];sid_spoke=!strcmp(v,"all")?-1:atoi(v);}
+        else if(!strcmp(argv[i],"--sid-slot")&&i+1<argc)sid_slot=argv[++i];
+        else if(!strcmp(argv[i],"--sid-corrupt")&&i+1<argc)sid_corrupt=atoi(argv[++i]);
+        else if(!strcmp(argv[i],"--sid-pattern")&&i+1<argc)sid_pattern=argv[++i];
+        else if(!strcmp(argv[i],"--sid-byte")&&i+1<argc)sid_corrupt_val=atoi(argv[++i]);
+        else if(!strcmp(argv[i],"--sid-checkpoint")&&i+1<argc)sid_timetravel_set_checkpoint(&tt,argv[++i]);
+        else if(!strcmp(argv[i],"--sid-rewind")&&i+1<argc)sid_timetravel_set_rewind(&tt,argv[++i]);
+        else if(!strcmp(argv[i],"--sid-ff")&&i+1<argc)sid_timetravel_set_ffwd(&tt,argv[++i]);
+        else if(!strcmp(argv[i],"--sid-branch")&&i+1<argc)sid_timetravel_set_branch(&tt,argv[++i]);
+        else if(!strcmp(argv[i],"--bond"))opt_bond=1;
+        else if(!strcmp(argv[i],"--hex"))opt_hex=2;
+        else if(!strcmp(argv[i],"--hex-level")&&i+1<argc)opt_hex=atoi(argv[++i]);
+        else if(!strcmp(argv[i],"--trihex"))opt_trihex=2;
+        else if(!strcmp(argv[i],"--trihex-level")&&i+1<argc)opt_trihex=atoi(argv[++i]);
+        else if(!strcmp(argv[i],"--goldberg"))opt_goldberg=1;
+        else if(!strcmp(argv[i],"--goldberg-threshold")&&i+1<argc)opt_goldberg_threshold=(float)atof(argv[++i]);
+        else if(!strcmp(argv[i],"--count-only"))opt_count_only=1;
+        else if(!strcmp(argv[i],"--swap-cold"))opt_swap_cold=1;
+        else if(!strcmp(argv[i],"--sid-geodesic"))opt_sid_geodesic=1;
+        else if(!strcmp(argv[i],"--sid-geo-radius")&&i+1<argc)opt_sid_geo_radius=(float)atof(argv[++i]);
+        else if(!strcmp(argv[i],"--hybrid"))opt_hybrid=1;
+        else if(!strcmp(argv[i],"--hybrid-radius")&&i+1<argc)opt_hybrid_radius=(float)atof(argv[++i]);
+        else if(!strcmp(argv[i],"--sid-adaptive"))opt_sid_adaptive=1;
+        else if(!strcmp(argv[i],"--sid-multi")&&i+1<argc)opt_sid_multi=atoi(argv[++i]);
+        else if(!strcmp(argv[i],"--capture")&&i+1<argc)opt_capture=argv[++i];
+        else if(!strcmp(argv[i],"--mem-store")&&i+1<argc)g_opt_mem_store=argv[++i];
+        else if(!strcmp(argv[i],"--twin-gpu"))g_opt_twin_gpu=1;
+        else if(!strcmp(argv[i],"--gear-lock")){g_opt_gear_lock=1;g_opt_twin_gpu=1;}
+        else if(!strcmp(argv[i],"--gear-lock-threshold")&&i+1<argc){g_opt_gear_threshold=(float)atof(argv[++i]);g_opt_gear_lock=1;g_opt_twin_gpu=1;}
+        else if(!strcmp(argv[i],"--gear-log")&&i+1<argc){g_opt_gear_log=atoi(argv[++i]);g_opt_gear_lock=1;g_opt_twin_gpu=1;}
+        else if(!strcmp(argv[i],"--dump-logits")&&i+1<argc)opt_dump_logits=argv[++i];
+        else if(!strcmp(argv[i],"--cosplay")&&i+1<argc){g_opt_cosplay=1;cosplay_load(argv[++i],&g_cp);fprintf(stderr,"[cosplay] loaded %s (%u entries)\n",argv[i],g_cp.n);}
+        else if(!strcmp(argv[i],"--cosplay-compare"))g_opt_cosplay_compare=1;
+        else if(!strcmp(argv[i],"--experiment")&&i+1<argc)g_opt_experiment=argv[++i];
+        else if(!strcmp(argv[i],"--simulate"))g_opt_simulate=1;
+        else if(!strcmp(argv[i],"--profile-batch")&&i+1<argc)g_opt_profile_batch=argv[++i];
+        else if(!strcmp(argv[i],"--semantic-weight")&&i+1<argc)g_opt_sem_weight=(float)atof(argv[++i]);
+        else if(!strcmp(argv[i],"--history-weight")&&i+1<argc)g_opt_hist_weight=(float)atof(argv[++i]);
+        else if(!strcmp(argv[i],"--random-weight")&&i+1<argc)g_opt_rnd_weight=(float)atof(argv[++i]);
+        else if(!strcmp(argv[i],"--decay")&&i+1<argc)g_opt_decay=(float)atof(argv[++i]);
+        else if(!strcmp(argv[i],"-h")||!strcmp(argv[i],"--help")){
+            fprintf(stderr,"Usage: %s model.gguf [options]\n",argv[0]);
+            fprintf(stderr,"  --chat                    Interactive chat mode\n");
+            fprintf(stderr,"  --ngl N                   GPU layers (default: 0)\n");
+            fprintf(stderr,"  --prompt TEXT             Prompt mode\n");
+            fprintf(stderr,"  --temp N                  Temperature (default: 0.7)\n");
+            fprintf(stderr,"  --top-p N                 Top-p sampling (default: 0.9)\n");
+            fprintf(stderr,"  --top-k N                 Top-k sampling (default: 40)\n");
+            fprintf(stderr,"  --max-new N               Max new tokens (default: 256)\n");
+            fprintf(stderr,"  --sid-face N              SID face on/off (0=off, 1=on)\n");
+            fprintf(stderr,"  --sid-spoke N|all         SID layer filter (all or 0..23)\n");
+            fprintf(stderr,"  --sid-slot STR            SID tensor name substring\n");
+            fprintf(stderr,"  --sid-corrupt N           Flip N bytes of each swapped SID tensor\n");
+            fprintf(stderr,"  --sid-checkpoint NAME     Save time-travel checkpoint\n");
+            fprintf(stderr,"  --sid-rewind NAME         Rewind to checkpoint\n");
+            fprintf(stderr,"  --sid-ff NAME             Fast-forward from checkpoint\n");
+            fprintf(stderr,"  --sid-branch NAME         Branch from checkpoint\n");
+            fprintf(stderr,"  --bond                    Discover tensor topology bonds\n");
+            fprintf(stderr,"  --hex                     Hex grid aperture-7 bond (replaces --bond)\n");
+            fprintf(stderr,"  --hex-level N             Hex grid level: 1=coarse 2=mid 3=fine (default: 2)\n");
+            fprintf(stderr,"  --trihex                  TriHex tessellation arena coordinates\n");
+            fprintf(stderr,"  --trihex-level N           TriHex level: 1=sector 2=hex 3=trihex (default: 2)\n");
+            fprintf(stderr,"  --goldberg                Goldberg spherical projection of trihex\n");
+            fprintf(stderr,"  --goldberg-threshold N    Geodesic threshold in rad (default: 1.2)\n");
+            fprintf(stderr,"  --sid-corrupt N           Corrupt first N bytes of swapped tensors (XOR with --sid-byte)\n");
+            fprintf(stderr,"  --sid-byte N              Corruption XOR/value byte (default: 1)\n");
+            fprintf(stderr,"  --sid-pattern TYPE:PARAM  Corrupt pattern: xor:N, set:N, zero, rot:K\n");
+            fprintf(stderr,"  --sid-geodesic           Expand SID swap to goldberg geodesic neighbors\n");
+            fprintf(stderr,"  --sid-geo-radius N       Geodesic radius in rad (default: 0.5)\n");
+            fprintf(stderr,"  --hybrid                 Hex+goldberg hybrid: hot cluster + geodesic neighbors\n");
+            fprintf(stderr,"  --hybrid-radius N        Geodesic radius for hybrid (default: 0.01)\n");
+            fprintf(stderr,"  --sid-adaptive           Scale corruption bytes by tensor hotness\n");
+            fprintf(stderr,"  --sid-multi N            Inject at N hottest layers simultaneously\n");
+            fprintf(stderr,"  --capture DIR             Capture tensor geometry after decode, write to DIR\n");
+            fprintf(stderr,"  --mem-store PATH          Log SID tensor memory timeline to file\n");
+            fprintf(stderr,"  --twin-gpu                Enable GPU icosa lane (CUDA twin bridge)\n");
+            fprintf(stderr,"  --gear-lock              Enable gear lock feedback (requires --twin-gpu)\n");
+            fprintf(stderr,"  --gear-lock-threshold N  Gear lock priority threshold 0..1 (default: 0.30, lower=more swaps)\n");
+            fprintf(stderr,"  --gear-log N             Gear lock log interval cycles (default: 16, 0=disable)\n");
+            fprintf(stderr,"  --cosplay PATH            Load cosplay perturbation profile\n");
+            fprintf(stderr,"  --cosplay-compare         Compare output with/without cosplay\n");
+            fprintf(stderr,"  --experiment DIR          Run multi-condition experiment\n");
+            fprintf(stderr,"  --simulate                Simulate session (no model)\n");
+            fprintf(stderr,"  --profile-batch FILE      Batch generate session profiles\n");
+            fprintf(stderr,"  --semantic-weight N       Semantic hash weight (default: 0.8)\n");
+            fprintf(stderr,"  --history-weight N        History weight (default: 0.2)\n");
+            fprintf(stderr,"  --random-weight N         Random weight (default: 0.0)\n");
+            fprintf(stderr,"  --decay N                 Edge weight decay per turn (default: 1.0)\n");
+            fprintf(stderr,"  --count-only              Report tensor counts and exit\n");
+            fprintf(stderr,"Chat commands:\n");
+            fprintf(stderr,"  /checkpoint NAME          Save checkpoint\n");
+            fprintf(stderr,"  /rewind NAME              Rewind to checkpoint\n");
+            fprintf(stderr,"  /ff NAME                  Fast-forward from checkpoint\n");
+            fprintf(stderr,"  /branch NAME              Branch from checkpoint\n");
+            fprintf(stderr,"  /tt                       Show time travel state\n");
+            fprintf(stderr,"  /clear                    Clear chat history\n");
+            fprintf(stderr,"  /exit                     Exit\n");
+            return 0;
+        }
+        else if(!gguf_path)gguf_path=argv[i];
+    }
+    if(!gguf_path){fprintf(stderr,"ERROR: missing model.gguf\n");return 1;}
+
+    llama_backend_init();
+    ggml_backend_load("ggml-cpu-x64.dll");
+    ggml_backend_load("ggml-cuda.dll");
+
+    fprintf(stderr, "\n--- load_from_file ---\n");
+
+    struct llama_model_params mp=llama_model_default_params();
+    mp.n_gpu_layers=opt_ngl;
+    PoglsTime t0,t1;clock_gettime(CLOCK_MONOTONIC,&t0);
+    struct llama_model*model=llama_model_load_from_file(gguf_path,mp);
+    clock_gettime(CLOCK_MONOTONIC,&t1);
+    if(!model){fprintf(stderr,"ERROR: model load\n");llama_backend_free();return 1;}
+    double lms=(t1.tv_sec-t0.tv_sec)*1000.0+(t1.tv_nsec-t0.tv_nsec)/1e6;
+    fprintf(stderr,"[load] %.0f ms\n",lms);
+
+    /* ── Open GGUF index ── */
+    GGUFTensorIndex gidx;
+    if (gguf_idx_open(gguf_path, &gidx) != 0) {
+        fprintf(stderr, "ERROR: gguf_idx_open failed\n");
+        llama_model_free(model); llama_backend_free(); return 1;
+    }
+
+    /* ── Scan model memory for tensor pointers ── */
+    fprintf(stderr, "\n--- tensor scan ---\n");
+
+    PoglsMemInfo mi;
+    pogls_query_memory(model, &mi);
+    uint8_t *base = (uint8_t*)mi.base_addr;
+    uint8_t *base_end = base + mi.region_size;
+    if (base_end - base > 65536) base_end = base + 65536;
+
+    void *ptrs[MAX_TENSORS] = {0};
+    int n = 0;
+    scan_region(base, base_end, &gidx, ptrs, MAX_TENSORS, &n);
+    fprintf(stderr, "[scan] Tier 1 (model struct): %d tensors (base=%p end=%p)\n", n, (void*)base, (void*)base_end);
+
+    void *layers = find_layers_ptr((const uint8_t*)model);
+    if (layers) {
+        PoglsMemInfo lmi;
+        if (pogls_query_memory(layers, &lmi) == 0 && lmi.state == POGLS_MEM_COMMIT) {
+            uint8_t *ls = (uint8_t*)lmi.base_addr;
+            uint8_t *le = ls + lmi.region_size;
+            if (le > ls + SCAN_LIMIT) le = ls + SCAN_LIMIT;
+            scan_region(ls, le, &gidx, ptrs, MAX_TENSORS, &n);
+            fprintf(stderr, "[scan] Tier 2 (layers heap): %d tensors\n", n);
+        }
+    } else {
+        fprintf(stderr, "[scan] No layers ptr found (Tier 2 skipped)\n");
+    }
+
+    /* populate found_tensors from ptrs */
+    for (int i = 0; i < n; i++) {
+        found_tensors[i].ptr = ptrs[i];
+        found_tensors[i].orig_data = tensor_data(ptrs[i]);
+        int64_t ne[4]; memcpy(ne, (const char*)ptrs[i] + 16, sizeof(ne));
+        size_t nb[4]; memcpy(nb, (const char*)ptrs[i] + 48, sizeof(nb));
+        size_t nb_total = (size_t)ne[0] * nb[0];
+        for (int j = 1; j < 4; j++) { size_t ni = (size_t)ne[j] * nb[j]; if (ni > nb_total) nb_total = ni; }
+        found_tensors[i].nbytes = nb_total;
+        memcpy(found_tensors[i].ne, ne, sizeof(ne));
+        int t; memcpy(&t, ptrs[i], sizeof(t));
+        found_tensors[i].dtype = (uint32_t)t;
+        size_t nl = strnlen(tensor_name(ptrs[i]), 63);
+        memcpy(found_tensors[i].name, tensor_name(ptrs[i]), nl);
+        found_tensors[i].name[nl] = 0;
+    }
+    n_found = n;
+    fprintf(stderr, "[scan] Total found: %d / %llu GGUF tensors\n", n_found,
+        (unsigned long long)gidx.n_tensors);
+
+    /* ── compute n_layers from found tensors ── */
+    int n_layers = 0;
+    for (int i = 0; i < n_found; i++) {
+        int l = bond_extract_layer(found_tensors[i].name);
+        if (l + 1 > n_layers) n_layers = l + 1;
+    }
+
+    /* ── Arena / bond / prediction ── */
+    float *bond_hotness = NULL;
+    if (opt_trihex) {
+        /* trihex is pure arena — just print coords for debug */
+        int tlevel = opt_trihex;
+        fprintf(stderr, "\n--- trihex tessellation arena (level=%d) ---\n", tlevel);
+        THGridState tgs;
+        th_grid_init(&tgs, tlevel, n_layers);
+        const char *hnames[MAX_TENSORS];
+        for (int i = 0; i < n_found; i++)
+            hnames[i] = found_tensors[i].name;
+        th_print_coords(hnames, n_found, &tgs);
+    }
+    if (opt_goldberg) {
+        fprintf(stderr, "\n--- goldberg spherical prediction ---\n");
+        THGridState tgs;
+        th_grid_init(&tgs, 2, n_layers);
+        const char *hnames[MAX_TENSORS];
+        for (int i = 0; i < n_found; i++)
+            hnames[i] = found_tensors[i].name;
+
+        /* map all tensors to THCoords */
+        THCoord *gcoords = (THCoord*)calloc((size_t)n_found, sizeof(THCoord));
+        for (int i = 0; i < n_found; i++)
+            gcoords[i] = th_from_name(hnames[i], &tgs);
+
+        goldberg_print_coords(hnames, n_found, gcoords);
+
+        /* discover bonds via goldberg geodesic */
+        GoldbergBondGraph gbg;
+        goldberg_bond_graph_init(&gbg, n_found * 8);
+        goldberg_discover_bonds(&gbg, gcoords, n_found, opt_goldberg_threshold);
+
+        fprintf(stderr, "[goldberg] %d bonds (geo threshold <= %.2f rad)\n",
+                gbg.n_bonds, opt_goldberg_threshold);
+
+        /* compute initial hotness from cardioid express (match hex_grid) */
+        float *goldberg_init_h = (float*)calloc((size_t)n_found, sizeof(float));
+        for (int i = 0; i < n_found; i++) {
+            int l = th_extract_layer(hnames[i]);
+            goldberg_init_h[i] = l >= 0 ? goldberg_cardioid_hotness(l, n_layers) : 0.5f;
+            if (goldberg_init_h[i] < 0.5f && strstr(hnames[i], "norm.weight"))
+                goldberg_init_h[i] = 0.5f;
+        }
+
+        /* predict hotness using goldberg spherical propagation */
+        float *goldberg_h = goldberg_predict_hotness(&gbg, goldberg_init_h, n_found);
+        free(goldberg_init_h);
+        goldberg_predict_print(hnames, n_found, goldberg_h);
+
+        goldberg_bond_graph_free(&gbg);
+        free(gcoords);
+        free(goldberg_h);
+    }
+    if (opt_hex > 0) {
+        int hlevel = opt_hex;  /* 1, 2, 3 */
+        fprintf(stderr, "\n--- hex grid aperture-7 (level=%d) ---\n", hlevel);
+        hex_grid_init(&_hex_grid, hlevel, (float)n_layers);
+
+        const char *hnames[MAX_TENSORS];
+        for (int i = 0; i < n_found; i++)
+            hnames[i] = found_tensors[i].name;
+
+        hex_print_coords(hnames, n_found, &_hex_grid);
+
+        HexBondGraph hg;
+        int max_bonds = n_found * 8;
+        if (max_bonds > 32768) max_bonds = 32768;
+        hex_bond_graph_init(&hg, max_bonds);
+        hex_discover_bonds(&hg, hnames, n_found, &_hex_grid, 8);
+
+        hex_bond_print_summary(&hg);
+        for (int i = 0; i < hg.n_bonds && i < 40; i++) {
+            HexBond *b = &hg.bonds[i];
+            fprintf(stderr, "  %s\n", b->label);
+        }
+        if (hg.n_bonds > 40)
+            fprintf(stderr, "  ... and %d more\n", hg.n_bonds - 40);
+
+        fprintf(stderr, "\n--- hex bond prediction ---\n");
+        bond_hotness = hex_predict_hotness(&hg, hnames, n_found, n_layers);
+        hex_predict_print(hnames, n_found, bond_hotness);
+        hex_bond_graph_free(&hg);
+    }
+    /* ── Legacy bond discovery (only if --hex not active) ── */
+    else if (opt_bond) {
+        fprintf(stderr, "\n--- bond discovery ---\n");
+        BondTensorInfo binfo[MAX_TENSORS];
+        BondCtx bctx = { .tensors = binfo, .n_tensors = n_found };
+        for (int i = 0; i < n_found; i++) {
+            binfo[i].ptr = found_tensors[i].ptr;
+            binfo[i].orig_data = found_tensors[i].orig_data;
+            binfo[i].nbytes = found_tensors[i].nbytes;
+            memcpy(binfo[i].name, found_tensors[i].name, NAME_MAX);
+            memcpy(binfo[i].ne, found_tensors[i].ne, sizeof(binfo[i].ne));
+            binfo[i].dtype = found_tensors[i].dtype;
+        }
+        int max_bonds = n_found * 8;
+        if (max_bonds > 32768) max_bonds = 32768;
+        bond_discover_all(&bctx, n_layers, max_bonds);
+        bond_print_summary(&bctx);
+        for (int i = 0; i < bctx.graph.n_bonds && i < 40; i++) {
+            Bond *b = &bctx.graph.bonds[i];
+            fprintf(stderr, "  %s\n", b->label);
+        }
+        if (bctx.graph.n_bonds > 40)
+            fprintf(stderr, "  ... and %d more\n", bctx.graph.n_bonds - 40);
+        /* prediction hotness */
+        fprintf(stderr, "\n--- bond prediction ---\n");
+        bond_hotness = bond_predict_hotness(&bctx, n_layers);
+        bond_predict_print(&bctx, bond_hotness);
+        bond_graph_free(&bctx.graph);
+    }
+
+    /* ── if --count-only, report hex/bond summary and exit ── */
+    if (opt_count_only) {
+        fprintf(stderr, "\n[tensor] gguf_tensors=%llu found_via_scan=%d n_layers=%d\n",
+            (unsigned long long)gidx.n_tensors, n_found, n_layers);
+        if (bond_hotness) free(bond_hotness);
+        gguf_idx_close(&gidx);
+        llama_model_free(model); llama_backend_free(); return 0;
+    }
+
+    /* ── SID cache init (quant-agnostic: cache ALL non-norm tensors) ── */
+    fprintf(stderr, "\n--- SID cache init ---\n");
+
+    uint64_t total_bytes = 0, max_sz = 0;
+    int n_weight_tensors = 0;
+    for (uint64_t i = 0; i < gidx.n_tensors; i++) {
+        if (sid_loader_is_norm(gidx.names[i])) continue;
+        n_weight_tensors++;
+        total_bytes += gidx.sizes[i];
+        if (gidx.sizes[i] > max_sz) max_sz = gidx.sizes[i];
+    }
+    fprintf(stderr, "[sid] weight tensors: %d, total data: %llu bytes, max tensor: %llu\n",
+        n_weight_tensors, (unsigned long long)total_bytes, (unsigned long long)max_sz);
+
+    SIDCache sid_cache;
+    sid_cache_init(&sid_cache, total_bytes + (1u << 20));
+
+    SIDLoaderCtx slc;
+    if (sid_loader_open(&slc, gguf_path, &sid_cache) != 0) {
+        fprintf(stderr, "ERROR: sid_loader_open failed\n");
+        gguf_idx_close(&gidx);
+        llama_model_free(model); llama_backend_free(); return 1;
+    }
+
+    uint8_t *read_buf = (uint8_t*)malloc((size_t)max_sz);
+    uint8_t *verify_buf = (uint8_t*)malloc((size_t)max_sz);
+    if (!read_buf || !verify_buf) {
+        fprintf(stderr, "ERROR: OOM\n");
+        free(read_buf); free(verify_buf); sid_loader_close(&slc);
+        gguf_idx_close(&gidx);
+        llama_model_free(model); llama_backend_free(); return 1;
+    }
+
+    int cached_ok = 0;
+    for (uint64_t i = 0; i < gidx.n_tensors; i++) {
+        if (sid_loader_is_norm(gidx.names[i])) continue;
+        const char *name = gidx.names[i];
+        size_t sz = (size_t)gidx.sizes[i];
+        FILE *f = fopen(gguf_path, "rb");
+        if (!f) { fprintf(stderr, "  fopen fail\n"); continue; }
+        uint64_t abs_off = gguf_idx_tensor_abs_offset(&gidx, i);
+        fseek(f, (long)abs_off, SEEK_SET);
+        size_t r = fread(verify_buf, 1, sz, f);
+        fclose(f);
+        if (r != sz) { fprintf(stderr, "  fread fail at idx %llu name=%s sz=%llu abs_off=%llu r=%llu\n", (unsigned long long)i, name, (unsigned long long)sz, (unsigned long long)abs_off, (unsigned long long)r); continue; }
+        uint64_t mmap_hash = xor_hash(verify_buf, sz);
+        uint8_t *cached_data = NULL; size_t cached_sz = 0;
+        if (sid_loader_load(&slc, name, read_buf, &cached_data, &cached_sz) == 0) {
+            uint64_t cache_hash = xor_hash(cached_data, cached_sz);
+            if (cache_hash == mmap_hash && cached_sz == sz) {
+                cached_ok++;
+            } else {
+                fprintf(stderr, "  HASH MISMATCH %s: mmap=%016llx cache=%016llx sz=%llu/%llu\n",
+                    name, (unsigned long long)mmap_hash, (unsigned long long)cache_hash,
+                    (unsigned long long)sz, (unsigned long long)cached_sz);
+            }
+        }
+    }
+
+    fprintf(stderr, "[sid] cached+verified: %d/%d\n", cached_ok, n_weight_tensors);
+    fprintf(stderr, "[sid] file_hits=%llu cache_hits=%llu bytes_read=%llu\n",
+        (unsigned long long)slc.file_hits, (unsigned long long)slc.cache_hits,
+        (unsigned long long)slc.bytes_read);
+
+    /* second pass: cache-only verification */
+    fprintf(stderr, "[sid] cache-only verification...\n");
+    int cache_only_ok = 0;
+    for (uint64_t i = 0; i < gidx.n_tensors; i++) {
+        if (sid_loader_is_norm(gidx.names[i])) continue;
+        const char *name = gidx.names[i];
+        size_t sz = (size_t)gidx.sizes[i];
+        uint8_t *cached_data = NULL; size_t cached_sz = 0;
+        if (sid_loader_load(&slc, name, read_buf, &cached_data, &cached_sz) == 0 && cached_sz == sz) {
+            cache_only_ok++;
+        }
+    }
+    fprintf(stderr, "[sid] cache-only hits: %d/%d\n", cache_only_ok, n_weight_tensors);
+    fprintf(stderr, "[sid] file_hits=%llu cache_hits=%llu (second pass)\n",
+        (unsigned long long)slc.file_hits, (unsigned long long)slc.cache_hits);
+
+    free(verify_buf);
+    free(read_buf);
+
+    /* ── Time travel init ── */
+    if (sid_face > 0) {
+        fprintf(stderr, "[timetravel] initialized: delta ring=%d entries, max checkpoints=%d\n",
+            SID_DELTA_MAX_ENTRIES, SID_CHECKPOINT_MAX);
+    }
+
+    /* ── Hybrid cluster: hex_grid hot epicenter + goldberg geodesic neighbors ── */
+    uint8_t *hybrid_include = NULL;
+    if (opt_hybrid && bond_hotness && sid_face > 0) {
+        fprintf(stderr, "\n--- hybrid cluster (hot epicenter + geodesic neighbors) ---\n");
+        fprintf(stderr, "[hybrid] radius=%.4f rad\n", opt_hybrid_radius);
+        THGridState hgs;
+        th_grid_init(&hgs, 2, n_layers);
+        THCoord *hcoords = (THCoord*)calloc((size_t)n_found, sizeof(THCoord));
+        for (int i = 0; i < n_found; i++)
+            hcoords[i] = th_from_name(found_tensors[i].name, &hgs);
+
+        uint8_t *is_hot = (uint8_t*)calloc((size_t)n_found, 1);
+        int n_hot_cached = 0;
+        for (int i = 0; i < n_found; i++) {
+            if (bond_hotness[i] >= 0.9f) {
+                uint8_t *cached = NULL; size_t cached_sz = 0;
+                if (sid_cache_get(&sid_cache, found_tensors[i].name, &cached, &cached_sz) == 0) {
+                    is_hot[i] = 1;
+                    n_hot_cached++;
+                }
+            }
+        }
+        fprintf(stderr, "[hybrid] hot epicenter: %d cached tensors (hotness >= 0.9)\n", n_hot_cached);
+
+        hybrid_include = (uint8_t*)calloc((size_t)n_found, 1);
+        int n_included = 0;
+        for (int i = 0; i < n_found; i++) {
+            uint8_t *cached = NULL; size_t cached_sz = 0;
+            if (sid_cache_get(&sid_cache, found_tensors[i].name, &cached, &cached_sz) != 0)
+                continue;
+            if (is_hot[i]) {
+                hybrid_include[i] = 1;
+                n_included++;
+            } else {
+                for (int j = 0; j < n_found; j++) {
+                    if (!is_hot[j]) continue;
+                    double geo = goldberg_geodesic(hcoords[i], hcoords[j]);
+                    if (geo <= opt_hybrid_radius) {
+                        hybrid_include[i] = 1;
+                        n_included++;
+                        break;
+                    }
+                }
+            }
+        }
+        fprintf(stderr, "[hybrid] cluster size: %d / %d tensors\n", n_included, n_found);
+        free(is_hot);
+        free(hcoords);
+    }
+
+    /* ── Multi-depth: inject at N hottest layers simultaneously ── */
+    uint8_t *multi_include = NULL;
+    if (opt_sid_multi > 0 && bond_hotness && sid_face > 0) {
+        fprintf(stderr, "\n--- multi-depth injection: %d hottest layers ---\n", opt_sid_multi);
+        /* compute per-layer hotness average */
+        float layer_hot[64] = {0};
+        int layer_cnt[64] = {0};
+        for (int i = 0; i < n_found; i++) {
+            int l = th_extract_layer(found_tensors[i].name);
+            if (l < 0 || l >= 64) continue;
+            layer_hot[l] += bond_hotness[i];
+            layer_cnt[l]++;
+        }
+        for (int l = 0; l < 64; l++)
+            if (layer_cnt[l] > 0) layer_hot[l] /= layer_cnt[l];
+
+        /* find N hottest layers */
+        int hot_layers[64] = {0};
+        int n_hot_layers = opt_sid_multi;
+        if (n_hot_layers > n_layers) n_hot_layers = n_layers;
+        for (int n = 0; n < n_hot_layers; n++) {
+            int best = -1;
+            for (int l = 0; l < n_layers; l++) {
+                int skip = 0;
+                for (int k = 0; k < n; k++) { if (hot_layers[k] == l) { skip = 1; break; } }
+                if (skip) continue;
+                if (best < 0 || layer_hot[l] > layer_hot[best]) best = l;
+            }
+            hot_layers[n] = best;
+        }
+        fprintf(stderr, "[multi] selected layers: ");
+        for (int n = 0; n < n_hot_layers; n++)
+            fprintf(stderr, "L%d(%.2f)%s", hot_layers[n], layer_hot[hot_layers[n]], n < n_hot_layers-1 ? " " : "\n");
+
+        multi_include = (uint8_t*)calloc((size_t)n_found, 1);
+        int n_multi = 0;
+        for (int i = 0; i < n_found; i++) {
+            int l = th_extract_layer(found_tensors[i].name);
+            for (int n = 0; n < n_hot_layers; n++) {
+                if (l == hot_layers[n]) { multi_include[i] = 1; n_multi++; break; }
+            }
+        }
+        fprintf(stderr, "[multi] %d / %d tensors from %d layers\n", n_multi, n_found, n_hot_layers);
+    }
+
+    /* ── SID coordinate: (face, spoke, slot) → tensor filter ── */
+    /*    face  = chooses SID face data (currently just on/off)        */
+    /*    spoke = layer index (0..23) or -1=all, matches blk.<spoke>.  */
+    /*    slot  = tensor name substring (e.g. "attn_q", "ffn_gate")    */
+    /*    bond  = when --bond active, skip "cold" tensors (hotness<0.3)*/
+    if (sid_face > 0) {
+        fprintf(stderr, "\n--- SID swap setup (face=%d, spoke=%d, slot=\"%s\") ---\n",
+            sid_face, sid_spoke, sid_slot);
+        if (bond_hotness) {
+            if (opt_sid_multi > 0 && multi_include)
+                fprintf(stderr, "[sid] multi-depth filter active: %d hottest layers\n", opt_sid_multi);
+            else if (opt_hybrid)
+                fprintf(stderr, "[sid] hybrid filter active: hot epicenter + geodesic neighbors\n");
+            else if (opt_swap_cold)
+                fprintf(stderr, "[sid] bond filter inverted (--swap-cold): will skip hot/warm tensors (hotness >= 0.3)\n");
+            else
+                fprintf(stderr, "[sid] bond filter active: will skip cold tensors (hotness < 0.3)\n");
+        }
+        if (g_opt_gear_lock)
+            fprintf(stderr, "[gear] route stability feedback active (threshold=%.2f)\n", g_opt_gear_threshold);
+        for (int i = 0; i < n_found && n_sid_swaps < MAX_SID_SWAPS; i++) {
+            const char *name = found_tensors[i].name;
+            /* bond prediction filter */
+            if (bond_hotness) {
+                if (opt_sid_multi > 0 && multi_include) { if (!multi_include[i]) continue; }
+                else if (opt_hybrid)        { if (!hybrid_include[i]) continue; }
+                else if (opt_swap_cold) { if (bond_hotness[i] >= 0.3f) continue; }
+                else                   { if (bond_hotness[i] < 0.3f)  continue; }
+            }
+
+            if (sid_spoke >= 0) {
+                char expected[32];
+                snprintf(expected, sizeof(expected), "blk.%d.", sid_spoke);
+                if (strncmp(name, expected, strlen(expected)) != 0) continue;
+            }
+            if (sid_slot[0] != '\0' && strstr(name, sid_slot) == NULL) continue;
+
+            uint8_t *cached = NULL; size_t cached_sz = 0;
+            if (sid_cache_get(&sid_cache, name, &cached, &cached_sz) != 0) continue;
+
+            /* encode per-tensor sid_mode based on hotness */
+            uint8_t sid_mode = 0;
+            if (bond_hotness) {
+                float h = bond_hotness[i];
+                if (h >= 0.9f)      sid_mode = geo_encode_sid(0, 0);   /* xor:0 — hot */
+                else if (h >= 0.3f) sid_mode = geo_encode_sid(1, 0);   /* set:0 — warm */
+                else                sid_mode = geo_encode_sid(2, 1);   /* rot:1 — cold */
+            } else {
+                sid_mode = geo_encode_sid(0, 1);  /* xor:1 — default */
+            }
+
+            sid_swaps[n_sid_swaps].ft_idx = i;
+            sid_swaps[n_sid_swaps].geo_addr = geo_addr(name, i, sid_mode);
+            sid_swaps[n_sid_swaps].sid_data = cached;
+            sid_swaps[n_sid_swaps].sid_size = cached_sz;
+            sid_swaps[n_sid_swaps].is_malloc = 0;
+
+            delta_ft_idx[n_sid_swaps] = i;
+            delta_tensor_ptr[n_sid_swaps] = found_tensors[i].ptr;
+            delta_orig_data[n_sid_swaps] = found_tensors[i].orig_data;
+            delta_sid_data[n_sid_swaps] = cached;
+            delta_size[n_sid_swaps] = cached_sz;
+            n_sid_swaps++;
+        }
+        /* ── goldberg geodesic expansion ── */
+        if (opt_sid_geodesic && n_sid_swaps > 0) {
+            fprintf(stderr, "[sid] geodesic expansion: radius=%.2f rad\n", opt_sid_geo_radius);
+            THGridState ggs;
+            th_grid_init(&ggs, 2, n_layers);
+            THCoord *gcoords = (THCoord*)calloc((size_t)n_found, sizeof(THCoord));
+            for (int i = 0; i < n_found; i++)
+                gcoords[i] = th_from_name(found_tensors[i].name, &ggs);
+
+            /* build quick swap-set for O(1) lookup */
+            uint8_t *in_swap = (uint8_t*)calloc((size_t)n_found, 1);
+            for (int s = 0; s < n_sid_swaps; s++)
+                in_swap[sid_swaps[s].ft_idx] = 1;
+
+            int added = 0;
+            for (int s = 0; s < n_sid_swaps; s++) {
+                int src = sid_swaps[s].ft_idx;
+                THCoord sc = gcoords[src];
+                for (int t = 0; t < n_found && n_sid_swaps < MAX_SID_SWAPS; t++) {
+                    if (in_swap[t] || t == src) continue;
+                    double geo = goldberg_geodesic(sc, gcoords[t]);
+                    if (geo > opt_sid_geo_radius) continue;
+                    uint8_t *cached = NULL; size_t cached_sz = 0;
+                    if (sid_cache_get(&sid_cache, found_tensors[t].name, &cached, &cached_sz) != 0)
+                        continue;
+                    in_swap[t] = 1;
+                    /* encode sid_mode for geodesic neighbor (rot:1 — mild) */
+                    uint8_t geo_sid_mode = geo_encode_sid(2, 1);
+                    sid_swaps[n_sid_swaps].ft_idx = t;
+                    sid_swaps[n_sid_swaps].geo_addr = geo_addr(found_tensors[t].name, t, geo_sid_mode);
+                    sid_swaps[n_sid_swaps].sid_data = cached;
+                    sid_swaps[n_sid_swaps].sid_size = cached_sz;
+                    sid_swaps[n_sid_swaps].is_malloc = 0;
+                    delta_ft_idx[n_sid_swaps] = t;
+                    delta_tensor_ptr[n_sid_swaps] = found_tensors[t].ptr;
+                    delta_orig_data[n_sid_swaps] = found_tensors[t].orig_data;
+                    delta_sid_data[n_sid_swaps] = cached;
+                    delta_size[n_sid_swaps] = cached_sz;
+                    n_sid_swaps++; added++;
+                }
+            }
+            fprintf(stderr, "[sid] geodesic added %d neighbors (total=%d)\n", added, n_sid_swaps);
+            free(in_swap); free(gcoords);
+        }
+        if (n_sid_swaps == 0) {
+            fprintf(stderr, "[sid] WARNING: no tensors matched coordinates. SID disabled.\n");
+        } else {
+            if (sid_corrupt) {
+                int v = sid_corrupt_val;
+                int n_adaptive = 0;
+                int n_geo = 0;
+                for (int i = 0; i < n_sid_swaps; i++) {
+                    SIDSwapEntry *e = &sid_swaps[i];
+                    uint8_t *d = e->sid_data;
+                    size_t sz = e->sid_size;
+                    size_t limit = sz < (size_t)sid_corrupt ? sz : (size_t)sid_corrupt;
+                    size_t effective_limit = limit;
+
+                    /* decode per-tensor pattern from geo_addr */
+                    uint8_t geo_mode = geo_sid_mode(e->geo_addr);
+                    uint8_t geo_pattern = geo_sid_pattern(geo_mode);
+                    uint8_t geo_byte = geo_sid_byte(geo_mode);
+                    int use_geo = (e->geo_addr != 0);
+
+                    if (use_geo) {
+                        /* per-tensor pattern from geo_addr */
+                        if (geo_pattern == 0) {
+                            /* xor:geo_byte */
+                            for (size_t j = 0; j < effective_limit; j++)
+                                d[j] ^= geo_byte;
+                        } else if (geo_pattern == 1) {
+                            /* set:geo_byte */
+                            memset(d, geo_byte, effective_limit);
+                        } else if (geo_pattern == 2) {
+                            /* rot:geo_byte (K) */
+                            int k = geo_byte; if (k <= 0) k = 1;
+                            for (size_t j = 0; j < effective_limit; j++)
+                                d[j] = (uint8_t)((d[j] + k) & 0xFF);
+                        } else {
+                            /* reserved — xor:1 */
+                            for (size_t j = 0; j < effective_limit; j++)
+                                d[j] ^= 1;
+                        }
+                        n_geo++;
+                    } else if (sid_pattern) {
+                        /* original pattern-based corruption */
+                        if (opt_sid_adaptive && bond_hotness) {
+                            float h = bond_hotness[e->ft_idx];
+                            size_t scaled = (size_t)(limit * h + 0.5f);
+                            effective_limit = scaled < 1 ? 1 : scaled;
+                            if (effective_limit > sz) effective_limit = sz;
+                            n_adaptive++;
+                        }
+                        char pat[64]; strncpy(pat, sid_pattern, 63); pat[63] = 0;
+                        char *colon = strchr(pat, ':');
+                        if (colon) *colon++ = 0;
+                        int pval = colon ? atoi(colon) : v;
+                        if (strcmp(pat, "set") == 0) {
+                            memset(d, (uint8_t)pval, effective_limit);
+                        } else if (strcmp(pat, "zero") == 0) {
+                            memset(d, 0, effective_limit);
+                        } else if (strcmp(pat, "rot") == 0) {
+                            int k = pval; if (k <= 0) k = 1;
+                            for (size_t j = 0; j < effective_limit; j++)
+                                d[j] = (uint8_t)((d[j] + k) & 0xFF);
+                        } else {
+                            for (size_t j = 0; j < effective_limit; j++)
+                                d[j] ^= (uint8_t)v;
+                        }
+                    } else {
+                        for (size_t j = 0; j < effective_limit; j++)
+                            d[j] ^= (uint8_t)v;
+                    }
+                }
+                if (n_geo > 0) {
+                    fprintf(stderr, "[sid] GEO_ADDR: per-tensor patterns for %d tensors\n", n_geo);
+                }
+                if (opt_sid_adaptive && bond_hotness) {
+                    fprintf(stderr, "[sid] ADAPTIVE: corruption scaled by hotness for %d tensors (base=%d bytes)\n",
+                        n_adaptive, sid_corrupt);
+                } else {
+                    fprintf(stderr, "[sid] CORRUPTED first %d bytes of %d swapped tensors (pattern=%s byte=%d)\n",
+                        sid_corrupt, n_sid_swaps, sid_pattern ? sid_pattern : "xor", v);
+                }
+            }
+            fprintf(stderr, "[sid] %d / %d tensors will be swapped per decode", n_sid_swaps, n_found);
+            if (bond_hotness && !opt_hybrid) {
+                int n_skipped = 0;
+                float threshold = opt_swap_cold ? 0.3f : 0.3f;
+                for (int i = 0; i < n_found; i++)
+                    if (opt_swap_cold ? (bond_hotness[i] >= threshold) : (bond_hotness[i] < threshold))
+                        n_skipped++;
+                if (n_skipped > 0)
+                    fprintf(stderr, " (bond filter skipped %d %s)", n_skipped,
+                        opt_swap_cold ? "hot/warm" : "cold");
+            }
+            fprintf(stderr, "\n");
+        }
+    }
+    /* ── Gear lock init (after SID swap setup so delta_ft_idx[] is populated) ── */
+    if (g_opt_gear_lock) {
+        gear_lock_init(&g_gear);
+        /* initial mask: all swaps active (gear lock hasn't seen cycles yet) */
+        memset(gear_active_mask, 1, sizeof(gear_active_mask));
+        n_gear_active = n_sid_swaps;
+        fprintf(stderr, "[gear] state initialized, %d swaps monitored\n", n_gear_active);
+    }
+
+    /* ── Tensor memory store init ── */
+    if (g_opt_mem_store) {
+        g_tmem_buf_size = 64u * 1024 * 1024;
+        g_tmem_buf = (uint8_t*)malloc(g_tmem_buf_size);
+        if (g_tmem_buf) {
+            tmem_init(&g_tmem_store, g_tmem_buf, g_tmem_buf_size, 0);
+            /* try loading existing file (if any) */
+            FILE *tf = fopen(g_opt_mem_store, "rb");
+            if (tf) { fclose(tf); tmem_load(&g_tmem_store, g_tmem_buf, g_tmem_buf_size, g_opt_mem_store); }
+            fprintf(stderr, "[mem-store] initialized (%zu MB buffer, %u existing records)\n",
+                g_tmem_buf_size >> 20, g_tmem_store.n_records);
+        } else {
+            fprintf(stderr, "[mem-store] malloc(%zu) failed, disabled\n", g_tmem_buf_size);
+            g_opt_mem_store = NULL;
+        }
+    }
+    /* ── Icosa bridge (twin GPU lane) init ── */
+    fprintf(stderr, "[debug] g_opt_twin_gpu=%d\n", g_opt_twin_gpu);
+    if (g_opt_twin_gpu) {
+        char dll_path[512];
+        pogls_module_dir(dll_path, sizeof(dll_path));
+        strcat(dll_path, "icosa_bridge.dll");
+        if (icosa_bridge_load(&g_ibridge, dll_path) == 0) {
+            g_ibridge_ctx = g_ibridge.create(0, 0xDEADBEEFCAFEBABEULL);
+            if (g_ibridge_ctx && g_ibridge.valid(g_ibridge_ctx)) {
+                fprintf(stderr, "[twin-gpu] icosa bridge loaded, GPU ready\n");
+            } else {
+                fprintf(stderr, "[twin-gpu] GPU init failed — disabling\n");
+                if (g_ibridge_ctx) { g_ibridge.destroy(g_ibridge_ctx); g_ibridge_ctx = NULL; }
+                icosa_bridge_unload(&g_ibridge);
+                g_opt_twin_gpu = 0;
+            }
+        } else {
+            fprintf(stderr, "[twin-gpu] icosa_bridge.dll not found — disabled\n");
+            g_opt_twin_gpu = 0;
+        }
+    }
+
+    /* ── Init redirect: set tensor->data to writable SID cache heap BEFORE context creation ── */
+    if (sid_face > 0 && n_sid_swaps > 0) {
+        fprintf(stderr, "[init-redirect] %d tensors: tensor->data → heap (SID cache)\n", n_sid_swaps);
+        for (int s = 0; s < n_sid_swaps; s++) {
+            int fi = sid_swaps[s].ft_idx;
+            tensor_set_data(found_tensors[fi].ptr, found_tensors[fi].orig_data);
+        }
+    }
+
+    /* ── Cosplay: apply profile perturbations to SID cache data ── */
+    if (g_opt_cosplay && g_cp.n > 0 && sid_face > 0 && n_sid_swaps > 0) {
+        fprintf(stderr, "[cosplay] applying %u perturbation entries...\n", g_cp.n);
+        for (int s = 0; s < n_sid_swaps; s++) {
+            uint32_t h = cosplay_fnv1a(found_tensors[sid_swaps[s].ft_idx].name);
+            int ei = cosplay_find(&g_cp, h);
+            if (ei < 0) continue;
+            void *perturbed = cosplay_apply(&g_cp.entries[ei],
+                sid_swaps[s].sid_data, sid_swaps[s].sid_size);
+            if (perturbed) {
+                sid_swaps[s].sid_data = (uint8_t*)perturbed;
+                sid_swaps[s].is_malloc = 1;
+                delta_sid_data[s] = sid_swaps[s].sid_data;
+            }
+        }
+        fprintf(stderr, "[cosplay] applied\n");
+    }
+
+    /* ── Session profile init ── */
+    ses_profile_init(&g_ses);
+    if (g_opt_simulate || g_opt_profile_batch) {
+        fprintf(stderr, "[ses] mode: %s\n", g_opt_profile_batch ? "batch" : "simulate");
+    }
+
+    /* ── Create context (once, for the whole session) ── */
+    struct llama_context_params cp=llama_context_default_params();
+    cp.n_ctx=2048;cp.n_threads=4;cp.n_threads_batch=4;cp.n_batch=128;cp.n_ubatch=64;
+    struct llama_context *lctx = llama_init_from_model(model, cp);
+    if(!lctx){fprintf(stderr,"ERROR: context\n"); sid_loader_close(&slc); gguf_idx_close(&gidx); llama_model_free(model); llama_backend_free(); return 1;}
+    const struct llama_vocab *v = llama_model_get_vocab(model);
+    int nv = llama_vocab_n_tokens(v);
+
+
+    /* ── if --dump-logits, do one decode and exit ── */
+    if (opt_dump_logits) {
+        fprintf(stderr, "\n--- dump-logits to '%s' ---\n", opt_dump_logits);
+        for (int s = 0; s < n_sid_swaps; s++)
+            tensor_set_data(found_tensors[sid_swaps[s].ft_idx].ptr, sid_swaps[s].sid_data);
+
+        llama_token tok = 0;
+        llama_batch batch = llama_batch_get_one(&tok, 1);
+        if (llama_decode(lctx, batch) != 0) {
+            fprintf(stderr, "ERROR: decode failed\n");
+        } else {
+            float *logits = llama_get_logits_ith(lctx, 0);
+            FILE *fp = fopen(opt_dump_logits, "wb");
+            if (fp) {
+                fwrite(&nv, sizeof(nv), 1, fp);
+                fwrite(logits, sizeof(float), nv, fp);
+                fclose(fp);
+                fprintf(stderr, "[dump] %d logits written to %s\n", nv, opt_dump_logits);
+            } else {
+                fprintf(stderr, "ERROR: cannot write %s\n", opt_dump_logits);
+            }
+        }
+        free(bond_hotness); free(hybrid_include); free(multi_include);
+        goto cleanup;
+    }
+    free(bond_hotness); free(hybrid_include); free(multi_include);
+
+    if(!opt_chat&&!opt_prompt&&!opt_dump_logits&&!opt_count_only){opt_chat=1;}
+    if(opt_chat){
+        char*roles[MAX_CHAT_HISTORY],*content[MAX_CHAT_HISTORY];int cc=0;
+        roles[0]="system";content[0]=strdup("You are a helpful assistant.");cc=1;
+        printf("\n=== SID Chat (Qwen format) ===\n/exit  /clear\n\n");
+        char line[MAX_LINE];int32_t cum_pos=0;
+        while(1){
+            printf(">>> ");fflush(stdout);
+            if(!fgets(line,sizeof(line),stdin))break;
+            size_t ll=strlen(line);while(ll>0&&(line[ll-1]=='\n'||line[ll-1]=='\r'))line[--ll]=0;
+            if(ll==0)continue;
+            if(!strcmp(line,"/exit"))break;
+            if(!strcmp(line,"/clear")){for(int _ci=0;_ci<cc;_ci++)free(content[_ci]);cc=0;roles[0]="system";content[0]=strdup("You are a helpful assistant.");cc=1;cum_pos=0;llama_free(lctx);lctx=llama_init_from_model(model,cp);if(!lctx){fprintf(stderr,"ERROR: reinit context\n");break;}v=llama_model_get_vocab(model);nv=llama_vocab_n_tokens(v);printf("Cleared.\n");continue;}
+            if(strncmp(line,"/checkpoint ",12)==0){int _cp=sid_checkpoint(&tt.ring,line+12);fprintf(stderr,_cp>=0?"[chat] checkpoint '%s' #%d at ring[%u]\n":"[chat] checkpoint failed\n",line+12,_cp,_cp>=0?(unsigned)tt.ring.checkpoints[_cp].ring_index:0);continue;}
+            if(strncmp(line,"/rewind ",8)==0){int _cp=sid_find_checkpoint(&tt.ring,line+8);if(_cp>=0){int _n=sid_rewind_to_checkpoint(&tt.ring,(uint32_t)_cp);fprintf(stderr,"[chat] rewind to '%s': %d entries undone\n",line+8,_n);}else{fprintf(stderr,"[chat] checkpoint '%s' not found\n",line+8);}continue;}
+            if(strncmp(line,"/ff ",4)==0){int _cp=sid_find_checkpoint(&tt.ring,line+4);if(_cp>=0){int _n=sid_ffwd_from_checkpoint(&tt.ring,(uint32_t)_cp);fprintf(stderr,"[chat] fast-forward to '%s': %d entries reapplied\n",line+4,_n);}else{fprintf(stderr,"[chat] checkpoint '%s' not found\n",line+4);}continue;}
+            if(strncmp(line,"/branch ",8)==0){int _cp=sid_checkpoint(&tt.ring,line+8);fprintf(stderr,_cp>=0?"[chat] branch checkpoint '%s' #%d at ring[%u]\n":"[chat] branch checkpoint failed\n",line+8,_cp,_cp>=0?(unsigned)tt.ring.checkpoints[_cp].ring_index:0);continue;}
+            if(!strcmp(line,"/tt")){
+                printf("\n=== SID State ===\n");
+                printf("  ring: %u entries (head=%u tail=%u)\n", (unsigned)tt.ring.count, (unsigned)tt.ring.head, (unsigned)tt.ring.tail);
+                printf("  pushed=%llu rewound=%llu ffwd=%llu\n",
+                    (unsigned long long)tt.ring.total_pushed,
+                    (unsigned long long)tt.ring.total_rewound,
+                    (unsigned long long)tt.ring.total_ffwd);
+                printf("  checkpoints: %u\n", tt.ring.n_checkpoints);
+                for (uint32_t _i = 0; _i < tt.ring.n_checkpoints; _i++) {
+                    const SidCheckpoint *_cp = &tt.ring.checkpoints[_i];
+                    printf("    cp[%u] '%s' ring[%u] ts=%u\n",
+                        _cp->id, _cp->name, _cp->ring_index, _cp->timestamp);
+                }
+                printf("  pending: checkpoint=%d rewind=%d ffwd=%d branch=%d\n",
+                    tt.pending_checkpoint, tt.pending_rewind,
+                    tt.pending_ffwd, tt.pending_branch_cp);
+                printf("=== End State ===\n");
+                fflush(stdout);
+                continue;
+            }
+            roles[cc]="user";content[cc]=strdup(line);cc++;
+            size_t flen=0;char*fmt=chat_format_qwen((const char**)roles,(const char**)content,cc,&flen);
+            int na=llama_tokenize(v,fmt,flen,NULL,0,false,false);
+            int nt=na<0?-na:na;
+            if(nt<=0||nt>2048-64){free(fmt);continue;}
+            int*ta=(int*)malloc((size_t)nt*4);
+            llama_tokenize(v,fmt,flen,ta,nt,false,false);
+            free(fmt);
+            struct llama_batch pb=llama_batch_init(nt,0,1);pb.n_tokens=nt;
+            for(int j=0;j<nt;j++){pb.token[j]=ta[j];pb.pos[j]=cum_pos+j;pb.n_seq_id[j]=1;pb.seq_id[j][0]=0;pb.logits[j]=j==nt-1?1:0;}
+            sid_swap_apply();
+            if(llama_decode(lctx,pb)!=0){llama_batch_free(pb);free(ta);sid_swap_restore();break;}
+            sid_swap_restore(); twin_gpu_gear_push();
+            sid_mem_store_log(lctx, nv, (uint16_t)(nt - 1), sid_face);
+            if (opt_capture) {
+                #ifdef _WIN32
+                _mkdir(opt_capture);
+                #else
+                mkdir(opt_capture, 0755);
+                #endif
+                CaptureTensor ctens[MAX_TENSORS];
+                for (int ci = 0; ci < n_found; ci++) {
+                    ctens[ci].name   = found_tensors[ci].name;
+                    ctens[ci].data   = found_tensors[ci].orig_data;
+                    ctens[ci].nbytes = found_tensors[ci].nbytes;
+                    ctens[ci].dtype  = (int)found_tensors[ci].dtype;
+                }
+                CaptureResult cr;
+                capture_run_full(&cr, opt_capture, ctens, n_found, 12);
+            }
+            llama_batch_free(pb);
+            Sampler gs=sp;gs.count=0;int32_t pos=cum_pos+nt;
+            struct llama_batch gb=llama_batch_init(1,0,1);
+            gb.n_tokens=1;gb.n_seq_id[0]=1;gb.seq_id[0][0]=0;gb.logits[0]=1;
+            for(int i=0;i<opt_max_new;i++){
+                sid_swap_apply();
+                int tok=sample_token(llama_get_logits_ith(lctx,-1),nv,&gs);
+                sid_swap_restore(); twin_gpu_gear_push();
+                if(llama_vocab_is_eog(v,tok))break;
+                char b[16];int l=llama_token_to_piece(v,tok,b,16,0,false);
+                if(l>0){b[l>15?15:l]=0;printf("%s",b);fflush(stdout);}
+                gb.token[0]=tok;gb.pos[0]=pos++;
+                sid_swap_apply();
+                if(llama_decode(lctx,gb)!=0){sid_swap_restore();break;}
+                sid_swap_restore(); twin_gpu_gear_push();
+                sid_mem_store_log(lctx, nv, (uint16_t)(pos - 1), sid_face);
+            }
+            cum_pos=pos;llama_batch_free(gb);printf("\n");free(ta);
+        }
+        for(int i=0;i<cc;i++)free(content[i]);
+    }
+
+    if(opt_prompt){
+        int ntokens=llama_tokenize(v,opt_prompt,strlen(opt_prompt),NULL,0,true,false);
+        int nt=ntokens<0?-ntokens:ntokens;
+        if(nt<=0){fprintf(stderr,"tokenize fail\n"); return 1;}
+        int*toks=(int*)malloc((size_t)nt*4);
+        llama_tokenize(v,opt_prompt,strlen(opt_prompt),toks,nt,true,false);
+        struct llama_batch pb=llama_batch_init(nt,0,1);pb.n_tokens=nt;
+        for(int j=0;j<nt;j++){pb.token[j]=toks[j];pb.pos[j]=j;pb.n_seq_id[j]=1;pb.seq_id[j][0]=0;pb.logits[j]=j==nt-1?1:0;}
+        sid_swap_apply();
+        if(llama_decode(lctx,pb)!=0){fprintf(stderr,"[dbg] decode fail\n");llama_batch_free(pb);free(toks);sid_swap_restore();return 1;}
+        sid_swap_restore(); twin_gpu_gear_push();
+        sid_mem_store_log(lctx, nv, (uint16_t)(nt - 1), sid_face);
+        if (opt_capture) {
+            #ifdef _WIN32
+            _mkdir(opt_capture);
+            #else
+            mkdir(opt_capture, 0755);
+            #endif
+            CaptureTensor ctens[MAX_TENSORS];
+            for (int ci2 = 0; ci2 < n_found; ci2++) {
+                ctens[ci2].name   = found_tensors[ci2].name;
+                ctens[ci2].data   = found_tensors[ci2].orig_data;
+                ctens[ci2].nbytes = found_tensors[ci2].nbytes;
+                ctens[ci2].dtype  = (int)found_tensors[ci2].dtype;
+            }
+            CaptureResult cr;
+            capture_run_full(&cr, opt_capture, ctens, n_found, 12);
+        }
+        llama_batch_free(pb);
+
+        Sampler gs=sp;gs.count=0;int32_t pos=nt;
+        struct llama_batch gb=llama_batch_init(1,0,1);
+        gb.n_tokens=1;gb.n_seq_id[0]=1;gb.seq_id[0][0]=0;gb.logits[0]=1;
+        for(int i=0;i<opt_max_new;i++){
+            sid_swap_apply();
+            int tok=sample_token(llama_get_logits_ith(lctx,-1),nv,&gs);
+            sid_swap_restore(); twin_gpu_gear_push();
+            if(llama_vocab_is_eog(v,tok))break;
+            char b[16];int l=llama_token_to_piece(v,tok,b,16,0,false);
+            if(l>0){b[l>15?15:l]=0;printf("%s",b);fflush(stdout);}
+            gb.token[0]=tok;gb.pos[0]=pos++;
+            sid_swap_apply();
+            if(llama_decode(lctx,gb)!=0){sid_swap_restore();break;}
+            sid_swap_restore(); twin_gpu_gear_push();
+            sid_mem_store_log(lctx, nv, (uint16_t)(pos - 1), sid_face);
+        }
+        llama_batch_free(gb);printf("\n");free(toks);
+    }
+
+    /* ── Tensor memory store save ── */
+    if (g_opt_mem_store && g_tmem_buf) {
+        tmem_save(&g_tmem_store, g_opt_mem_store);
+        fprintf(stderr, "[mem-store] saved %u records to %s\n",
+            g_tmem_store.n_records, g_opt_mem_store);
+        free(g_tmem_buf);
+        g_tmem_buf = NULL;
+    }
+
+    /* ── Icosa bridge stats & cleanup ── */
+    if (g_opt_twin_gpu && g_ibridge_ctx) {
+        g_ibridge.destroy(g_ibridge_ctx);
+        g_ibridge_ctx = NULL;
+        icosa_bridge_unload(&g_ibridge);
+        fprintf(stderr, "[twin-gpu] bridge unloaded\n");
+    }
+
+    /* ── Cleanup ── */
+    for (int i = 0; i < n_sid_swaps; i++) {
+        if (sid_swaps[i].is_malloc) free(sid_swaps[i].sid_data);
+    }
+cleanup:
+    if (g_opt_twin_gpu && g_ibridge_ctx) {
+        g_ibridge.destroy(g_ibridge_ctx);
+        g_ibridge_ctx = NULL;
+        icosa_bridge_unload(&g_ibridge);
+    }
+    sid_loader_close(&slc);
+    gguf_idx_close(&gidx);
+    llama_free(lctx);llama_model_free(model);llama_backend_free();
+    return 0;
+}

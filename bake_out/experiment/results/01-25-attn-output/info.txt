@@ -1,0 +1,6 @@
+condition: 01-25-attn-output
+cpl: bake_out\experiment/25-attn-output.cpl
+first_token: 11
+first_piece: ,
+n_tokens: 257
+elapsed_ms: 43309

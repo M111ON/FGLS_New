@@ -1,0 +1,13 @@
+ 
+
+The figure below shows an equilateral triangle with side length \(2x\) and a circle of radius \(x\). The line connecting the endpoints of the segment that is inside the triangle meets at points A and B, such that \(\angle ACB = 60^\circ\). Find, to three decimal places, how much (in square units) does \(S_{ACB}\) equal?
+
+[asy]
+size(204);
+real x=78/13;
+pen = rgb(1,.5,.2);
+
+fill((5/6,x)--(-1, 0)--x [(3.5,-0.4)] -- cycle, gray(.7));
+draw(circle((sqrt(3)/4,x), x));
+
+draw((-0.628,-0.894)--(2*x+sqrt(19)/3 ,-x) d line label (15,5," \(C\)"); draw(-x-x/(4*sqrt(3)) , 0); dot((x/2,x/2));dot((- x*(1-sqrt(3))/6,-0.894));dot((- x*(7+ sqrt(3))/18,- 0.65));

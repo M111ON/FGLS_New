@@ -25,6 +25,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <cuda_runtime.h>
+#include <cuda.h>
 
 #ifdef _MSC_VER
 #include <intrin.h>
@@ -153,15 +154,30 @@ typedef struct {
     uint32_t   capacity;
     uint32_t   count;
     cudaStream_t stream;
+    CUcontext  cu_ctx;
 } IcosaGpuCtx;
+
+#ifdef _WIN32
+  #ifdef ICOSA_BUILD_DLL
+    #define ICOSA_API __declspec(dllexport)
+  #else
+    #define ICOSA_API
+  #endif
+#else
+  #ifdef ICOSA_BUILD_DLL
+    #define ICOSA_API __attribute__((visibility("default")))
+  #else
+    #define ICOSA_API
+  #endif
+#endif
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-void icosa_gpu_ctx_destroy(void *gpu_ctx);
+ICOSA_API void icosa_gpu_ctx_destroy(void *gpu_ctx);
 
-void *icosa_gpu_ctx_create(uint64_t gen2, uint64_t gen3) {
+ICOSA_API void *icosa_gpu_ctx_create(uint64_t gen2, uint64_t gen3) {
     IcosaGpuCtx *ctx = (IcosaGpuCtx *)calloc(1, sizeof(IcosaGpuCtx));
     if (!ctx) return NULL;
 
@@ -211,6 +227,9 @@ void *icosa_gpu_ctx_create(uint64_t gen2, uint64_t gen3) {
     e = cudaStreamCreate(&ctx->stream);
     if (e != cudaSuccess) { printf("[icosa] stream create fail\n"); goto fail; }
 
+    /* Save CUDA context for push/pop around dispatch */
+    cuCtxGetCurrent(&ctx->cu_ctx);
+
     ctx->valid = 1;
     printf("[icosa] GPU context ready  capacity=%u\n", ctx->capacity);
     return (void *)ctx;
@@ -220,7 +239,7 @@ fail:
     return NULL;
 }
 
-int icosa_gpu_ctx_valid(void *gpu_ctx) {
+ICOSA_API int icosa_gpu_ctx_valid(void *gpu_ctx) {
     if (!gpu_ctx) return 0;
     return ((IcosaGpuCtx *)gpu_ctx)->valid;
 }
@@ -258,47 +277,62 @@ static int _dispatch_chunk(
     uint64_t       *out_routes,
     uint8_t        *out_events)
 {
+    /* Save previous context and switch to ours (ggml-cuda.dll may have changed it) */
+    CUcontext prev_ctx = NULL;
+    cuCtxGetCurrent(&prev_ctx);
+    if (prev_ctx != ctx->cu_ctx) cuCtxSetCurrent(ctx->cu_ctx);
+    int restore_ctx = (prev_ctx != ctx->cu_ctx && prev_ctx != NULL);
+
+    int ret = 0;
+    cudaError_t e;
+    dim3 grid((n + ICOSA_GPU_TPB - 1) / ICOSA_GPU_TPB, 1, 1);
+    dim3 block(ICOSA_GPU_TPB, 1, 1);
+
     for (uint32_t i = 0; i < n; i++) {
         ctx->h_pairs[i].addr  = addrs[i];
         ctx->h_pairs[i].value = values[i];
     }
 
-    cudaError_t e;
-
     e = cudaMemcpyAsync(ctx->d_pairs, ctx->h_pairs,
                         (size_t)n * sizeof(IcosaPair),
                         cudaMemcpyHostToDevice, ctx->stream);
-    if (e != cudaSuccess) return -3;
+    if (e != cudaSuccess) { ret = -3; goto done; }
 
-    dim3 grid((n + ICOSA_GPU_TPB - 1) / ICOSA_GPU_TPB, 1, 1);
-    dim3 block(ICOSA_GPU_TPB, 1, 1);
+    /* Clear any pending CUDA errors before kernel launch */
+    cudaGetLastError();
 
     icosa_lane_kernel<<<grid, block, 0, ctx->stream>>>(
         ctx->d_pairs, ctx->d_route, ctx->d_event,
         gen3, c144_tag, baseline, n);
 
     e = cudaGetLastError();
-    if (e != cudaSuccess) return -4;
+    if (e != cudaSuccess) {
+        printf("[icosa] kernel launch error: %d (%s)\n", e, cudaGetErrorString(e));
+        ret = -4; goto done;
+    }
 
     e = cudaMemcpyAsync(ctx->h_route, ctx->d_route,
                         (size_t)n * sizeof(uint64_t),
                         cudaMemcpyDeviceToHost, ctx->stream);
-    if (e != cudaSuccess) return -5;
+    if (e != cudaSuccess) { ret = -5; goto done; }
 
     e = cudaMemcpyAsync(ctx->h_event, ctx->d_event,
                         (size_t)n * sizeof(uint8_t),
                         cudaMemcpyDeviceToHost, ctx->stream);
-    if (e != cudaSuccess) return -6;
+    if (e != cudaSuccess) { ret = -6; goto done; }
 
     e = cudaStreamSynchronize(ctx->stream);
-    if (e != cudaSuccess) return -7;
+    if (e != cudaSuccess) { ret = -7; goto done; }
 
     memcpy(out_routes, ctx->h_route, (size_t)n * sizeof(uint64_t));
     memcpy(out_events, ctx->h_event, (size_t)n * sizeof(uint8_t));
-    return 0;
+
+done:
+    if (restore_ctx) cuCtxSetCurrent(prev_ctx);
+    return ret;
 }
 
-int icosa_gpu_dispatch(
+ICOSA_API int icosa_gpu_dispatch(
     void            *gpu_ctx,
     const uint64_t  *addrs,
     const uint64_t  *values,
@@ -324,6 +358,79 @@ int icosa_gpu_dispatch(
         done += chunk;
     }
     return 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * GPU MEMORY MANAGEMENT — alloc/free/memcpy with context save/restore
+ *
+ * Used by StreamWindow for VRAM upload path.
+ * All operations run on ctx->stream (async-capable).
+ * ═══════════════════════════════════════════════════════════════════ */
+
+ICOSA_API void *icosa_gpu_alloc(void *gpu_ctx, size_t size) {
+    if (!gpu_ctx || size == 0) return NULL;
+    IcosaGpuCtx *ctx = (IcosaGpuCtx *)gpu_ctx;
+    if (!ctx->valid) return NULL;
+
+    CUcontext prev_ctx = NULL;
+    cuCtxGetCurrent(&prev_ctx);
+    if (prev_ctx != ctx->cu_ctx) cuCtxSetCurrent(ctx->cu_ctx);
+    int restore_ctx = (prev_ctx != ctx->cu_ctx && prev_ctx != NULL);
+
+    void *ptr = NULL;
+    cudaError_t e = cudaMalloc(&ptr, size);
+    if (e != cudaSuccess) ptr = NULL;
+
+    if (restore_ctx) cuCtxSetCurrent(prev_ctx);
+    return ptr;
+}
+
+ICOSA_API int icosa_gpu_free(void *gpu_ctx, void *ptr) {
+    if (!gpu_ctx || !ptr) return -1;
+    IcosaGpuCtx *ctx = (IcosaGpuCtx *)gpu_ctx;
+    if (!ctx->valid) return -2;
+
+    CUcontext prev_ctx = NULL;
+    cuCtxGetCurrent(&prev_ctx);
+    if (prev_ctx != ctx->cu_ctx) cuCtxSetCurrent(ctx->cu_ctx);
+    int restore_ctx = (prev_ctx != ctx->cu_ctx && prev_ctx != NULL);
+
+    cudaFree(ptr);
+
+    if (restore_ctx) cuCtxSetCurrent(prev_ctx);
+    return 0;
+}
+
+ICOSA_API int icosa_gpu_memcpy_h2d(void *gpu_ctx, void *dst, const void *src, size_t size) {
+    if (!gpu_ctx || !dst || !src || size == 0) return -1;
+    IcosaGpuCtx *ctx = (IcosaGpuCtx *)gpu_ctx;
+    if (!ctx->valid) return -2;
+
+    CUcontext prev_ctx = NULL;
+    cuCtxGetCurrent(&prev_ctx);
+    if (prev_ctx != ctx->cu_ctx) cuCtxSetCurrent(ctx->cu_ctx);
+    int restore_ctx = (prev_ctx != ctx->cu_ctx && prev_ctx != NULL);
+
+    cudaError_t e = cudaMemcpy(dst, src, size, cudaMemcpyHostToDevice);
+
+    if (restore_ctx) cuCtxSetCurrent(prev_ctx);
+    return (e == cudaSuccess) ? 0 : -3;
+}
+
+ICOSA_API int icosa_gpu_sync(void *gpu_ctx) {
+    if (!gpu_ctx) return -1;
+    IcosaGpuCtx *ctx = (IcosaGpuCtx *)gpu_ctx;
+    if (!ctx->valid) return -2;
+
+    CUcontext prev_ctx = NULL;
+    cuCtxGetCurrent(&prev_ctx);
+    if (prev_ctx != ctx->cu_ctx) cuCtxSetCurrent(ctx->cu_ctx);
+    int restore_ctx = (prev_ctx != ctx->cu_ctx && prev_ctx != NULL);
+
+    cudaError_t e = cudaStreamSynchronize(ctx->stream);
+
+    if (restore_ctx) cuCtxSetCurrent(prev_ctx);
+    return (e == cudaSuccess) ? 0 : -3;
 }
 
 #ifdef __cplusplus
@@ -392,6 +499,7 @@ static void cpu_icosa_lane(
 
 #define TEST_N  (1024 * 1024)
 
+#ifndef ICOSA_SKIP_MAIN
 int main(void) {
     printf("=== Icosa Twin Bridge — GPU Lane Test ===\n\n");
 
@@ -524,3 +632,4 @@ int main(void) {
 
     return mismatches > 0 ? 1 : 0;
 }
+#endif /* ICOSA_SKIP_MAIN */

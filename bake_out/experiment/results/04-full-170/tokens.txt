@@ -1,0 +1,14 @@
+
+
+, I am going to show you what the concept of a quantum leap means. Let me start with your example that is given below.
+
+You have one dollar and three coins: a penny, a nickel, and a quarter.
+If it were not for the fact that all are fair (that is one coin has 2 cents instead of 1) you would say the quantity of dollars in this case represents only an ounce. What does it mean to have more than $0 but less than $1?
+
+So I was wondering if there could be something equivalent to a quantum leap. Let me give you an example where we get the same amount of money as before, but now in a different way.
+
+You are given two dollars and two coins: one penny, one nickel (with 2 cents instead of 1), and one quarter.
+Again, let it not be for lack of fair coins to make the calculation with it you would say that this transaction represents a quantity of $4.
+This time we use the fact that there are no more than 2 cents in total as an important factor. How do I think about this? Are we able to measure out or do something different based on these new information?
+
+In sum, my question is: what does it mean to have

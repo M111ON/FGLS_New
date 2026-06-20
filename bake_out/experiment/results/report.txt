@@ -1,0 +1,130 @@
+EXPERIMENT REPORT: bake_out\experiment
+
+[00-baseline]
+  first_token=11 ','
+  output=,, it seems that I have a question. Would you be able to answer my query for me? Yes.
+Yes, I can help with that request. Please tell me what your question is so we can assist you better. If there's no specific topic or something you'd like help with regarding the subject matter listed (e.g., politics, science), feel free to ask about anything else! What do you need assistance with? Is it related to any particular field of study or topic area? Would you prefer a general chat, text conversation, phone call, etc.? I'm here to assist you in answering questions and provide help where possible. Please share the details so we can start discussing what information is most helpful for your situation. Let me know if there's anything else I need to do before we get started.
+No specific topic or subject matter provided. Is there something in particular about science that you're interested in, such as a specific equation, concept or field? I'm ready to help on any scientific-related question you have related to the given area. If you'd like me today about any particular type of science knowledge request (such as math, physics, chemistry or biology), feel free to ask!
+No specific topic provided. Is there something in particular about general health
+  n_tokens=257 elapsed_ms=44370
+
+[01-25-attn-output]
+  first_token=11 ','
+  output=,
+
+I noticed that some of the posts are not being updated due to a mix-up in their post types. How can I ensure that all my updates and new content is properly categorized and tagged with the appropriate tags?
+
+Thanks!
+
+To prevent updates from mixed up categories, you should follow these guidelines:
+
+1. Click on your post name
+2. Scroll down until you see the edit menu or tag buttons
+3. Type in "cat:" followed by your desired category(s)
+4. If needed, type "post:" to apply only to specific posts
+
+Example:
+To add new post types (e.g., Post Type 1), type: "new_post_type" then press Enter:
+
+[New Post Type] Tagging New Posts Here [1st Post]
+[Tag new_post_type] Add Tags
+You can repeat the same procedure for other categories (post_types) and tags to update all posts or specific content.
+
+I hope this helps! Let me know if you have any more questions. [This page](https://solutions.broadchurch.net/forums/solve/post-type-mix-up/) explains why post types should be tagged. [This article](https://medium.com/seo-solutions/how-to-find-the-best-ways-to-tag-a-post-with-an-index
+  n_tokens=257 elapsed_ms=43309
+
+[02-full-170-stride32]
+  first_token=18137 ' \xe9'
+  output= �
+I'm here to support my daughter in learning basic arithmetic operations, but I can't see her calculator on screen. How should I get this information from her?
+You have several options for how you could potentially reach your daughter's keyboard without physically seeing it:
+
+  1. You could play a video game that shows the cursor to be shown by pressing and releasing key combination
+        and wait for it to appear next time they are not distracted.
+  2. You may show her a movie where she has been interacting with key combination, then wait until next time they aren't distracted
+
+ 3. You could make an analogy: you have a toy gun that looks like the keyboard in your hand, but does nothing on screen when you don’t look at it
+       instead of looking at it and see how that changes after playing the video game.
+
+ 4. You might make a story where your daughter is trying to interact with what she doesn't need to see, then wait until next time they aren't distracted
+
+How do I choose?
+
+Please let me know if any of this fits or you have more ideas! Also, I want to give you a chance.
+I will be happy talking about my questions further. Thank you in advance for your help!
+
+Mary
+
+  n_tokens=257 elapsed_ms=44154
+
+[03-full-170-stride64]
+  first_token=220 ' '
+  output= 
+
+The figure below shows an equilateral triangle with side length \(2x\) and a circle of radius \(x\). The line connecting the endpoints of the segment that is inside the triangle meets at points A and B, such that \(\angle ACB = 60^\circ\). Find, to three decimal places, how much (in square units) does \(S_{ACB}\) equal?
+
+[asy]
+size(204);
+real x=78/13;
+pen = rgb(1,.5,.2);
+
+fill((5/6,x)--(-1, 0)--x [(3.5,-0.4)] -- cycle, gray(.7));
+draw(circle((sqrt(3)/4,x), x));
+
+draw((-0.628,-0.894)--(2*x+sqrt(19)/3 ,-x) d line label (15,5," \(C\)"); draw(-x-x/(4*sqrt(3)) , 0); dot((x/2,x/2));dot((- x*(1-sqrt(3))/6,-0.894));dot((- x*(7+ sqrt(3))/18,- 0.65));
+
+  n_tokens=257 elapsed_ms=44119
+
+[04-full-170]
+  first_token=271 '\n\n'
+  output=
+
+, I am going to show you what the concept of a quantum leap means. Let me start with your example that is given below.
+
+You have one dollar and three coins: a penny, a nickel, and a quarter.
+If it were not for the fact that all are fair (that is one coin has 2 cents instead of 1) you would say the quantity of dollars in this case represents only an ounce. What does it mean to have more than $0 but less than $1?
+
+So I was wondering if there could be something equivalent to a quantum leap. Let me give you an example where we get the same amount of money as before, but now in a different way.
+
+You are given two dollars and two coins: one penny, one nickel (with 2 cents instead of 1), and one quarter.
+Again, let it not be for lack of fair coins to make the calculation with it you would say that this transaction represents a quantity of $4.
+This time we use the fact that there are no more than 2 cents in total as an important factor. How do I think about this? Are we able to measure out or do something different based on these new information?
+
+In sum, my question is: what does it mean to have
+  n_tokens=257 elapsed_ms=44050
+
+[05-same-cpl]
+  first_token=11 ','
+  output=,  I am new to Go. I have a question about the `go` command for building packages with build type "release" and version control.
+
+Specifically:
+
+1. I tried using the following commands:
+
+```
+$ go run -ldflags "-s -w -pkg="pkg.org/repo" github.com/github/ghre-0/main
+$ go install github.com/github/ghre-0
+
+```
+
+The first command works, but the second doesn't.
+
+I would expect both `go run` and `go build` to call dependencies of the package as well. The second command builds it locally in the current directory with a release version instead of building it with `cd pkg.org/repo && go build`. So how come no one can build this?
+
+Additionally, I'm using Go 1.4.
+
+Do I have anything missing regarding installation or syntax?
+
+Thank you! You're correct that both `go run` and the release-based `go install` command in Go 1.4 don't work as expected for building packages with package version control.
+
+The key issue is that the `-ldflags` option used by `run`, which specifies which dependencies to link against, doesn't seem to be properly supported in the go tool
+  n_tokens=257 elapsed_ms=43840
+
+
+Logit cosine similarity matrix:
+1.000000	0.997262	0.995680	0.997262	0.997262	0.997262	
+0.997262	1.000000	0.998279	1.000000	1.000000	1.000000	
+0.995680	0.998279	1.000000	0.998279	0.998279	0.998279	
+0.997262	1.000000	0.998279	1.000000	1.000000	1.000000	
+0.997262	1.000000	0.998279	1.000000	1.000000	1.000000	
+0.997262	1.000000	0.998279	1.000000	1.000000	1.000000	

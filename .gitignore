@@ -63,3 +63,8 @@ memory_store/raw/
 .inbox_index.md
 *.bak
 .protect_alreadyrun.ps1
+
+/.playwright-mcp
+/runner/ses_profiles
+/runner/test_tail
+/runner/cpl_profiles

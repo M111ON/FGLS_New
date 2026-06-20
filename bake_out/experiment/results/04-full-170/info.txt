@@ -1,0 +1,6 @@
+condition: 04-full-170
+cpl: bake_out\experiment/full-170.cpl
+first_token: 271
+first_piece: \n\n
+n_tokens: 257
+elapsed_ms: 44050

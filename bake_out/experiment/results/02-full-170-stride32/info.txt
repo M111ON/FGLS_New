@@ -1,0 +1,6 @@
+condition: 02-full-170-stride32
+cpl: bake_out\experiment/full-170-stride32.cpl
+first_token: 18137
+first_piece:  \xe9
+n_tokens: 257
+elapsed_ms: 44154

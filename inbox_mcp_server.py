@@ -41,8 +41,9 @@ from mcp.server.fastmcp import FastMCP
 
 # ── globals ──────────────────────────────────────────────────────────
 WORKSPACE = Path(__file__).parent.resolve()
-VAULT_DIR = WORKSPACE / ".vault"
-STATE_FILE = WORKSPACE / ".inbox_state.json"
+_DRIVE_ROOT = Path(Path(__file__).anchor)
+VAULT_DIR = Path(os.environ.get("INBOX_VAULT_DIR", str(_DRIVE_ROOT / ".vault"))).resolve()
+STATE_FILE = VAULT_DIR / ".inbox_state.json"
 ZIP_ARCHIVE = VAULT_DIR / "zips"
 
 MAX_VAULT_PER_FILE = 10
@@ -876,6 +877,27 @@ def _cleanup_stale_incoming(state: dict) -> int:
 
 # ── run ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":
+    # ── auto-migrate old vault from workspace root to drive root ──
+    _old_vault = WORKSPACE / ".vault"
+    _old_state = WORKSPACE / ".inbox_state.json"
+    if _old_vault.exists() and _old_vault != VAULT_DIR:
+        _dst = VAULT_DIR
+        _dst.mkdir(parents=True, exist_ok=True)
+        for _f in _old_vault.iterdir():
+            _dest = _dst / _f.name
+            if not _dest.exists():
+                _f.rename(_dest)
+        try:
+            _old_vault.rmdir()
+            print(f"[inbox] migrated .vault/ → {VAULT_DIR}", flush=True)
+        except OSError:
+            print(f"[inbox] partial vault migration (some files may remain in {_old_vault})", flush=True)
+    if _old_state.exists() and _old_state != STATE_FILE:
+        _dest_state = STATE_FILE
+        if not _dest_state.exists():
+            _old_state.rename(_dest_state)
+            print(f"[inbox] migrated .inbox_state.json → {STATE_FILE}", flush=True)
+
     VAULT_DIR.mkdir(parents=True, exist_ok=True)
     ZIP_ARCHIVE.mkdir(parents=True, exist_ok=True)
     # load or init state

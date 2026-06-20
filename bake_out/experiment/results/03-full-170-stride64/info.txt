@@ -1,0 +1,6 @@
+condition: 03-full-170-stride64
+cpl: bake_out\experiment/full-170-stride64.cpl
+first_token: 220
+first_piece:  
+n_tokens: 257
+elapsed_ms: 44119

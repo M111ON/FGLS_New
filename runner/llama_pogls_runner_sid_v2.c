@@ -1,6 +1,6 @@
 /*
  * llama_pogls_runner_sid_v2.c — SID-aware inference runner with inline tensor scan
- * Build (from repo root): gcc -O2 -std=c11 -I. -Icollection -Icollection/src -Icollection/core -Icollection/core/core -Icollection/geopixel -Icollection/geopixel/Metatron/core -Icollection/pogls_engine -Icollection/geo_jump_module/include -II:/llama.cpp/include -II:/llama.cpp/ggml/include -o llama_pogls_runner_sid_v2.exe runner/llama_pogls_runner_sid_v2.c collection/geo_jump_module/src/geo_jump.c I:/llama/llama-b9528-bin-win-vulkan-x64/llama.dll I:/llama/llama-b9528-bin-win-vulkan-x64/ggml.dll I:/llama/llama-b9528-bin-win-vulkan-x64/ggml-base.dll I:/llama/llama-b9528-bin-win-vulkan-x64/ggml-cpu-x64.dll -lm
+ * Build (from repo root): gcc -O2 -std=c11 -I. -Icollection -Icollection/src -Icollection/core -Icollection/core/core -Icollection/core/pogls_engine/core -Icollection/geopixel -Icollection/geopixel/Metatron/core -Icollection/pogls_engine -Icollection/geo_jump_module/include -II:/llama.cpp/include -II:/llama.cpp/ggml/include -o llama_pogls_runner_sid_v2.exe runner/llama_pogls_runner_sid_v2.c collection/geo_jump_module/src/geo_jump.c runner/llama.dll runner/ggml.dll runner/ggml-base.dll runner/ggml-cpu-x64.dll -lm
  * Usage: llama_pogls_runner_sid_v2.exe I:/model/model.gguf [options]
  *
  * KEY DIFFERENCES from v1:
@@ -36,6 +36,9 @@
   typedef struct timespec PoglsTime;
 #endif
 
+/* Cross-platform abstraction (VirtualQuery, GetModuleFileName, etc.) */
+#include "pogls_platform.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -51,6 +54,8 @@
 #include "goldberg_sid.h"
 #include "sid_delta_ring.h"
 #include "sid_timetravel.h"
+#include "cosplay.h"
+#include "session_profile.h"
 
 #define MAX_TOKENS_CACHE 4096
 #define MAX_CHAT_HISTORY 128
@@ -117,17 +122,9 @@ static uint64_t xor_hash(const uint8_t *d, size_t n) {
 
 /* ── Memory-scan helpers (from test_swap_all.c) ── */
 
-static int safe_ptr(const void *p) {
-    if (!p || (uintptr_t)p < 0x10000) return 0;
-    MEMORY_BASIC_INFORMATION mbi;
-    return VirtualQuery(p, &mbi, sizeof(mbi)) == sizeof(mbi)
-        && mbi.State == MEM_COMMIT
-        && (mbi.Protect & (PAGE_READONLY | PAGE_READWRITE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE));
-}
-
 static int is_valid_tensor_ptr(const void *cand) {
     if (!cand || (uintptr_t)cand < 0x10000) return 0;
-    if (!safe_ptr((const char*)cand + 256 + 63)) return 0;
+    if (!pogls_is_valid_ptr((const char*)cand + 256 + 63)) return 0;
     const char *name = (const char*)cand + 256;
     if (name[0] < 32 || name[0] > 126) return 0;
     int nlen = (int)strnlen(name, 64);
@@ -181,7 +178,7 @@ static void* find_layers_ptr(const void *model_alloc) {
     for (uint8_t *p = (uint8_t*)model_alloc; p + 8 < end; p += 8) {
         void *cand; memcpy(&cand, p, sizeof(cand));
         if (!cand || (uintptr_t)cand < 0x10000) continue;
-        if (!safe_ptr(cand) || !safe_ptr((uint8_t*)cand + 4096 - 1)) continue;
+        if (!pogls_is_valid_ptr(cand) || !pogls_is_valid_ptr((uint8_t*)cand + 4096 - 1)) continue;
         for (int off = 0; off < 4096; off += 8) {
             void *sub; memcpy(&sub, (uint8_t*)cand + off, sizeof(sub));
             if (!is_valid_tensor_ptr(sub)) continue;
@@ -208,6 +205,23 @@ static int n_found = 0;
 #include "capture_pipeline.h"
 #include "tensor_memory.h"
 #include "geo_addr.h"
+#include "icosa_bridge_loader.h"
+#include "gear_lock.h"
+
+static IcosaBridge g_ibridge;
+static void *g_ibridge_ctx = NULL;
+static int g_opt_twin_gpu = 0;
+static int g_opt_gear_lock = 0;
+static float g_opt_gear_threshold = 0.30f;
+static int g_opt_gear_log = 16;
+
+/* Icosa event flags (local def — icosa_twin_bridge.h not included in runner) */
+#define ICOSA_EV_NONE      0x00u
+#define ICOSA_EV_FLUSH     0x01u
+#define ICOSA_EV_BOUNDARY  0x02u
+
+/* Gear lock state: per-tensor icosa route history + priority scores */
+static GearLockState g_gear;
 
 typedef struct {
     int      ft_idx;
@@ -229,7 +243,26 @@ static void  *delta_orig_data[MAX_SID_SWAPS];
 static void  *delta_sid_data[MAX_SID_SWAPS];
 static size_t delta_size[MAX_SID_SWAPS];
 
+/* Per-cycle gear lock active mask: 1 = apply this swap, 0 = skip */
+static uint8_t gear_active_mask[MAX_SID_SWAPS];
+static int n_gear_active = 0;
+
 static SidTimeTravel tt;
+
+/* cosplay */
+static CosplayProfile g_cp;
+static int g_opt_cosplay = 0;
+static int g_opt_cosplay_compare = 0;
+static const char *g_opt_experiment = NULL;
+static uint8_t **g_experiment_clean_ptrs = NULL;
+static int g_n_experiment_clean = 0;
+
+/* session profile */
+static SessionProfile g_ses;
+static int g_opt_simulate = 0;
+static const char *g_opt_profile_batch = NULL;
+static int g_turn_count = 0;
+static double g_opt_sem_weight = 0.8, g_opt_hist_weight = 0.2, g_opt_rnd_weight = 0.0, g_opt_decay = 1.0;
 
 /* tensor memory store (--mem-store) */
 static const char *g_opt_mem_store = NULL;
@@ -237,21 +270,137 @@ static uint8_t *g_tmem_buf = NULL;
 static size_t g_tmem_buf_size = 0;
 static TensorMemStore g_tmem_store;
 
-static void sid_swap_apply(void) {
-    sid_timetravel_before_decode(&tt, n_sid_swaps,
-        delta_ft_idx, delta_tensor_ptr, delta_orig_data, delta_sid_data, delta_size);
+/* Apply SID swaps with gear lock filtering.
+ * If mask is non-NULL, only swaps with mask[i] != 0 are applied.
+ * Time travel journals only actually-applied swaps. */
+static void sid_swap_apply_ex(const uint8_t *mask) {
+    int n_apply = 0;
+    int apply_ft_idx[MAX_SID_SWAPS];
+    void *apply_tptr[MAX_SID_SWAPS];
+    void *apply_orig[MAX_SID_SWAPS];
+    void *apply_sid[MAX_SID_SWAPS];
+    size_t apply_sz[MAX_SID_SWAPS];
+
     for (int i = 0; i < n_sid_swaps; i++) {
-        SIDSwapEntry *e = &sid_swaps[i];
-        tensor_set_data(found_tensors[e->ft_idx].ptr, e->sid_data);
+        if (mask && !mask[i]) continue;
+        apply_ft_idx[n_apply] = delta_ft_idx[i];
+        apply_tptr[n_apply] = delta_tensor_ptr[i];
+        apply_orig[n_apply] = delta_orig_data[i];
+        apply_sid[n_apply] = delta_sid_data[i];
+        apply_sz[n_apply] = delta_size[i];
+        n_apply++;
+    }
+
+    if (n_apply == 0) return;
+
+    sid_timetravel_before_decode(&tt, n_apply,
+        apply_ft_idx, apply_tptr, apply_orig, apply_sid, apply_sz);
+
+    for (int i = 0; i < n_apply; i++) {
+        tensor_set_data(found_tensors[apply_ft_idx[i]].ptr, apply_sid[i]);
     }
 }
 
-static void sid_swap_restore(void) {
-    for (int i = 0; i < n_sid_swaps; i++) {
-        SIDSwapEntry *e = &sid_swaps[i];
-        tensor_set_data(found_tensors[e->ft_idx].ptr, found_tensors[e->ft_idx].orig_data);
+/* Rebuild gear active mask from current gear lock state.
+ * On first 3 cycles (no history yet), keeps all swaps active. */
+static inline void gear_rebuild_mask(void) {
+    if (!g_opt_gear_lock) {
+        n_gear_active = n_sid_swaps;
+        memset(gear_active_mask, 1, n_sid_swaps);
+        return;
     }
+    /* bootstrap: first few cycles have no route history — keep everything */
+    if (g_gear.cycles < 3) {
+        n_gear_active = n_sid_swaps;
+        memset(gear_active_mask, 1, n_sid_swaps);
+        return;
+    }
+    n_gear_active = gear_lock_build_mask(&g_gear, n_sid_swaps, delta_ft_idx,
+                                          gear_active_mask, g_opt_gear_threshold);
+}
+
+static inline void sid_swap_apply(void) {
+    gear_rebuild_mask();
+    sid_swap_apply_ex(g_opt_gear_lock ? gear_active_mask : NULL);
+}
+
+/* Restore SID swaps with gear lock filtering.
+ * Only restores swaps that were actually applied (i.e., pass mask). */
+static void sid_swap_restore_ex(const uint8_t *mask) {
+    int n_restore = 0;
+    int restore_ft_idx[MAX_SID_SWAPS];
+
+    if (mask) {
+        for (int i = 0; i < n_sid_swaps; i++) {
+            if (!mask[i]) continue;
+            restore_ft_idx[n_restore++] = delta_ft_idx[i];
+        }
+    } else {
+        for (int i = 0; i < n_sid_swaps; i++) {
+            restore_ft_idx[n_restore++] = delta_ft_idx[i];
+        }
+    }
+
+    for (int i = 0; i < n_restore; i++) {
+        tensor_set_data(found_tensors[restore_ft_idx[i]].ptr,
+                        found_tensors[restore_ft_idx[i]].orig_data);
+    }
+
     sid_timetravel_after_decode(&tt);
+}
+
+static inline void sid_swap_restore(void) {
+    sid_swap_restore_ex(g_opt_gear_lock ? gear_active_mask : NULL);
+}
+
+/* ── Icosa lane push: feed tensor data through GPU icosa lane ── */
+
+/* Lightweight 64-bit hash of first 64 bytes of tensor data */
+static inline uint64_t tensor_data_hash64(const void *data, size_t nbytes) {
+    if (!data || nbytes == 0) return 0;
+    size_t n = nbytes < 64 ? nbytes : 64;
+    const uint64_t *p = (const uint64_t *)data;
+    uint64_t h = 0;
+    for (size_t i = 0; i < n / 8; i++) h ^= p[i];
+    return h;
+}
+
+/* Push tensor data through icosa lane with geo_addr + data hash.
+ * Feeds routes + events into GearLockState for dynamic SID swap scheduling. */
+static void twin_gpu_gear_push(void) {
+    if (!g_opt_twin_gpu || !g_ibridge_ctx) return;
+    if (n_sid_swaps <= 0) return;
+
+    uint64_t *addrs = (uint64_t*)malloc((size_t)n_sid_swaps * sizeof(uint64_t));
+    uint64_t *vals  = (uint64_t*)malloc((size_t)n_sid_swaps * sizeof(uint64_t));
+    uint64_t *routes = (uint64_t*)malloc((size_t)n_sid_swaps * sizeof(uint64_t));
+    uint8_t  *events = (uint8_t*)malloc((size_t)n_sid_swaps);
+    if (!addrs || !vals || !routes || !events) { free(addrs); free(vals); free(routes); free(events); return; }
+
+    for (int s = 0; s < n_sid_swaps; s++) {
+        int fi = sid_swaps[s].ft_idx;
+        uint32_t geo = sid_swaps[s].geo_addr;
+        addrs[s] = (uint64_t)geo;
+        vals[s]  = tensor_data_hash64(found_tensors[fi].orig_data,
+                                       found_tensors[fi].nbytes);
+    }
+
+    int ret = g_ibridge.dispatch(g_ibridge_ctx, addrs, vals, (uint32_t)n_sid_swaps,
+                                   0xDEADBEEFCAFEBABEULL, 1, 0x5555555555555555ULL,
+                                   routes, events);
+    if (ret == 0) {
+        /* Feed icosa lane output into gear lock state */
+        gear_lock_update(&g_gear, routes, events, n_sid_swaps, delta_ft_idx);
+        /* Periodic log every g_opt_gear_log cycles */
+        if (g_opt_gear_lock && g_opt_gear_log > 0 && (g_gear.cycles % g_opt_gear_log) == 0) {
+            gear_lock_print_summary(&g_gear,
+                (const char *const *)found_tensors, n_found, 5);
+        }
+    } else {
+        fprintf(stderr, "[twin-gpu] dispatch error %d\n", ret);
+    }
+
+    free(addrs); free(vals); free(routes); free(events);
 }
 
 /* ── Tensor memory store: log swapped tensors after decode ── */
@@ -328,7 +477,20 @@ int main(int argc,char**argv){
         else if(!strcmp(argv[i],"--sid-multi")&&i+1<argc)opt_sid_multi=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--capture")&&i+1<argc)opt_capture=argv[++i];
         else if(!strcmp(argv[i],"--mem-store")&&i+1<argc)g_opt_mem_store=argv[++i];
+        else if(!strcmp(argv[i],"--twin-gpu"))g_opt_twin_gpu=1;
+        else if(!strcmp(argv[i],"--gear-lock")){g_opt_gear_lock=1;g_opt_twin_gpu=1;}
+        else if(!strcmp(argv[i],"--gear-lock-threshold")&&i+1<argc){g_opt_gear_threshold=(float)atof(argv[++i]);g_opt_gear_lock=1;g_opt_twin_gpu=1;}
+        else if(!strcmp(argv[i],"--gear-log")&&i+1<argc){g_opt_gear_log=atoi(argv[++i]);g_opt_gear_lock=1;g_opt_twin_gpu=1;}
         else if(!strcmp(argv[i],"--dump-logits")&&i+1<argc)opt_dump_logits=argv[++i];
+        else if(!strcmp(argv[i],"--cosplay")&&i+1<argc){g_opt_cosplay=1;cosplay_load(argv[++i],&g_cp);fprintf(stderr,"[cosplay] loaded %s (%u entries)\n",argv[i],g_cp.n);}
+        else if(!strcmp(argv[i],"--cosplay-compare"))g_opt_cosplay_compare=1;
+        else if(!strcmp(argv[i],"--experiment")&&i+1<argc)g_opt_experiment=argv[++i];
+        else if(!strcmp(argv[i],"--simulate"))g_opt_simulate=1;
+        else if(!strcmp(argv[i],"--profile-batch")&&i+1<argc)g_opt_profile_batch=argv[++i];
+        else if(!strcmp(argv[i],"--semantic-weight")&&i+1<argc)g_opt_sem_weight=(float)atof(argv[++i]);
+        else if(!strcmp(argv[i],"--history-weight")&&i+1<argc)g_opt_hist_weight=(float)atof(argv[++i]);
+        else if(!strcmp(argv[i],"--random-weight")&&i+1<argc)g_opt_rnd_weight=(float)atof(argv[++i]);
+        else if(!strcmp(argv[i],"--decay")&&i+1<argc)g_opt_decay=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"-h")||!strcmp(argv[i],"--help")){
             fprintf(stderr,"Usage: %s model.gguf [options]\n",argv[0]);
             fprintf(stderr,"  --chat                    Interactive chat mode\n");
@@ -364,6 +526,19 @@ int main(int argc,char**argv){
             fprintf(stderr,"  --sid-multi N            Inject at N hottest layers simultaneously\n");
             fprintf(stderr,"  --capture DIR             Capture tensor geometry after decode, write to DIR\n");
             fprintf(stderr,"  --mem-store PATH          Log SID tensor memory timeline to file\n");
+            fprintf(stderr,"  --twin-gpu                Enable GPU icosa lane (CUDA twin bridge)\n");
+            fprintf(stderr,"  --gear-lock              Enable gear lock feedback (requires --twin-gpu)\n");
+            fprintf(stderr,"  --gear-lock-threshold N  Gear lock priority threshold 0..1 (default: 0.30, lower=more swaps)\n");
+            fprintf(stderr,"  --gear-log N             Gear lock log interval cycles (default: 16, 0=disable)\n");
+            fprintf(stderr,"  --cosplay PATH            Load cosplay perturbation profile\n");
+            fprintf(stderr,"  --cosplay-compare         Compare output with/without cosplay\n");
+            fprintf(stderr,"  --experiment DIR          Run multi-condition experiment\n");
+            fprintf(stderr,"  --simulate                Simulate session (no model)\n");
+            fprintf(stderr,"  --profile-batch FILE      Batch generate session profiles\n");
+            fprintf(stderr,"  --semantic-weight N       Semantic hash weight (default: 0.8)\n");
+            fprintf(stderr,"  --history-weight N        History weight (default: 0.2)\n");
+            fprintf(stderr,"  --random-weight N         Random weight (default: 0.0)\n");
+            fprintf(stderr,"  --decay N                 Edge weight decay per turn (default: 1.0)\n");
             fprintf(stderr,"  --count-only              Report tensor counts and exit\n");
             fprintf(stderr,"Chat commands:\n");
             fprintf(stderr,"  /checkpoint NAME          Save checkpoint\n");
@@ -380,8 +555,8 @@ int main(int argc,char**argv){
     if(!gguf_path){fprintf(stderr,"ERROR: missing model.gguf\n");return 1;}
 
     llama_backend_init();
-    ggml_backend_load("I:/llama/llama-b9528-bin-win-vulkan-x64/ggml-cpu-x64.dll");
-    ggml_backend_load("I:/llama/llama-b9528-bin-win-vulkan-x64/ggml-vulkan.dll");
+    ggml_backend_load("ggml-cpu-x64.dll");
+    ggml_backend_load("ggml-cuda.dll");
 
     fprintf(stderr, "\n--- load_from_file ---\n");
 
@@ -404,10 +579,10 @@ int main(int argc,char**argv){
     /* ── Scan model memory for tensor pointers ── */
     fprintf(stderr, "\n--- tensor scan ---\n");
 
-    MEMORY_BASIC_INFORMATION mbi;
-    VirtualQuery(model, &mbi, sizeof(mbi));
-    uint8_t *base = (uint8_t*)mbi.BaseAddress;
-    uint8_t *base_end = base + mbi.RegionSize;
+    PoglsMemInfo mi;
+    pogls_query_memory(model, &mi);
+    uint8_t *base = (uint8_t*)mi.base_addr;
+    uint8_t *base_end = base + mi.region_size;
     if (base_end - base > 65536) base_end = base + 65536;
 
     void *ptrs[MAX_TENSORS] = {0};
@@ -417,10 +592,10 @@ int main(int argc,char**argv){
 
     void *layers = find_layers_ptr((const uint8_t*)model);
     if (layers) {
-        MEMORY_BASIC_INFORMATION lmbi;
-        if (VirtualQuery(layers, &lmbi, sizeof(lmbi)) && lmbi.State == MEM_COMMIT) {
-            uint8_t *ls = (uint8_t*)lmbi.BaseAddress;
-            uint8_t *le = ls + lmbi.RegionSize;
+        PoglsMemInfo lmi;
+        if (pogls_query_memory(layers, &lmi) == 0 && lmi.state == POGLS_MEM_COMMIT) {
+            uint8_t *ls = (uint8_t*)lmi.base_addr;
+            uint8_t *le = ls + lmi.region_size;
             if (le > ls + SCAN_LIMIT) le = ls + SCAN_LIMIT;
             scan_region(ls, le, &gidx, ptrs, MAX_TENSORS, &n);
             fprintf(stderr, "[scan] Tier 2 (layers heap): %d tensors\n", n);
@@ -781,6 +956,8 @@ int main(int argc,char**argv){
             else
                 fprintf(stderr, "[sid] bond filter active: will skip cold tensors (hotness < 0.3)\n");
         }
+        if (g_opt_gear_lock)
+            fprintf(stderr, "[gear] route stability feedback active (threshold=%.2f)\n", g_opt_gear_threshold);
         for (int i = 0; i < n_found && n_sid_swaps < MAX_SID_SWAPS; i++) {
             const char *name = found_tensors[i].name;
             /* bond prediction filter */
@@ -964,6 +1141,15 @@ int main(int argc,char**argv){
             fprintf(stderr, "\n");
         }
     }
+    /* ── Gear lock init (after SID swap setup so delta_ft_idx[] is populated) ── */
+    if (g_opt_gear_lock) {
+        gear_lock_init(&g_gear);
+        /* initial mask: all swaps active (gear lock hasn't seen cycles yet) */
+        memset(gear_active_mask, 1, sizeof(gear_active_mask));
+        n_gear_active = n_sid_swaps;
+        fprintf(stderr, "[gear] state initialized, %d swaps monitored\n", n_gear_active);
+    }
+
     /* ── Tensor memory store init ── */
     if (g_opt_mem_store) {
         g_tmem_buf_size = 64u * 1024 * 1024;
@@ -980,15 +1166,285 @@ int main(int argc,char**argv){
             g_opt_mem_store = NULL;
         }
     }
+    /* ── Icosa bridge (twin GPU lane) init ── */
+    fprintf(stderr, "[debug] g_opt_twin_gpu=%d\n", g_opt_twin_gpu);
+    if (g_opt_twin_gpu) {
+        char dll_path[512];
+        pogls_module_dir(dll_path, sizeof(dll_path));
+        strcat(dll_path, "icosa_bridge.dll");
+        if (icosa_bridge_load(&g_ibridge, dll_path) == 0) {
+            g_ibridge_ctx = g_ibridge.create(0, 0xDEADBEEFCAFEBABEULL);
+            if (g_ibridge_ctx && g_ibridge.valid(g_ibridge_ctx)) {
+                fprintf(stderr, "[twin-gpu] icosa bridge loaded, GPU ready\n");
+            } else {
+                fprintf(stderr, "[twin-gpu] GPU init failed — disabling\n");
+                if (g_ibridge_ctx) { g_ibridge.destroy(g_ibridge_ctx); g_ibridge_ctx = NULL; }
+                icosa_bridge_unload(&g_ibridge);
+                g_opt_twin_gpu = 0;
+            }
+        } else {
+            fprintf(stderr, "[twin-gpu] icosa_bridge.dll not found — disabled\n");
+            g_opt_twin_gpu = 0;
+        }
+    }
+
+    /* ── Init redirect: set tensor->data to writable SID cache heap BEFORE context creation ── */
+    if (sid_face > 0 && n_sid_swaps > 0) {
+        fprintf(stderr, "[init-redirect] %d tensors: tensor->data → heap (SID cache)\n", n_sid_swaps);
+        for (int s = 0; s < n_sid_swaps; s++) {
+            int fi = sid_swaps[s].ft_idx;
+            tensor_set_data(found_tensors[fi].ptr, found_tensors[fi].orig_data);
+        }
+    }
+
+    /* ── Save clean SID data ptrs for cosplay-compare and experiment ── */
+    if ((g_opt_cosplay_compare || g_opt_experiment) && sid_face > 0 && n_sid_swaps > 0) {
+        g_n_experiment_clean = n_sid_swaps;
+        g_experiment_clean_ptrs = (uint8_t**)malloc((size_t)n_sid_swaps * sizeof(uint8_t*));
+        if (g_experiment_clean_ptrs) {
+            for (int s = 0; s < n_sid_swaps; s++)
+                g_experiment_clean_ptrs[s] = sid_swaps[s].sid_data;
+        }
+        fprintf(stderr, "[cosplay] saved %d clean ptrs\n", g_n_experiment_clean);
+    }
+
+    /* ── Cosplay: apply profile perturbations to SID cache data ── */
+    if (!g_opt_experiment && g_opt_cosplay && g_cp.n > 0 && sid_face > 0 && n_sid_swaps > 0) {
+        fprintf(stderr, "[cosplay] applying %u perturbation entries...\n", g_cp.n);
+        for (int s = 0; s < n_sid_swaps; s++) {
+            uint32_t h = cosplay_fnv1a(found_tensors[sid_swaps[s].ft_idx].name);
+            int ei = cosplay_find(&g_cp, h);
+            if (ei < 0) continue;
+            void *perturbed = cosplay_apply(&g_cp.entries[ei],
+                sid_swaps[s].sid_data, sid_swaps[s].sid_size);
+            if (perturbed) {
+                sid_swaps[s].sid_data = (uint8_t*)perturbed;
+                sid_swaps[s].is_malloc = 1;
+                delta_sid_data[s] = sid_swaps[s].sid_data;
+            }
+        }
+        fprintf(stderr, "[cosplay] applied\n");
+    }
+
+    /* ── Session profile init ── */
+    ses_profile_init(&g_ses);
+    if (g_opt_simulate || g_opt_profile_batch) {
+        fprintf(stderr, "[ses] mode: %s\n", g_opt_profile_batch ? "batch" : "simulate");
+    }
 
     /* ── Create context (once, for the whole session) ── */
     struct llama_context_params cp=llama_context_default_params();
-    cp.n_ctx=256;cp.n_threads=4;cp.n_threads_batch=4;cp.n_batch=128;cp.n_ubatch=64;
+    cp.n_ctx=2048;cp.n_threads=4;cp.n_threads_batch=4;cp.n_batch=128;cp.n_ubatch=64;
     struct llama_context *lctx = llama_init_from_model(model, cp);
     if(!lctx){fprintf(stderr,"ERROR: context\n"); sid_loader_close(&slc); gguf_idx_close(&gidx); llama_model_free(model); llama_backend_free(); return 1;}
     const struct llama_vocab *v = llama_model_get_vocab(model);
     int nv = llama_vocab_n_tokens(v);
-    int eos = llama_vocab_eos(v); if(eos==-1) eos=151645;
+
+    /* ── Cosplay-compare: decode WITH and WITHOUT cosplay ── */
+    if (g_opt_cosplay_compare && g_opt_cosplay && g_cp.n > 0 && sid_face > 0 && n_sid_swaps > 0 && g_experiment_clean_ptrs) {
+        Sampler cs_sp = sp; cs_sp.count = 0;
+        llama_token ct = 0;
+        llama_batch cb = llama_batch_get_one(&ct, 1);
+        int c_tok_with = -1, c_tok_without = -1;
+        float *c_logits_with = NULL, *c_logits_without = NULL;
+        fprintf(stderr, "\n--- cosplay-compare ---\n");
+        sid_swap_apply();
+        if (llama_decode(lctx, cb) == 0) {
+            float *lw = llama_get_logits_ith(lctx, 0);
+            c_logits_with = (float*)malloc((size_t)nv * sizeof(float));
+            if (c_logits_with) { memcpy(c_logits_with, lw, (size_t)nv * sizeof(float)); c_tok_with = sample_token(lw, nv, &cs_sp); }
+        }
+        sid_swap_restore();
+        llama_memory_clear(llama_get_memory(lctx), 1);
+        for (int s = 0; s < n_sid_swaps; s++) delta_sid_data[s] = g_experiment_clean_ptrs[s];
+        sid_swap_apply();
+        if (llama_decode(lctx, cb) == 0) {
+            float *lwo = llama_get_logits_ith(lctx, 0);
+            c_logits_without = (float*)malloc((size_t)nv * sizeof(float));
+            if (c_logits_without) { memcpy(c_logits_without, lwo, (size_t)nv * sizeof(float)); c_tok_without = sample_token(lwo, nv, &cs_sp); }
+        }
+        sid_swap_restore();
+        for (int s = 0; s < n_sid_swaps; s++) delta_sid_data[s] = sid_swaps[s].sid_data;
+        llama_memory_clear(llama_get_memory(lctx), 1);
+        if (c_logits_with && c_logits_without) {
+            double c_dot = 0, c_na = 0, c_nb = 0, c_md = 0; int c_ss = 0;
+            for (int i = 0; i < nv; i++) {
+                c_dot += c_logits_with[i] * c_logits_without[i];
+                c_na += c_logits_with[i] * c_logits_with[i];
+                c_nb += c_logits_without[i] * c_logits_without[i];
+                double cd = fabs(c_logits_with[i] - c_logits_without[i]);
+                if (cd > c_md) c_md = cd;
+                if ((c_logits_with[i] >= 0) == (c_logits_without[i] >= 0)) c_ss++;
+            }
+            double c_sim = c_dot / (sqrt(c_na) * sqrt(c_nb) + 1e-30);
+            char c_buf_with[32], c_buf_without[32];
+            int c_lw = 0, c_lwo = 0;
+            if (c_tok_with >= 0) c_lw = llama_token_to_piece(v, c_tok_with, c_buf_with, 32, 0, false);
+            if (c_tok_without >= 0) c_lwo = llama_token_to_piece(v, c_tok_without, c_buf_without, 32, 0, false);
+            if (c_lw > 0) c_buf_with[c_lw > 31 ? 31 : c_lw] = 0; else c_buf_with[0] = 0;
+            if (c_lwo > 0) c_buf_without[c_lwo > 31 ? 31 : c_lwo] = 0; else c_buf_without[0] = 0;
+            fprintf(stderr, "  First token WITH cosplay:    '%s' (token %d)\n", c_buf_with, c_tok_with);
+            fprintf(stderr, "  First token WITHOUT cosplay: '%s' (token %d)\n", c_buf_without, c_tok_without);
+            fprintf(stderr, "  Same token? %s\n", c_tok_with == c_tok_without ? "YES" : "NO");
+            fprintf(stderr, "  Logits cosine similarity:    %f\n", c_sim);
+            fprintf(stderr, "  Max logit difference:        %f\n", c_md);
+            fprintf(stderr, "  Same-sign ratio:             %.1f%%\n", 100.0 * c_ss / nv);
+        }
+        free(c_logits_with); free(c_logits_without);
+        fprintf(stderr, "--- end cosplay-compare ---\n\n");
+    }
+
+    /* ── Experiment: multi-condition comparison ── */
+    if (g_opt_experiment && sid_face > 0 && n_sid_swaps > 0 && g_experiment_clean_ptrs) {
+        fprintf(stderr, "\n--- experiment: %s ---\n", g_opt_experiment);
+        #ifdef _WIN32
+        _mkdir(g_opt_experiment);
+        #endif
+        int e_max_cpl = 64, e_n_cpl = 0;
+        char e_cpl_list[64][260];
+        #ifdef _WIN32
+        WIN32_FIND_DATA e_fd;
+        char e_pat[320]; snprintf(e_pat, 320, "%s\\*.cpl", g_opt_experiment);
+        HANDLE e_fh = FindFirstFile(e_pat, &e_fd);
+        if (e_fh != INVALID_HANDLE_VALUE) {
+            do {
+                if (e_n_cpl >= e_max_cpl) break;
+                if (!(e_fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+                    snprintf(e_cpl_list[e_n_cpl], 260, "%s\\%s", g_opt_experiment, e_fd.cFileName);
+                    e_n_cpl++;
+                }
+            } while (FindNextFile(e_fh, &e_fd));
+            FindClose(e_fh);
+        }
+        #else
+        DIR *e_d = opendir(g_opt_experiment);
+        if (e_d) {
+            struct dirent *e_de;
+            while ((e_de = readdir(e_d)) != NULL && e_n_cpl < e_max_cpl) {
+                const char *e_ext = strrchr(e_de->d_name, '.');
+                if (e_ext && strcmp(e_ext, ".cpl") == 0) {
+                    snprintf(e_cpl_list[e_n_cpl], 260, "%s/%s", g_opt_experiment, e_de->d_name);
+                    e_n_cpl++;
+                }
+            }
+            closedir(e_d);
+        }
+        #endif
+        qsort(e_cpl_list, (size_t)e_n_cpl, 260, (int(*)(const void*,const void*))strcmp);
+        fprintf(stderr, "[experiment] found %d .cpl files\n", e_n_cpl);
+        int e_n_cond = e_n_cpl + 1;
+        float **e_all_logits = (float**)calloc((size_t)e_n_cond, sizeof(float*));
+        int *e_all_first_tok = (int*)calloc((size_t)e_n_cond, sizeof(int));
+        char e_cond_names[64][64];
+        e_cond_names[0][0] = 0; snprintf(e_cond_names[0], 64, "00-baseline");
+        char e_res_dir[320];
+        snprintf(e_res_dir, 320, "%s\\results", g_opt_experiment);
+        #ifdef _WIN32
+        _mkdir(e_res_dir);
+        #endif
+        Sampler e_sp = sp; e_sp.count = 0;
+        llama_token e_tok = 0;
+        llama_batch e_batch = llama_batch_get_one(&e_tok, 1);
+        for (int e_ci = 0; e_ci < e_n_cond; e_ci++) {
+            for (int s = 0; s < n_sid_swaps; s++) delta_sid_data[s] = g_experiment_clean_ptrs[s];
+            if (e_ci > 0) {
+                char e_cpl_path[320]; snprintf(e_cpl_path, 320, "%s", e_cpl_list[e_ci - 1]);
+                const char *e_base = strrchr(e_cpl_path, '\\');
+                if (!e_base) e_base = strrchr(e_cpl_path, '/');
+                if (!e_base) e_base = e_cpl_path; else e_base++;
+                snprintf(e_cond_names[e_ci], 64, "%02d-%s", e_ci, e_base);
+                char *e_dot = strstr(e_cond_names[e_ci], ".cpl");
+                if (e_dot) *e_dot = 0;
+                CosplayProfile e_cp; memset(&e_cp, 0, sizeof(e_cp));
+                if (cosplay_load(e_cpl_path, &e_cp) == 0 && e_cp.n > 0) {
+                    for (int s = 0; s < n_sid_swaps; s++) {
+                        uint32_t eh = cosplay_fnv1a(found_tensors[sid_swaps[s].ft_idx].name);
+                        int eei = cosplay_find(&e_cp, eh);
+                        if (eei < 0) continue;
+                        void *ep = cosplay_apply(&e_cp.entries[eei], sid_swaps[s].sid_data, sid_swaps[s].sid_size);
+                        if (ep) { delta_sid_data[s] = (uint8_t*)ep; }
+                    }
+                }
+            }
+            sid_swap_apply();
+            if (llama_decode(lctx, e_batch) == 0) {
+                float *el = llama_get_logits_ith(lctx, 0);
+                e_all_first_tok[e_ci] = sample_token(el, nv, &e_sp);
+                e_all_logits[e_ci] = (float*)malloc((size_t)nv * sizeof(float));
+                if (e_all_logits[e_ci]) memcpy(e_all_logits[e_ci], el, (size_t)nv * sizeof(float));
+            }
+            sid_swap_restore();
+            for (int s = 0; s < n_sid_swaps; s++) {
+                if (delta_sid_data[s] != sid_swaps[s].sid_data && delta_sid_data[s] != g_experiment_clean_ptrs[s])
+                    free(delta_sid_data[s]);
+            }
+            for (int s = 0; s < n_sid_swaps; s++) delta_sid_data[s] = g_experiment_clean_ptrs[s];
+            llama_memory_clear(llama_get_memory(lctx), 1);
+            char e_out_dir[320]; snprintf(e_out_dir, 320, "%s\\%s", e_res_dir, e_cond_names[e_ci]);
+            #ifdef _WIN32
+            _mkdir(e_out_dir);
+            #endif
+            FILE *ef = fopen(e_out_dir, "w"); if (ef) { fprintf(ef,""); fclose(ef); } /* touch */
+            char e_info_path[320]; snprintf(e_info_path, 320, "%s\\info.txt", e_out_dir);
+            FILE *e_info = fopen(e_info_path, "w");
+            if (e_info) {
+                fprintf(e_info, "condition: %s\n", e_cond_names[e_ci]);
+                fprintf(e_info, "cpl: %s\n", e_ci == 0 ? "(none, baseline)" : e_cpl_list[e_ci - 1]);
+                fprintf(e_info, "first_token: %d\n", e_all_first_tok[e_ci]);
+                char e_p[32]; int e_p_l = 0;
+                if (e_all_first_tok[e_ci] >= 0) e_p_l = llama_token_to_piece(v, e_all_first_tok[e_ci], e_p, 32, 0, false);
+                if (e_p_l > 0) { e_p[e_p_l > 31 ? 31 : e_p_l] = 0; fprintf(e_info, "first_piece: %s\n", e_p); }
+                fprintf(e_info, "n_tokens: %d\n", 1);
+                fclose(e_info);
+            }
+            char e_tok_path[320]; snprintf(e_tok_path, 320, "%s\\tokens.bin", e_out_dir);
+            FILE *e_tf = fopen(e_tok_path, "wb");
+            if (e_tf) { fwrite(&e_all_first_tok[e_ci], 4, 1, e_tf); fclose(e_tf); }
+            char e_txt_path[320]; snprintf(e_txt_path, 320, "%s\\tokens.txt", e_out_dir);
+            FILE *e_txt = fopen(e_txt_path, "w");
+            if (e_txt && e_all_first_tok[e_ci] >= 0) {
+                char e_tp[32]; int e_tl = llama_token_to_piece(v, e_all_first_tok[e_ci], e_tp, 32, 0, false);
+                if (e_tl > 0) { e_tp[e_tl > 31 ? 31 : e_tl] = 0; fprintf(e_txt, "%s", e_tp); }
+                fclose(e_txt);
+            } else if (e_txt) { fclose(e_txt); }
+            char e_lg_path[320]; snprintf(e_lg_path, 320, "%s\\logits.bin", e_out_dir);
+            FILE *e_lf = fopen(e_lg_path, "wb");
+            if (e_lf && e_all_logits[e_ci]) { fwrite(e_all_logits[e_ci], 4, (size_t)nv, e_lf); fclose(e_lf); }
+            fprintf(stderr, "[experiment] %s: first_token=%d\n", e_cond_names[e_ci], e_all_first_tok[e_ci]);
+        }
+        char e_rpt_path[320]; snprintf(e_rpt_path, 320, "%s\\report.txt", e_res_dir);
+        FILE *e_rpt = fopen(e_rpt_path, "w");
+        if (e_rpt) {
+            fprintf(e_rpt, "EXPERIMENT REPORT: %s\n\n", g_opt_experiment);
+            for (int e_ci = 0; e_ci < e_n_cond; e_ci++) {
+                fprintf(e_rpt, "[%s]\n", e_cond_names[e_ci]);
+                fprintf(e_rpt, "  first_token=%d\n", e_all_first_tok[e_ci]);
+                fprintf(e_rpt, "\n");
+            }
+            fprintf(e_rpt, "Logit cosine similarity matrix:\n");
+            for (int e_i = 0; e_i < e_n_cond; e_i++) {
+                for (int e_j = 0; e_j < e_n_cond; e_j++) {
+                    double e_sim = 0;
+                    if (e_all_logits[e_i] && e_all_logits[e_j]) {
+                        double e_d = 0, e_na = 0, e_nb = 0;
+                        for (int e_k = 0; e_k < nv; e_k++) {
+                            e_d += e_all_logits[e_i][e_k] * e_all_logits[e_j][e_k];
+                            e_na += e_all_logits[e_i][e_k] * e_all_logits[e_i][e_k];
+                            e_nb += e_all_logits[e_j][e_k] * e_all_logits[e_j][e_k];
+                        }
+                        e_sim = e_d / (sqrt(e_na) * sqrt(e_nb) + 1e-30);
+                    }
+                    fprintf(e_rpt, "%f\t", e_sim);
+                }
+                fprintf(e_rpt, "\n");
+            }
+            fclose(e_rpt);
+        }
+        for (int e_ci = 0; e_ci < e_n_cond; e_ci++) free(e_all_logits[e_ci]);
+        free(e_all_logits); free(e_all_first_tok);
+        fprintf(stderr, "--- end experiment ---\n");
+        goto cleanup;
+    }
 
     /* ── if --dump-logits, do one decode and exit ── */
     if (opt_dump_logits) {
@@ -1017,18 +1473,19 @@ int main(int argc,char**argv){
     }
     free(bond_hotness); free(hybrid_include); free(multi_include);
 
+    if(!opt_chat&&!opt_prompt&&!opt_dump_logits&&!opt_count_only){opt_chat=1;}
     if(opt_chat){
         char*roles[MAX_CHAT_HISTORY],*content[MAX_CHAT_HISTORY];int cc=0;
-        roles[0]="system";content[0]="You are a helpful assistant.";cc=1;
+        roles[0]="system";content[0]=strdup("You are a helpful assistant.");cc=1;
         printf("\n=== SID Chat (Qwen format) ===\n/exit  /clear\n\n");
-        char line[MAX_LINE];
+        char line[MAX_LINE];int32_t cum_pos=0;
         while(1){
             printf(">>> ");fflush(stdout);
             if(!fgets(line,sizeof(line),stdin))break;
             size_t ll=strlen(line);while(ll>0&&(line[ll-1]=='\n'||line[ll-1]=='\r'))line[--ll]=0;
             if(ll==0)continue;
             if(!strcmp(line,"/exit"))break;
-            if(!strcmp(line,"/clear")){cc=0;roles[0]="system";content[0]="You are a helpful assistant.";cc=1;printf("Cleared.\n");continue;}
+            if(!strcmp(line,"/clear")){for(int _ci=0;_ci<cc;_ci++)free(content[_ci]);cc=0;roles[0]="system";content[0]=strdup("You are a helpful assistant.");cc=1;cum_pos=0;llama_free(lctx);lctx=llama_init_from_model(model,cp);if(!lctx){fprintf(stderr,"ERROR: reinit context\n");break;}v=llama_model_get_vocab(model);nv=llama_vocab_n_tokens(v);printf("Cleared.\n");continue;}
             if(strncmp(line,"/checkpoint ",12)==0){int _cp=sid_checkpoint(&tt.ring,line+12);fprintf(stderr,_cp>=0?"[chat] checkpoint '%s' #%d at ring[%u]\n":"[chat] checkpoint failed\n",line+12,_cp,_cp>=0?(unsigned)tt.ring.checkpoints[_cp].ring_index:0);continue;}
             if(strncmp(line,"/rewind ",8)==0){int _cp=sid_find_checkpoint(&tt.ring,line+8);if(_cp>=0){int _n=sid_rewind_to_checkpoint(&tt.ring,(uint32_t)_cp);fprintf(stderr,"[chat] rewind to '%s': %d entries undone\n",line+8,_n);}else{fprintf(stderr,"[chat] checkpoint '%s' not found\n",line+8);}continue;}
             if(strncmp(line,"/ff ",4)==0){int _cp=sid_find_checkpoint(&tt.ring,line+4);if(_cp>=0){int _n=sid_ffwd_from_checkpoint(&tt.ring,(uint32_t)_cp);fprintf(stderr,"[chat] fast-forward to '%s': %d entries reapplied\n",line+4,_n);}else{fprintf(stderr,"[chat] checkpoint '%s' not found\n",line+4);}continue;}
@@ -1062,10 +1519,10 @@ int main(int argc,char**argv){
             llama_tokenize(v,fmt,flen,ta,nt,false,false);
             free(fmt);
             struct llama_batch pb=llama_batch_init(nt,0,1);pb.n_tokens=nt;
-            for(int j=0;j<nt;j++){pb.token[j]=ta[j];pb.pos[j]=j;pb.n_seq_id[j]=1;pb.seq_id[j][0]=0;pb.logits[j]=j==nt-1?1:0;}
+            for(int j=0;j<nt;j++){pb.token[j]=ta[j];pb.pos[j]=cum_pos+j;pb.n_seq_id[j]=1;pb.seq_id[j][0]=0;pb.logits[j]=j==nt-1?1:0;}
             sid_swap_apply();
             if(llama_decode(lctx,pb)!=0){llama_batch_free(pb);free(ta);sid_swap_restore();break;}
-            sid_swap_restore();
+            sid_swap_restore(); twin_gpu_gear_push();
             sid_mem_store_log(lctx, nv, (uint16_t)(nt - 1), sid_face);
             if (opt_capture) {
                 #ifdef _WIN32
@@ -1084,23 +1541,23 @@ int main(int argc,char**argv){
                 capture_run_full(&cr, opt_capture, ctens, n_found, 12);
             }
             llama_batch_free(pb);
-            Sampler gs=sp;gs.count=0;int32_t pos=nt;
+            Sampler gs=sp;gs.count=0;int32_t pos=cum_pos+nt;
             struct llama_batch gb=llama_batch_init(1,0,1);
             gb.n_tokens=1;gb.n_seq_id[0]=1;gb.seq_id[0][0]=0;gb.logits[0]=1;
             for(int i=0;i<opt_max_new;i++){
                 sid_swap_apply();
                 int tok=sample_token(llama_get_logits_ith(lctx,-1),nv,&gs);
-                sid_swap_restore();
-                if(tok==eos||tok==0)break;
+                sid_swap_restore(); twin_gpu_gear_push();
+                if(llama_vocab_is_eog(v,tok))break;
                 char b[16];int l=llama_token_to_piece(v,tok,b,16,0,false);
                 if(l>0){b[l>15?15:l]=0;printf("%s",b);fflush(stdout);}
                 gb.token[0]=tok;gb.pos[0]=pos++;
                 sid_swap_apply();
                 if(llama_decode(lctx,gb)!=0){sid_swap_restore();break;}
-                sid_swap_restore();
+                sid_swap_restore(); twin_gpu_gear_push();
                 sid_mem_store_log(lctx, nv, (uint16_t)(pos - 1), sid_face);
             }
-            llama_batch_free(gb);printf("\n");free(ta);
+            cum_pos=pos;llama_batch_free(gb);printf("\n");free(ta);
         }
         for(int i=0;i<cc;i++)free(content[i]);
     }
@@ -1115,7 +1572,7 @@ int main(int argc,char**argv){
         for(int j=0;j<nt;j++){pb.token[j]=toks[j];pb.pos[j]=j;pb.n_seq_id[j]=1;pb.seq_id[j][0]=0;pb.logits[j]=j==nt-1?1:0;}
         sid_swap_apply();
         if(llama_decode(lctx,pb)!=0){fprintf(stderr,"[dbg] decode fail\n");llama_batch_free(pb);free(toks);sid_swap_restore();return 1;}
-        sid_swap_restore();
+        sid_swap_restore(); twin_gpu_gear_push();
         sid_mem_store_log(lctx, nv, (uint16_t)(nt - 1), sid_face);
         if (opt_capture) {
             #ifdef _WIN32
@@ -1141,14 +1598,14 @@ int main(int argc,char**argv){
         for(int i=0;i<opt_max_new;i++){
             sid_swap_apply();
             int tok=sample_token(llama_get_logits_ith(lctx,-1),nv,&gs);
-            sid_swap_restore();
-            if(tok==eos||tok==0)break;
+            sid_swap_restore(); twin_gpu_gear_push();
+            if(llama_vocab_is_eog(v,tok))break;
             char b[16];int l=llama_token_to_piece(v,tok,b,16,0,false);
             if(l>0){b[l>15?15:l]=0;printf("%s",b);fflush(stdout);}
             gb.token[0]=tok;gb.pos[0]=pos++;
             sid_swap_apply();
             if(llama_decode(lctx,gb)!=0){sid_swap_restore();break;}
-            sid_swap_restore();
+            sid_swap_restore(); twin_gpu_gear_push();
             sid_mem_store_log(lctx, nv, (uint16_t)(pos - 1), sid_face);
         }
         llama_batch_free(gb);printf("\n");free(toks);
@@ -1163,11 +1620,24 @@ int main(int argc,char**argv){
         g_tmem_buf = NULL;
     }
 
+    /* ── Icosa bridge stats & cleanup ── */
+    if (g_opt_twin_gpu && g_ibridge_ctx) {
+        g_ibridge.destroy(g_ibridge_ctx);
+        g_ibridge_ctx = NULL;
+        icosa_bridge_unload(&g_ibridge);
+        fprintf(stderr, "[twin-gpu] bridge unloaded\n");
+    }
+
     /* ── Cleanup ── */
     for (int i = 0; i < n_sid_swaps; i++) {
         if (sid_swaps[i].is_malloc) free(sid_swaps[i].sid_data);
     }
 cleanup:
+    if (g_opt_twin_gpu && g_ibridge_ctx) {
+        g_ibridge.destroy(g_ibridge_ctx);
+        g_ibridge_ctx = NULL;
+        icosa_bridge_unload(&g_ibridge);
+    }
     sid_loader_close(&slc);
     gguf_idx_close(&gidx);
     llama_free(lctx);llama_model_free(model);llama_backend_free();

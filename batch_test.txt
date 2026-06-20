@@ -1,0 +1,3 @@
+test_001|What is a linked list?|Explain pointers|How does malloc work?
+test_002|What is sorting?|Explain recursion|What is a hash table?
+test_003|What is an API?|Explain HTTP methods|What is REST?
