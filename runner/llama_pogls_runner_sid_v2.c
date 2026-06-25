@@ -60,6 +60,11 @@
 #include "kv_sid_evict.h"
 #include "kv_page_store.h"
 #include "kv_tensor_access.h"
+#include "kv_remap.h"
+#ifdef _WIN32
+#define POGLS_RAIL_USE_POGTIME
+#endif
+#include "kv_remap_rail.h"
 
 /* ggml_tensor->data is at offset 248 in the struct (same as SID swap) */
 #define GGML_TENSOR_DATA_OFFSET 248
@@ -494,7 +499,7 @@ static inline void sid_mem_store_log(struct llama_context *lctx, int nv, uint16_
 int main(int argc,char**argv){
     if(argc<2){fprintf(stderr,"Usage: %s model.gguf [--chat] [--ngl N] [--sid-face N] [--sid-spoke N|all] [--sid-slot STR] [--sid-corrupt N] [--sid-checkpoint NAME] [--sid-rewind NAME] [--sid-ff NAME] [--sid-branch NAME] [options]\n",argv[0]);return 1;}
     const char*gguf_path=NULL,*opt_prompt=NULL,*opt_dump_logits=NULL,*opt_capture=NULL,*opt_script=NULL;
-    int opt_ngl=0,opt_max_new=256,opt_chat=0,opt_count_only=0,opt_bond=0,opt_hex=0,opt_trihex=0,opt_goldberg=0,sid_face=0,sid_spoke=-1,sid_corrupt=0,opt_swap_cold=0,sid_corrupt_val=1,opt_hybrid=0,opt_sid_adaptive=0,opt_sid_multi=0,opt_kv_evict=0,opt_kv_page=0,opt_kv_page_evict=0,opt_ctx=2048;
+    int opt_ngl=0,opt_max_new=256,opt_chat=0,opt_count_only=0,opt_bond=0,opt_hex=0,opt_trihex=0,opt_goldberg=0,sid_face=0,sid_spoke=-1,sid_corrupt=0,opt_swap_cold=0,sid_corrupt_val=1,opt_hybrid=0,opt_sid_adaptive=0,opt_sid_multi=0,opt_kv_evict=0,opt_kv_page=0,opt_kv_page_evict=0,opt_ctx=2048,opt_remap=0;
     float opt_goldberg_threshold = 1.2f;
     int opt_sid_geodesic = 0; float opt_sid_geo_radius = 0.5f, opt_hybrid_radius = 0.01f;
     const char*sid_slot="",*sid_pattern=NULL;
@@ -552,6 +557,7 @@ int main(int argc,char**argv){
         else if(!strcmp(argv[i],"--kv-evict")&&i+1<argc)opt_kv_evict=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--kv-page"))opt_kv_page=1;
         else if(!strcmp(argv[i],"--kv-page-evict")&&i+1<argc){opt_kv_page=1;opt_kv_page_evict=atoi(argv[++i]);}
+        else if(!strcmp(argv[i],"--remap"))opt_remap=1;
         else if(!strcmp(argv[i],"--ctx")&&i+1<argc)opt_ctx=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--dramtile"))g_opt_dramtile=1;
         else if(!strcmp(argv[i],"--simulate"))g_opt_simulate=1;
@@ -610,6 +616,7 @@ int main(int argc,char**argv){
             fprintf(stderr,"  --kv-evict N             KV SID evict: swap oldest N layers to backup (zero-copy)\n");
             fprintf(stderr,"  --kv-page                KV Page Store: token-position-granular paging with DRamTile backing\n");
             fprintf(stderr,"  --kv-page-evict N        KV Page Store: evict oldest N pages after init\n");
+            fprintf(stderr,"  --remap                  KV Remap: adaptive skeleton+delta with rail background scan\n");
             fprintf(stderr,"  --dramtile                Enable DRamTile zero-copy tensor store\n");
             fprintf(stderr,"  --simulate                Simulate session (no model)\n");
             fprintf(stderr,"  --profile-batch FILE      Batch generate session profiles\n");
@@ -1434,6 +1441,35 @@ int main(int argc,char**argv){
         }
     }
 
+    /* ── Init KV Remap (optional, --remap) ── */
+    KVRemapCtx kv_remap;
+    KVRemapRail kv_rail;
+    kv_remap_init(&kv_remap, opt_ctx);
+    kv_remap_rail_init(&kv_rail, &kv_remap);
+    if (opt_remap) {
+        void *k_tensors_rm[KV_REMAP_MAX_LAYERS], *v_tensors_rm[KV_REMAP_MAX_LAYERS];
+        void *k_data_rm[KV_REMAP_MAX_LAYERS], *v_data_rm[KV_REMAP_MAX_LAYERS];
+        size_t k_nb1_rm[KV_REMAP_MAX_LAYERS], v_nb1_rm[KV_REMAP_MAX_LAYERS];
+        size_t k_sizes_rm[KV_REMAP_MAX_LAYERS], v_sizes_rm[KV_REMAP_MAX_LAYERS];
+        int n_embd_rm[KV_REMAP_MAX_LAYERS], layer_ids_rm[KV_REMAP_MAX_LAYERS];
+        int n_kv_rm = kv_get_cache_tensors(lctx, k_data_rm, v_data_rm, k_sizes_rm, v_sizes_rm,
+                                            n_embd_rm, NULL, layer_ids_rm, KV_REMAP_MAX_LAYERS);
+        int n_tensors_rm = kv_get_cache_tensor_ptrs(lctx, k_tensors_rm, v_tensors_rm, KV_REMAP_MAX_LAYERS);
+        int n_reg_rm = n_kv_rm < n_tensors_rm ? n_kv_rm : n_tensors_rm;
+        if (n_reg_rm > 0) {
+            for (int i = 0; i < n_reg_rm; i++) {
+                k_nb1_rm[i] = k_sizes_rm[i] / (size_t)opt_ctx;
+                v_nb1_rm[i] = v_sizes_rm[i] / (size_t)opt_ctx;
+            }
+            kv_remap_register(&kv_remap, k_data_rm, v_data_rm,
+                k_nb1_rm, v_nb1_rm, k_sizes_rm, v_sizes_rm,
+                n_embd_rm, layer_ids_rm, n_reg_rm);
+            kv_remap_set_skeleton(&kv_remap);
+            kv_remap_print_status(&kv_remap);
+            kv_remap_rail_print_status(&kv_rail);
+        }
+    }
+
     /* ── Cosplay-compare: decode WITH and WITHOUT cosplay ── */
     if (g_opt_cosplay_compare && g_opt_cosplay && g_cp.n > 0 && sid_face > 0 && n_sid_swaps > 0 && g_experiment_clean_ptrs) {
         Sampler cs_sp = sp; cs_sp.count = 0;
@@ -1671,7 +1707,7 @@ int main(int argc,char**argv){
     if(opt_chat){
         char*roles[MAX_CHAT_HISTORY],*content[MAX_CHAT_HISTORY];int cc=0;
         roles[0]="system";content[0]=strdup("You are a helpful assistant.");cc=1;
-        printf("\n=== SID Chat ===\n/exit  /clear  /evict N  /restore  /pevict N  /prestore N  /pstatus\n\n");
+        printf("\n=== SID Chat ===\n/exit  /clear  /evict N  /restore  /pevict N  /prestore N  /pstatus  /rstatus  /rscan\n\n");
         FILE *chat_in = stdin;
         if (opt_script) {
             chat_in = fopen(opt_script, "rb");
@@ -1803,6 +1839,20 @@ int main(int argc,char**argv){
                 fflush(stdout);
                 continue;
             }
+            if(!strcmp(line,"/rstatus")){
+                if (kv_remap.enabled) { kv_remap_print_status(&kv_remap); kv_remap_rail_print_status(&kv_rail); }
+                else { printf("KV Remap not enabled (--remap)\n"); }
+                continue;
+            }
+            if(!strcmp(line,"/rscan")){
+                if (kv_remap.enabled && kv_rail.enabled) {
+                    kv_remap_rail_start_scan(&kv_rail);
+                    int _rs;
+                    while ((_rs = kv_remap_rail_step(&kv_rail)) == 0) {}
+                    kv_remap_rail_print_status(&kv_rail);
+                } else { printf("KV Remap not enabled (--remap)\n"); }
+                continue;
+            }
             roles[cc]="user";content[cc]=strdup(line);cc++;
             /* Build the current prompt and only append the new suffix when possible */
             llama_chat_message *msgs = (llama_chat_message*)malloc((size_t)cc * sizeof(llama_chat_message));
@@ -1829,9 +1879,11 @@ int main(int argc,char**argv){
             if (delta_n > 0) {
                 struct llama_batch pb=llama_batch_init((int)delta_n,0,1);pb.n_tokens=(int)delta_n;
                 for(size_t j=0;j<delta_n;j++){pb.token[j]=ta[prefix+j];pb.pos[j]=(int32_t)(prefix+j);pb.n_seq_id[j]=1;pb.seq_id[j][0]=0;pb.logits[j]=j==delta_n-1?1:0;}
+                if (kv_rail.enabled) kv_remap_rail_freeze(&kv_rail);
                 sid_swap_apply();
-                if(llama_decode(lctx,pb)!=0){llama_batch_free(pb);free(ta);sid_swap_restore();free(pending_toks);return 1;}
+                if(llama_decode(lctx,pb)!=0){llama_batch_free(pb);free(ta);sid_swap_restore();if (kv_rail.enabled) kv_remap_rail_resume(&kv_rail);free(pending_toks);return 1;}
                 sid_swap_restore(); twin_gpu_gear_push();
+                if (kv_rail.enabled) kv_remap_rail_resume(&kv_rail);
 #ifdef KV_ARCHIVE
                 if (kv_sid.enabled) kv_snapshot_all(&kv_sid);
 #endif
@@ -1878,9 +1930,11 @@ int main(int argc,char**argv){
                     memcpy(resp_buf+resp_len,b,(size_t)l);resp_len+=(size_t)l;resp_buf[resp_len]='\0';
                 }
                 gb.token[0]=tok;gb.pos[0]=pos++;
+                if (kv_rail.enabled) kv_remap_rail_freeze(&kv_rail);
                 sid_swap_apply();
-                if(llama_decode(lctx,gb)!=0){sid_swap_restore();break;}
+                if(llama_decode(lctx,gb)!=0){sid_swap_restore();if (kv_rail.enabled) kv_remap_rail_resume(&kv_rail);break;}
                 sid_swap_restore(); twin_gpu_gear_push();
+                if (kv_rail.enabled) kv_remap_rail_resume(&kv_rail);
                 sid_mem_store_log(lctx, nv, (uint16_t)(pos - 1), sid_face);
                 if (tokbuf_append(&pending_toks, &pending_n, &pending_cap, &tok, 1) != 0) {
                     fprintf(stderr, "ERROR: pending token buffer append failed\n");
@@ -1892,6 +1946,11 @@ int main(int argc,char**argv){
                 }
             }
             llama_batch_free(gb);printf("\n");free(ta);
+            /* ── KV Remap: idle rail step + skeleton update ── */
+            if (kv_rail.enabled && kv_remap.skeleton_valid) {
+                kv_remap_rail_step(&kv_rail);
+                kv_remap_cycle(&kv_remap);
+            }
             /* Save assistant response so next turn has user1/assistant/user2 */
             if(resp_len>0){roles[cc]="assistant";content[cc]=resp_buf;cc++;}else{free(resp_buf);}
         }
@@ -1916,9 +1975,11 @@ int main(int argc,char**argv){
         free(p_fmt);
         struct llama_batch pb=llama_batch_init(nt,0,1);pb.n_tokens=nt;
         for(int j=0;j<nt;j++){pb.token[j]=toks[j];pb.pos[j]=j;pb.n_seq_id[j]=1;pb.seq_id[j][0]=0;pb.logits[j]=j==nt-1?1:0;}
+        if (kv_rail.enabled) kv_remap_rail_freeze(&kv_rail);
         sid_swap_apply();
-        if(llama_decode(lctx,pb)!=0){fprintf(stderr,"[dbg] decode fail\n");llama_batch_free(pb);free(toks);sid_swap_restore();return 1;}
+        if(llama_decode(lctx,pb)!=0){fprintf(stderr,"[dbg] decode fail\n");llama_batch_free(pb);free(toks);sid_swap_restore();if (kv_rail.enabled) kv_remap_rail_resume(&kv_rail);return 1;}
         sid_swap_restore(); twin_gpu_gear_push();
+        if (kv_rail.enabled) kv_remap_rail_resume(&kv_rail);
         sid_mem_store_log(lctx, nv, (uint16_t)(nt - 1), sid_face);
         /* KV swap: snapshot prompt KV state and inject perturbation */
         if (g_kv_swap.n_perturb) {
@@ -1954,12 +2015,19 @@ int main(int argc,char**argv){
             char b[16];int l=llama_token_to_piece(v,tok,b,16,0,false);
             if(l>0){b[l>15?15:l]=0;printf("%s",b);fflush(stdout);}
             gb.token[0]=tok;gb.pos[0]=pos++;
+            if (kv_rail.enabled) kv_remap_rail_freeze(&kv_rail);
             sid_swap_apply();
-            if(llama_decode(lctx,gb)!=0){sid_swap_restore();break;}
+            if(llama_decode(lctx,gb)!=0){sid_swap_restore();if (kv_rail.enabled) kv_remap_rail_resume(&kv_rail);break;}
             sid_swap_restore(); twin_gpu_gear_push();
+            if (kv_rail.enabled) kv_remap_rail_resume(&kv_rail);
             sid_mem_store_log(lctx, nv, (uint16_t)(pos - 1), sid_face);
         }
         llama_batch_free(gb);printf("\n");free(toks);
+        /* ── KV Remap: idle rail step + skeleton update ── */
+        if (kv_rail.enabled && kv_remap.skeleton_valid) {
+            kv_remap_rail_step(&kv_rail);
+            kv_remap_cycle(&kv_remap);
+        }
     }
 
     /* ── Tensor memory store save ── */
@@ -1973,6 +2041,11 @@ int main(int argc,char**argv){
 
     /* ── Cleanup KV Page Store ── */
     kv_page_destroy(&kv_page);
+
+    /* ── Cleanup KV Remap + Rail ── */
+    kv_remap_rail_destroy(&kv_rail);
+    kv_remap_print_status(&kv_remap);
+    kv_remap_destroy(&kv_remap);
 
     if (g_opt_mem_store && g_tmem_buf) {
         tmem_save(&g_tmem_store, g_opt_mem_store);

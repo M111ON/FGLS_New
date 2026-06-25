@@ -54,7 +54,8 @@
 | Colab deploy script | ✅ (`deploy/colab/build_colab.sh`) |
 | `_hilbert_idx` warning | ✅ ไม่มี warning นี้ใน code ปัจจุบันแล้ว |
 | **KV Remap (skeleton+delta)** | **✅ adaptive 3-tier system tested** |
-| **KV Remap Rail (background verify)** | **✅ 3-lane idle-driven scan/patch** |
+| **KV Remap Rail (background verify)** | **✅ layer-based segment chunking** |
+| **KV Remap runner integration (`--remap`)** | **✅ integrated into runner + rail freeze/resume** |
 
 ### 📁 Key Binaries (ใน `runner/`)
 - `llama_pogls_runner_sid_v2.exe` — Main runner (b9528)
@@ -67,8 +68,9 @@
 
 ### 📁 KV Remap Files (สร้างวันนี้)
 - `runner/kv_remap.h` — Adaptive skeleton+delta (RLE compressed, self-contained)
-- `runner/kv_remap_rail.h` — Rail 3-lane background scan (freeze/resume)
-- `runner/test_kv_remap.c` — Full test suite
+- `runner/kv_remap_rail.h` — Rail layer-based segment chunking (per-layer scan/patch)
+- `runner/test_kv_remap.c` — Full test suite (7 tests, all pass)
+- `docs/remap.md` — User-facing documentation for --remap
 
 ---
 
@@ -107,6 +109,23 @@ Fixed critical bug in `diamond_shell_codec.h`: codec classified non-zero chunks 
 - **Train station metaphor**: Each attention layer = one station, rail = connection between stations
 - **Bug fixed**: classify() offset calculation (was assuming [K0,K1,...,V0,V1,...] but actual layout is [K0,V0,K1,V1,...])
 - **Bug fixed**: rand() on Windows/MinGW only returns 15-bit values — replaced with xorshift32 for full 32-bit range
+
+### June 26 — KV Remap Runner Integration + Layer-based Segment Chunking
+- **Integrated `--remap` into runner** (`llama_pogls_runner_sid_v2.c`):
+  - Added `#include "kv_remap.h"` + `"kv_remap_rail.h"`
+  - `--remap` flag: enables adaptive skeleton+delta with rail background scan
+  - Init: registers KV tensors via `kv_get_cache_tensors`/`kv_get_cache_tensor_ptrs`, sets skeleton baseline
+  - Rail freeze/resume around every `llama_decode()` call (chat + prompt paths)
+  - Idle step: `kv_remap_rail_step()` + `kv_remap_cycle()` after each generation response
+  - Chat commands: `/rstatus` (print remap+rail status), `/rscan` (trigger full scan)
+  - Cleanup: `kv_remap_rail_destroy()` + `kv_remap_destroy()` at exit
+- **Layer-based segment chunking** (rewrote `kv_remap_rail.h`):
+  - Old: 3 lanes split total KV bytes into flat thirds, scan walks byte-by-byte with layer lookup
+  - New: 3 lanes assigned to actual layers (`RAIL_LAYERS_PER_LANE=2`), scan walks `layers[l].k_data` → `layers[l].v_data` directly
+  - Patch decompresses skeleton and writes back per-layer K/V chunks (no flat offset math)
+  - RailLane struct: `layer_start`, `layer_end`, `cur_layer`, `cur_phase` (0=K, 1=V) instead of flat byte ranges
+- **Windows compatibility fix**: `POGLS_RAIL_USE_POGTIME` macro resolves conflict between runner's custom `clock_gettime(PoglsTime*)` and rail's `struct timespec`
+- **Build**: runner compiles+links clean (0 errors), `test_kv_remap.exe` 7/7 tests pass
 
 ### June 26 — KV Tensor Access Architecture-Agnostic (Hybrid fix)
 - **Root cause**: LFM2 is hybrid architecture (`llama_memory_hybrid`) — `dynamic_cast<llama_kv_cache*>` fails because the actual type is `llama_memory_hybrid` (not `llama_kv_cache`)
