@@ -5,6 +5,10 @@
 #include <string.h>
 #include <stdlib.h>
 #include "geo_jump.h"
+#include "diamond_shell_codec.h"
+
+/* SID Shell compression: magic header in cached data */
+#define SID_SHELL_MAGIC 0x534C4744  /* "DGLS" */
 
 /* Y-triangle: full node space = 20736 */
 #define SID_CACHE_MAX_ENTRIES  256
@@ -87,6 +91,22 @@ static void sid_cache_clear(SIDCache *c) {
 static int sid_cache_get(SIDCache *c, const char *name, uint8_t **data, size_t *size) {
     for (uint32_t i=0;i<SID_CACHE_MAX_ENTRIES;i++) {
         if (c->entries[i].node_id!=SID_NODE_SLOTS&&strcmp(c->entries[i].name,name)==0) {
+            /* Transparent Shell decompression on first access */
+            if (c->entries[i].size > 12 &&
+                *(const uint32_t*)(c->entries[i].data) == SID_SHELL_MAGIC)
+            {
+                uint64_t orig_sz = *(const uint64_t*)(c->entries[i].data + 4);
+                uint64_t n_chunks = (orig_sz + SHELL_CHUNK_SZ - 1) / SHELL_CHUNK_SZ;
+                uint8_t *dec = (uint8_t*)malloc(orig_sz);
+                if (dec) {
+                    shell_stream_decode(c->entries[i].data + 12, n_chunks, dec);
+                    free(c->entries[i].data);
+                    c->pool_used -= c->entries[i].size;
+                    c->entries[i].data = dec;
+                    c->entries[i].size = orig_sz;
+                    c->pool_used += orig_sz;
+                }
+            }
             *data=c->entries[i].data; *size=c->entries[i].size;
             c->entries[i].hits++; c->hits++; return 0;
         }
@@ -146,6 +166,36 @@ static int sid_cache_put(SIDCache *c, const char *name, uint32_t node_id, const 
     uint64_t pk = SID_PACK_KEY(pentagon, ring, cell, node_id);
     tw_rewind_sid_store(&c->rewind, pk, node_id);
     return 0;
+}
+
+/* Store raw tensor data compressed via Diamond Shell.
+ * Falls back to uncompressed if ratio < 1.1 or data < 1 chunk. */
+static int sid_cache_put_compressed(SIDCache *c, const char *name,
+                                     uint32_t node_id,
+                                     const uint8_t *raw, size_t raw_sz)
+{
+    if (!c || !name || !raw || raw_sz == 0) return -1;
+
+    uint64_t n_chunks = (raw_sz + SHELL_CHUNK_SZ - 1) / SHELL_CHUNK_SZ;
+    uint64_t max_enc = n_chunks * 66 + 16;  /* worst-case + header */
+    uint8_t *enc_buf = (uint8_t*)malloc(max_enc);
+    if (!enc_buf) return -1;
+
+    /* Magic + original size header */
+    *(uint32_t*)(enc_buf)     = SID_SHELL_MAGIC;
+    *(uint64_t*)(enc_buf + 4) = raw_sz;
+
+    uint64_t enc_sz = shell_stream_encode(raw, n_chunks, enc_buf + 12);
+    double ratio = (double)raw_sz / (double)(enc_sz + 12);
+
+    if (ratio >= 1.1 && (enc_sz + 12) < max_enc) {
+        int ret = sid_cache_put(c, name, node_id, enc_buf, enc_sz + 12);
+        free(enc_buf);
+        return ret;
+    }
+    /* Fallback: store uncompressed */
+    free(enc_buf);
+    return sid_cache_put(c, name, node_id, raw, raw_sz);
 }
 
 static inline int sid_cache_has_node(const SIDCache *c, uint32_t node_id) {

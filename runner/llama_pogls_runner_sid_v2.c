@@ -41,6 +41,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <math.h>
 #include <stdbool.h>
@@ -56,6 +57,12 @@
 #include "sid_timetravel.h"
 #include "cosplay.h"
 #include "session_profile.h"
+#include "kv_sid_evict.h"
+#include "kv_page_store.h"
+#include "kv_tensor_access.h"
+
+/* ggml_tensor->data is at offset 248 in the struct (same as SID swap) */
+#define GGML_TENSOR_DATA_OFFSET 248
 
 #define MAX_TOKENS_CACHE 4096
 #define MAX_CHAT_HISTORY 128
@@ -112,6 +119,47 @@ static char*chat_format_qwen(const char*roles[],const char*content[],int cc,size
     for(int i=0;i<cc;i++)pos+=sprintf(fmt+pos,"<|im_start|>%s\n%s<|im_end|>\n",roles[i],content[i]);
     pos+=sprintf(fmt+pos,"<|im_start|>assistant\n");
     *out_len=pos;return fmt;
+}
+
+static size_t tok_prefix_len(const int *a, size_t na, const int *b, size_t nb) {
+    size_t n = na < nb ? na : nb;
+    size_t i = 0;
+    for (; i < n; i++) {
+        if (a[i] != b[i]) break;
+    }
+    return i;
+}
+
+static int tokbuf_reserve(int **buf, size_t *cap, size_t need) {
+    if (need <= *cap) return 0;
+    size_t ncap = (*cap == 0) ? 256 : *cap;
+    while (ncap < need) {
+        if (ncap > (SIZE_MAX / 2)) {
+            ncap = need;
+            break;
+        }
+        ncap *= 2;
+    }
+    int *nbuf = (int *)realloc(*buf, ncap * sizeof(int));
+    if (!nbuf) return -1;
+    *buf = nbuf;
+    *cap = ncap;
+    return 0;
+}
+
+static int tokbuf_copy(int **buf, size_t *n, size_t *cap, const int *src, size_t src_n) {
+    if (tokbuf_reserve(buf, cap, src_n) != 0) return -1;
+    if (src_n > 0) memcpy(*buf, src, src_n * sizeof(int));
+    *n = src_n;
+    return 0;
+}
+
+static int tokbuf_append(int **buf, size_t *n, size_t *cap, const int *src, size_t add_n) {
+    if (add_n == 0) return 0;
+    if (tokbuf_reserve(buf, cap, *n + add_n) != 0) return -1;
+    memcpy(*buf + *n, src, add_n * sizeof(int));
+    *n += add_n;
+    return 0;
 }
 
 static uint64_t xor_hash(const uint8_t *d, size_t n) {
@@ -205,6 +253,7 @@ static int n_found = 0;
 #include "capture_pipeline.h"
 #include "tensor_memory.h"
 #include "geo_addr.h"
+#include "dramtile_store.h"
 #include "icosa_bridge_loader.h"
 #include "gear_lock.h"
 #include "kv_swap.h"
@@ -265,6 +314,10 @@ static int g_opt_simulate = 0;
 static const char *g_opt_profile_batch = NULL;
 static int g_turn_count = 0;
 static double g_opt_sem_weight = 0.8, g_opt_hist_weight = 0.2, g_opt_rnd_weight = 0.0, g_opt_decay = 1.0;
+
+/* DRamTile */
+static DRamTileStore g_dramtile;
+static int g_opt_dramtile = 0;
 
 /* KV swap */
 static int g_opt_kv_swap = 0;       /* bytes to perturb (0=disabled) */
@@ -440,8 +493,8 @@ static inline void sid_mem_store_log(struct llama_context *lctx, int nv, uint16_
 
 int main(int argc,char**argv){
     if(argc<2){fprintf(stderr,"Usage: %s model.gguf [--chat] [--ngl N] [--sid-face N] [--sid-spoke N|all] [--sid-slot STR] [--sid-corrupt N] [--sid-checkpoint NAME] [--sid-rewind NAME] [--sid-ff NAME] [--sid-branch NAME] [options]\n",argv[0]);return 1;}
-    const char*gguf_path=NULL,*opt_prompt=NULL,*opt_dump_logits=NULL,*opt_capture=NULL;
-    int opt_ngl=0,opt_max_new=256,opt_chat=0,opt_count_only=0,opt_bond=0,opt_hex=0,opt_trihex=0,opt_goldberg=0,sid_face=0,sid_spoke=-1,sid_corrupt=0,opt_swap_cold=0,sid_corrupt_val=1,opt_hybrid=0,opt_sid_adaptive=0,opt_sid_multi=0;
+    const char*gguf_path=NULL,*opt_prompt=NULL,*opt_dump_logits=NULL,*opt_capture=NULL,*opt_script=NULL;
+    int opt_ngl=0,opt_max_new=256,opt_chat=0,opt_count_only=0,opt_bond=0,opt_hex=0,opt_trihex=0,opt_goldberg=0,sid_face=0,sid_spoke=-1,sid_corrupt=0,opt_swap_cold=0,sid_corrupt_val=1,opt_hybrid=0,opt_sid_adaptive=0,opt_sid_multi=0,opt_kv_evict=0,opt_kv_page=0,opt_kv_page_evict=0,opt_ctx=2048;
     float opt_goldberg_threshold = 1.2f;
     int opt_sid_geodesic = 0; float opt_sid_geo_radius = 0.5f, opt_hybrid_radius = 0.01f;
     const char*sid_slot="",*sid_pattern=NULL;
@@ -456,6 +509,7 @@ int main(int argc,char**argv){
         else if(!strcmp(argv[i],"--repeat-penalty")&&i+1<argc)sp.repeat_penalty=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--max-new")&&i+1<argc)opt_max_new=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--prompt")&&i+1<argc)opt_prompt=argv[++i];
+        else if(!strcmp(argv[i],"--script")&&i+1<argc)opt_script=argv[++i];
         else if(!strcmp(argv[i],"--chat"))opt_chat=1;
         else if(!strcmp(argv[i],"--sid-face")&&i+1<argc)sid_face=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--sid-spoke")&&i+1<argc){const char*v=argv[++i];sid_spoke=!strcmp(v,"all")?-1:atoi(v);}
@@ -495,6 +549,11 @@ int main(int argc,char**argv){
         else if(!strcmp(argv[i],"--sid-disable"))g_opt_sid_disable=1;
         else if(!strcmp(argv[i],"--kv-swap")&&i+1<argc)g_opt_kv_swap=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--kv-layer")&&i+1<argc)g_opt_kv_layer=atoi(argv[++i]);
+        else if(!strcmp(argv[i],"--kv-evict")&&i+1<argc)opt_kv_evict=atoi(argv[++i]);
+        else if(!strcmp(argv[i],"--kv-page"))opt_kv_page=1;
+        else if(!strcmp(argv[i],"--kv-page-evict")&&i+1<argc){opt_kv_page=1;opt_kv_page_evict=atoi(argv[++i]);}
+        else if(!strcmp(argv[i],"--ctx")&&i+1<argc)opt_ctx=atoi(argv[++i]);
+        else if(!strcmp(argv[i],"--dramtile"))g_opt_dramtile=1;
         else if(!strcmp(argv[i],"--simulate"))g_opt_simulate=1;
         else if(!strcmp(argv[i],"--profile-batch")&&i+1<argc)g_opt_profile_batch=argv[++i];
         else if(!strcmp(argv[i],"--semantic-weight")&&i+1<argc)g_opt_sem_weight=(float)atof(argv[++i]);
@@ -506,6 +565,7 @@ int main(int argc,char**argv){
             fprintf(stderr,"  --chat                    Interactive chat mode\n");
             fprintf(stderr,"  --ngl N                   GPU layers (default: 0)\n");
             fprintf(stderr,"  --prompt TEXT             Prompt mode\n");
+            fprintf(stderr,"  --script FILE             Chat mode input file\n");
             fprintf(stderr,"  --temp N                  Temperature (default: 0.7)\n");
             fprintf(stderr,"  --top-p N                 Top-p sampling (default: 0.9)\n");
             fprintf(stderr,"  --top-k N                 Top-k sampling (default: 40)\n");
@@ -546,6 +606,11 @@ int main(int argc,char**argv){
             fprintf(stderr,"  --sid-disable             Disable all SID swaps (plain inference)\n");
             fprintf(stderr,"  --kv-swap N              Perturb N bytes in KV state per decode (0=off)\n");
             fprintf(stderr,"  --kv-layer N             Target specific KV layer (-1=all, 0..N)\n");
+            fprintf(stderr,"  --ctx N                  Context size (default: 2048)\n");
+            fprintf(stderr,"  --kv-evict N             KV SID evict: swap oldest N layers to backup (zero-copy)\n");
+            fprintf(stderr,"  --kv-page                KV Page Store: token-position-granular paging with DRamTile backing\n");
+            fprintf(stderr,"  --kv-page-evict N        KV Page Store: evict oldest N pages after init\n");
+            fprintf(stderr,"  --dramtile                Enable DRamTile zero-copy tensor store\n");
             fprintf(stderr,"  --simulate                Simulate session (no model)\n");
             fprintf(stderr,"  --profile-batch FILE      Batch generate session profiles\n");
             fprintf(stderr,"  --semantic-weight N       Semantic hash weight (default: 0.8)\n");
@@ -574,7 +639,13 @@ int main(int argc,char**argv){
 
     llama_backend_init();
     ggml_backend_load("ggml-cpu-x64.dll");
-    ggml_backend_load("ggml-cuda.dll");
+    if (opt_ngl > 0) {
+        /* Try loading GPU backends. Vulkan DLL must be in the same dir
+         * or on PATH. With --ngl=0 we skip GPU backends entirely to
+         * avoid the WSL2/DrvFs + Vulkan tensor-load hang. */
+        ggml_backend_load("ggml-vulkan.dll");
+        ggml_backend_load("ggml-cuda.dll");
+    }
 
     fprintf(stderr, "\n--- load_from_file ---\n");
 
@@ -810,10 +881,10 @@ int main(int argc,char**argv){
         if (sid_loader_is_norm(gidx.names[i])) continue;
         const char *name = gidx.names[i];
         size_t sz = (size_t)gidx.sizes[i];
+        uint64_t abs_off = gguf_idx_tensor_abs_offset(&gidx, i);
         FILE *f = fopen(gguf_path, "rb");
         if (!f) { fprintf(stderr, "  fopen fail\n"); continue; }
-        uint64_t abs_off = gguf_idx_tensor_abs_offset(&gidx, i);
-        fseek(f, (long)abs_off, SEEK_SET);
+        _fseeki64(f, (__int64)abs_off, SEEK_SET);
         size_t r = fread(verify_buf, 1, sz, f);
         fclose(f);
         if (r != sz) { fprintf(stderr, "  fread fail at idx %llu name=%s sz=%llu abs_off=%llu r=%llu\n", (unsigned long long)i, name, (unsigned long long)sz, (unsigned long long)abs_off, (unsigned long long)r); continue; }
@@ -854,6 +925,50 @@ int main(int argc,char**argv){
 
     free(verify_buf);
     free(read_buf);
+
+    /* ── DRamTile init (zero-copy tensor store) ── */
+    if (g_opt_dramtile && n_weight_tensors > 0) {
+        fprintf(stderr, "\n--- DRamTile init ---\n");
+        if (dt_store_init(&g_dramtile, total_bytes + (1u << 20)) == 0) {
+            fprintf(stderr, "[dramtile] mmap'd %zu bytes (%d weight tensors)\n",
+                g_dramtile.capacity, n_weight_tensors);
+
+            /* Populate DRamTile from SID cache: dump each cached tensor
+             * into the DRamTile mmap region at its deterministic address. */
+            int dt_loaded = 0;
+            size_t dt_bytes = 0;
+            for (int si = 0; si < n_sid_swaps; si++) {
+                const char *name = found_tensors[si].name;
+                uint8_t *cached = NULL; size_t cached_sz = 0;
+                if (sid_cache_get(&sid_cache, name, &cached, &cached_sz) != 0)
+                    continue;
+                uint8_t *dt_ptr = dt_put(&g_dramtile, name, cached, cached_sz);
+                if (dt_ptr) {
+                    dt_loaded++;
+                    dt_bytes += cached_sz;
+                }
+            }
+            /* Also load tensors that weren't in SID swap set but are weight tensors */
+            int dt_extra = 0;
+            for (uint64_t gi = 0; gi < gidx.n_tensors; gi++) {
+                if (sid_loader_is_norm(gidx.names[gi])) continue;
+                if (dt_get(&g_dramtile, gidx.names[gi]) != NULL) continue; /* already loaded */
+                uint8_t *cached = NULL; size_t cached_sz = 0;
+                if (sid_cache_get(&sid_cache, gidx.names[gi], &cached, &cached_sz) != 0)
+                    continue;
+                if (dt_put(&g_dramtile, gidx.names[gi], cached, cached_sz)) {
+                    dt_extra++;
+                    dt_bytes += cached_sz;
+                }
+            }
+            fprintf(stderr, "[dramtile] loaded %d+%d tensors (%zu bytes, %.1f%% of pool)\n",
+                dt_loaded, dt_extra, dt_bytes,
+                100.0 * dt_bytes / g_dramtile.capacity);
+        } else {
+            fprintf(stderr, "[dramtile] init failed — falling back to heap\n");
+            g_opt_dramtile = 0;
+        }
+    }
 
     /* ── Time travel init ── */
     if (sid_face > 0) {
@@ -994,7 +1109,13 @@ int main(int argc,char**argv){
             if (sid_slot[0] != '\0' && strstr(name, sid_slot) == NULL) continue;
 
             uint8_t *cached = NULL; size_t cached_sz = 0;
-            if (sid_cache_get(&sid_cache, name, &cached, &cached_sz) != 0) continue;
+            if (g_opt_dramtile) {
+                cached = dt_get(&g_dramtile, name);
+                if (cached) cached_sz = dt_get_size(&g_dramtile, name);
+            }
+            if (!cached) {
+                if (sid_cache_get(&sid_cache, name, &cached, &cached_sz) != 0) continue;
+            }
 
             /* encode per-tensor sid_mode based on hotness */
             uint8_t sid_mode = 0;
@@ -1252,7 +1373,7 @@ int main(int argc,char**argv){
 
     /* ── Create context (once, for the whole session) ── */
     struct llama_context_params cp=llama_context_default_params();
-    cp.n_ctx=2048;cp.n_threads=4;cp.n_threads_batch=4;cp.n_batch=2048;cp.n_ubatch=64;
+    cp.n_ctx=opt_ctx;cp.n_threads=4;cp.n_threads_batch=4;cp.n_batch=opt_ctx<512?opt_ctx:512;cp.n_ubatch=64;
     struct llama_context *lctx = llama_init_from_model(model, cp);
     if(!lctx){fprintf(stderr,"ERROR: context\n"); sid_loader_close(&slc); gguf_idx_close(&gidx); llama_model_free(model); llama_backend_free(); return 1;}
     const struct llama_vocab *v = llama_model_get_vocab(model);
@@ -1260,6 +1381,58 @@ int main(int argc,char**argv){
 
     /* ── Init KV swap ── */
     kv_swap_init(&g_kv_swap, lctx, g_opt_kv_swap, g_opt_kv_layer);
+
+    /* ── Init KV SID evict (disabled unless compiled with -DKV_ARCHIVE) ── */
+    KVSidCtx kv_sid;
+    kv_sid_init(&kv_sid);
+#ifdef KV_ARCHIVE
+    {
+        void *k_tensors[KV_SID_MAX_LAYERS], *v_tensors[KV_SID_MAX_LAYERS];
+        void *k_data[KV_SID_MAX_LAYERS], *v_data[KV_SID_MAX_LAYERS];
+        size_t k_sizes[KV_SID_MAX_LAYERS], v_sizes[KV_SID_MAX_LAYERS];
+        int layer_ids[KV_SID_MAX_LAYERS];
+        int n_kv = kv_get_cache_tensors(lctx, k_data, v_data, k_sizes, v_sizes, NULL, NULL, layer_ids, KV_SID_MAX_LAYERS);
+        int n_tensors = kv_get_cache_tensor_ptrs(lctx, k_tensors, v_tensors, KV_SID_MAX_LAYERS);
+        int n_reg = n_kv < n_tensors ? n_kv : n_tensors;
+        if (n_reg > 0) {
+            kv_sid_register_layers(&kv_sid, k_tensors, v_tensors, k_data, v_data, k_sizes, v_sizes, layer_ids, n_reg);
+            kv_snapshot_all(&kv_sid);  /* compress initial KV state */
+            if (opt_kv_evict > 0) {
+                kv_sid_evict_oldest(&kv_sid, opt_kv_evict);
+            }
+            kv_sid_print_status(&kv_sid);
+        }
+    }
+#endif /* KV_ARCHIVE */
+
+    /* ── Init KV Page Store (optional, --kv-page) ── */
+    KVPageStore kv_page;
+    kv_page_init(&kv_page, opt_ctx);
+    if (opt_kv_page) {
+        void *k_tensors_pg[KV_PAGE_MAX_LAYERS], *v_tensors_pg[KV_PAGE_MAX_LAYERS];
+        void *k_data_pg[KV_PAGE_MAX_LAYERS], *v_data_pg[KV_PAGE_MAX_LAYERS];
+        size_t k_nb1[KV_PAGE_MAX_LAYERS], v_nb1[KV_PAGE_MAX_LAYERS];
+        size_t k_sizes_pg[KV_PAGE_MAX_LAYERS], v_sizes_pg[KV_PAGE_MAX_LAYERS];
+        int n_embd_ks[KV_PAGE_MAX_LAYERS], layer_ids_pg[KV_PAGE_MAX_LAYERS];
+        int n_kv = kv_get_cache_tensors(lctx, k_data_pg, v_data_pg, k_sizes_pg, v_sizes_pg,
+                                         n_embd_ks, NULL, layer_ids_pg, KV_PAGE_MAX_LAYERS);
+        int n_tensors = kv_get_cache_tensor_ptrs(lctx, k_tensors_pg, v_tensors_pg, KV_PAGE_MAX_LAYERS);
+        int n_reg = n_kv < n_tensors ? n_kv : n_tensors;
+        if (n_reg > 0) {
+            for (int i = 0; i < n_reg; i++) {
+                k_nb1[i] = k_sizes_pg[i] / (size_t)opt_ctx;
+                v_nb1[i] = v_sizes_pg[i] / (size_t)opt_ctx;
+            }
+            kv_page_register_layers(&kv_page, k_tensors_pg, v_tensors_pg,
+                k_data_pg, v_data_pg, k_nb1, v_nb1, k_sizes_pg, v_sizes_pg,
+                n_embd_ks, layer_ids_pg, n_reg);
+            kv_page_snapshot_all(&kv_page);
+            if (opt_kv_page_evict > 0) {
+                kv_page_evict_oldest(&kv_page, opt_kv_page_evict);
+            }
+            kv_page_print_status(&kv_page);
+        }
+    }
 
     /* ── Cosplay-compare: decode WITH and WITHOUT cosplay ── */
     if (g_opt_cosplay_compare && g_opt_cosplay && g_cp.n > 0 && sid_face > 0 && n_sid_swaps > 0 && g_experiment_clean_ptrs) {
@@ -1498,15 +1671,114 @@ int main(int argc,char**argv){
     if(opt_chat){
         char*roles[MAX_CHAT_HISTORY],*content[MAX_CHAT_HISTORY];int cc=0;
         roles[0]="system";content[0]=strdup("You are a helpful assistant.");cc=1;
-        printf("\n=== SID Chat ===\n/exit  /clear\n\n");
-        char line[MAX_LINE];int32_t cum_pos=0;
+        printf("\n=== SID Chat ===\n/exit  /clear  /evict N  /restore  /pevict N  /prestore N  /pstatus\n\n");
+        FILE *chat_in = stdin;
+        if (opt_script) {
+            chat_in = fopen(opt_script, "rb");
+            if (!chat_in) { fprintf(stderr, "ERROR: cannot open script file %s\n", opt_script); return 1; }
+        }
+        char line[MAX_LINE];
+        int *pending_toks = NULL;
+        size_t pending_n = 0;
+        size_t pending_cap = 0;
+        int pending_ready = 0;
         while(1){
             printf(">>> ");fflush(stdout);
-            if(!fgets(line,sizeof(line),stdin))break;
+            if(!fgets(line,sizeof(line),chat_in))break;
             size_t ll=strlen(line);while(ll>0&&(line[ll-1]=='\n'||line[ll-1]=='\r'))line[--ll]=0;
             if(ll==0)continue;
+            if (opt_script) fprintf(stderr, "[chat-script] %s\n", line);
             if(!strcmp(line,"/exit"))break;
-            if(!strcmp(line,"/clear")){for(int _ci=0;_ci<cc;_ci++)free(content[_ci]);cc=0;roles[0]="system";content[0]=strdup("You are a helpful assistant.");cc=1;cum_pos=0;llama_free(lctx);lctx=llama_init_from_model(model,cp);if(!lctx){fprintf(stderr,"ERROR: reinit context\n");break;}v=llama_model_get_vocab(model);nv=llama_vocab_n_tokens(v);printf("Cleared.\n");continue;}
+            if(!strcmp(line,"/clear")){for(int _ci=0;_ci<cc;_ci++)free(content[_ci]);cc=0;roles[0]="system";content[0]=strdup("You are a helpful assistant.");cc=1;free(pending_toks);pending_toks=NULL;pending_n=0;pending_cap=0;pending_ready=0;llama_free(lctx);lctx=llama_init_from_model(model,cp);if(!lctx){fprintf(stderr,"ERROR: reinit context\n");break;}v=llama_model_get_vocab(model);nv=llama_vocab_n_tokens(v);printf("Cleared.\n");continue;}
+#ifdef KV_ARCHIVE
+            if(!strncmp(line,"/evict ",7)){
+                int _n=atoi(line+7);
+                if(_n>0 && kv_sid.enabled){
+                    kv_sid_evict_oldest(&kv_sid, _n);
+                    /* Verify: write magic to ORIGINAL data to detect if model reads from it */
+                    for (int i = 0; i < kv_sid.n_layers && i < _n; i++) {
+                        KVSidLayer *L = &kv_sid.layers[i];
+                        if (L->evicted && L->k_data && L->k_size >= 8) {
+                            memset(L->k_data, 0xDE, L->k_size > 4096 ? 4096 : L->k_size);
+                            fprintf(stderr, "[kv-debug] poisoned layer %d orig_k=%p %zu bytes with 0xDE\n",
+                                i, L->k_data, L->k_size > 4096 ? 4096 : L->k_size);
+                        }
+                        if (L->evicted && L->v_data && L->v_size >= 8) {
+                            memset(L->v_data, 0xAD, L->v_size > 4096 ? 4096 : L->v_size);
+                            fprintf(stderr, "[kv-debug] poisoned layer %d orig_v=%p %zu bytes with 0xAD\n",
+                                i, L->v_data, L->v_size > 4096 ? 4096 : L->v_size);
+                        }
+                    }
+                    kv_sid_print_status(&kv_sid);
+                    printf("Evicted %d layers (poisoned original data)\n", _n);
+                }else{
+                    printf("Usage: /evict N\n");
+                }
+                continue;
+            }
+            if(!strcmp(line,"/restore")){
+                kv_sid_restore_all(&kv_sid);
+                kv_sid_print_status(&kv_sid);
+                printf("All layers restored\n");
+                continue;
+            }
+            if(!strncmp(line,"/snap",5)){
+                if (kv_sid.enabled) {
+                    kv_snapshot_all(&kv_sid);
+                    kv_sid_print_status(&kv_sid);
+                    printf("Snapshot complete\n");
+                } else {
+                    printf("KV archive not enabled (recompile with -DKV_ARCHIVE)\n");
+                }
+                continue;
+            }
+            if(!strcmp(line,"/unsnap")){
+                if (kv_sid.enabled) {
+                    kv_sid_restore_all(&kv_sid);  /* swap ptrs back to original */
+                    kv_restore_all(&kv_sid);       /* decompress to original */
+                    kv_sid_print_status(&kv_sid);
+                    printf("Unsnap complete\n");
+                } else {
+                    printf("KV archive not enabled (recompile with -DKV_ARCHIVE)\n");
+                }
+                continue;
+            }
+#endif /* KV_ARCHIVE */
+
+            /* ── KV Page Store commands ── */
+            if(!strncmp(line,"/pevict ",8)){
+                if (kv_page.enabled) {
+                    int _n=atoi(line+8);
+                    if(_n>0){kv_page_evict_oldest(&kv_page, _n);}
+                    else{printf("Usage: /pevict N (evict oldest N pages)\n");}
+                }else{printf("KV Page Store not enabled (--kv-page)\n");}
+                continue;
+            }
+            if(!strncmp(line,"/prestore ",10)){
+                if (kv_page.enabled) {
+                    int _pid=atoi(line+10);
+                    if(_pid>=0 && _pid<kv_page.n_pages){kv_page_restore(&kv_page, _pid);}
+                    else if(!strcmp(line+10,"all")){kv_page_restore_all(&kv_page);}
+                    else{printf("Usage: /prestore PAGE_ID or /prestore all\n");}
+                }else{printf("KV Page Store not enabled (--kv-page)\n");}
+                continue;
+            }
+            if(!strcmp(line,"/pstatus")){
+                if (kv_page.enabled) {
+                    kv_page_print_status(&kv_page);
+                }else{printf("KV Page Store not enabled (--kv-page)\n");}
+                continue;
+            }
+            if(!strncmp(line,"/psnap ",7)){
+                if (kv_page.enabled) {
+                    int _pid=atoi(line+7);
+                    if(_pid>=0 && _pid<kv_page.n_pages){kv_page_snapshot(&kv_page, _pid);}
+                    else if(!strcmp(line+7,"all")){kv_page_snapshot_all(&kv_page);}
+                    else{printf("Usage: /psnap PAGE_ID or /psnap all\n");}
+                }else{printf("KV Page Store not enabled (--kv-page)\n");}
+                continue;
+            }
+
             if(strncmp(line,"/checkpoint ",12)==0){int _cp=sid_checkpoint(&tt.ring,line+12);fprintf(stderr,_cp>=0?"[chat] checkpoint '%s' #%d at ring[%u]\n":"[chat] checkpoint failed\n",line+12,_cp,_cp>=0?(unsigned)tt.ring.checkpoints[_cp].ring_index:0);continue;}
             if(strncmp(line,"/rewind ",8)==0){int _cp=sid_find_checkpoint(&tt.ring,line+8);if(_cp>=0){int _n=sid_rewind_to_checkpoint(&tt.ring,(uint32_t)_cp);fprintf(stderr,"[chat] rewind to '%s': %d entries undone\n",line+8,_n);}else{fprintf(stderr,"[chat] checkpoint '%s' not found\n",line+8);}continue;}
             if(strncmp(line,"/ff ",4)==0){int _cp=sid_find_checkpoint(&tt.ring,line+4);if(_cp>=0){int _n=sid_ffwd_from_checkpoint(&tt.ring,(uint32_t)_cp);fprintf(stderr,"[chat] fast-forward to '%s': %d entries reapplied\n",line+4,_n);}else{fprintf(stderr,"[chat] checkpoint '%s' not found\n",line+4);}continue;}
@@ -1532,7 +1804,7 @@ int main(int argc,char**argv){
                 continue;
             }
             roles[cc]="user";content[cc]=strdup(line);cc++;
-            /* Apply model's chat template (full history each turn) */
+            /* Build the current prompt and only append the new suffix when possible */
             llama_chat_message *msgs = (llama_chat_message*)malloc((size_t)cc * sizeof(llama_chat_message));
             for (int _j = 0; _j < cc; _j++) { msgs[_j].role = roles[_j]; msgs[_j].content = content[_j]; }
             const char *chat_tmpl = llama_model_chat_template(model, NULL);
@@ -1547,15 +1819,32 @@ int main(int argc,char**argv){
             int*ta=(int*)malloc((size_t)nt*4);
             llama_tokenize(v,fmt,flen,ta,nt,true,false);
             free(fmt);
-            /* Clear KV cache and re-populate from position 0 each turn */
-            llama_memory_seq_rm(llama_get_memory(lctx), 0, -1, -1);
-            cum_pos = 0;
-            struct llama_batch pb=llama_batch_init(nt,0,1);pb.n_tokens=nt;
-            for(int j=0;j<nt;j++){pb.token[j]=ta[j];pb.pos[j]=cum_pos+j;pb.n_seq_id[j]=1;pb.seq_id[j][0]=0;pb.logits[j]=j==nt-1?1:0;}
-            sid_swap_apply();
-            if(llama_decode(lctx,pb)!=0){llama_batch_free(pb);free(ta);sid_swap_restore();break;}
-            sid_swap_restore(); twin_gpu_gear_push();
-            sid_mem_store_log(lctx, nv, (uint16_t)(nt - 1), sid_face);
+            size_t prefix = pending_ready ? tok_prefix_len(pending_toks, pending_n, ta, (size_t)nt) : 0;
+            int full_reset = (!pending_ready || prefix != pending_n);
+            if (full_reset) {
+                llama_memory_seq_rm(llama_get_memory(lctx), 0, -1, -1);
+                prefix = 0;
+            }
+            size_t delta_n = (size_t)nt - prefix;
+            if (delta_n > 0) {
+                struct llama_batch pb=llama_batch_init((int)delta_n,0,1);pb.n_tokens=(int)delta_n;
+                for(size_t j=0;j<delta_n;j++){pb.token[j]=ta[prefix+j];pb.pos[j]=(int32_t)(prefix+j);pb.n_seq_id[j]=1;pb.seq_id[j][0]=0;pb.logits[j]=j==delta_n-1?1:0;}
+                sid_swap_apply();
+                if(llama_decode(lctx,pb)!=0){llama_batch_free(pb);free(ta);sid_swap_restore();free(pending_toks);return 1;}
+                sid_swap_restore(); twin_gpu_gear_push();
+#ifdef KV_ARCHIVE
+                if (kv_sid.enabled) kv_snapshot_all(&kv_sid);
+#endif
+                sid_mem_store_log(lctx, nv, (uint16_t)(nt - 1), sid_face);
+                llama_batch_free(pb);
+            }
+            if (tokbuf_copy(&pending_toks, &pending_n, &pending_cap, ta, (size_t)nt) != 0) {
+                free(ta);
+                free(pending_toks);
+                fprintf(stderr, "ERROR: pending token buffer alloc failed\n");
+                return 1;
+            }
+            pending_ready = 1;
             if (opt_capture) {
                 #ifdef _WIN32
                 _mkdir(opt_capture);
@@ -1572,26 +1861,43 @@ int main(int argc,char**argv){
                 CaptureResult cr;
                 capture_run_full(&cr, opt_capture, ctens, n_found, 12);
             }
-            llama_batch_free(pb);
-            Sampler gs=sp;gs.count=0;int32_t pos=cum_pos+nt;
+            Sampler gs=sp;gs.count=0;int32_t pos=nt;
             struct llama_batch gb=llama_batch_init(1,0,1);
             gb.n_tokens=1;gb.n_seq_id[0]=1;gb.seq_id[0][0]=0;gb.logits[0]=1;
+            size_t resp_cap=256,resp_len=0;char*resp_buf=(char*)malloc(resp_cap);resp_buf[0]='\0';
             for(int i=0;i<opt_max_new;i++){
                 sid_swap_apply();
                 int tok=sample_token(llama_get_logits_ith(lctx,-1),nv,&gs);
                 sid_swap_restore(); twin_gpu_gear_push();
                 if(llama_vocab_is_eog(v,tok))break;
                 char b[16];int l=llama_token_to_piece(v,tok,b,16,0,false);
-                if(l>0){b[l>15?15:l]=0;printf("%s",b);fflush(stdout);}
+                if(l>0){
+                    b[l>15?15:l]=0;printf("%s",b);fflush(stdout);
+                    size_t need=resp_len+(size_t)l+1;
+                    if(need>resp_cap){resp_cap=need+256;resp_buf=(char*)realloc(resp_buf,resp_cap);}
+                    memcpy(resp_buf+resp_len,b,(size_t)l);resp_len+=(size_t)l;resp_buf[resp_len]='\0';
+                }
                 gb.token[0]=tok;gb.pos[0]=pos++;
                 sid_swap_apply();
                 if(llama_decode(lctx,gb)!=0){sid_swap_restore();break;}
                 sid_swap_restore(); twin_gpu_gear_push();
                 sid_mem_store_log(lctx, nv, (uint16_t)(pos - 1), sid_face);
+                if (tokbuf_append(&pending_toks, &pending_n, &pending_cap, &tok, 1) != 0) {
+                    fprintf(stderr, "ERROR: pending token buffer append failed\n");
+                    free(resp_buf);
+                    llama_batch_free(gb);
+                    free(ta);
+                    free(pending_toks);
+                    return 1;
+                }
             }
-            cum_pos=pos;llama_batch_free(gb);printf("\n");free(ta);
+            llama_batch_free(gb);printf("\n");free(ta);
+            /* Save assistant response so next turn has user1/assistant/user2 */
+            if(resp_len>0){roles[cc]="assistant";content[cc]=resp_buf;cc++;}else{free(resp_buf);}
         }
+        if (chat_in != stdin) fclose(chat_in);
         for(int i=0;i<cc;i++)free(content[i]);
+        free(pending_toks);
     }
 
     if(opt_prompt){
@@ -1660,6 +1966,14 @@ int main(int argc,char**argv){
     /* ── Cleanup KV swap ── */
     kv_swap_free(&g_kv_swap);
 
+#ifdef KV_ARCHIVE
+    /* ── Cleanup KV SID evict ── */
+    kv_sid_free(&kv_sid);
+#endif
+
+    /* ── Cleanup KV Page Store ── */
+    kv_page_destroy(&kv_page);
+
     if (g_opt_mem_store && g_tmem_buf) {
         tmem_save(&g_tmem_store, g_opt_mem_store);
         fprintf(stderr, "[mem-store] saved %u records to %s\n",
@@ -1675,6 +1989,9 @@ int main(int argc,char**argv){
         icosa_bridge_unload(&g_ibridge);
         fprintf(stderr, "[twin-gpu] bridge unloaded\n");
     }
+
+    /* ── DRamTile cleanup ── */
+    if (g_opt_dramtile) dt_store_destroy(&g_dramtile);
 
     /* ── Cleanup ── */
     for (int i = 0; i < n_sid_swaps; i++) {

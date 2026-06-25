@@ -26,967 +26,149 @@
 
 ---
 
-## Session June 20 (current — Cosplay Fix + Experiment + LFM2)
+## สถานะระบบปัจจุบัน (June 26, 2026)
 
-### What Was Done
-1. **Fixed `CP_MAGIC`**: was `0x434F5350` but real `.cpl` files have `0x504F434C` → 170/170 entries load
-2. **Implemented `--cosplay-compare`**: was dead code → now does WITH/WITHOUT comparison (cosine similarity, token diff, top-5 overlap)
-3. **Implemented `--experiment DIR`**: was dead code → runs all `.cpl` + baseline, saves results + report.txt with cosine matrix
-4. **Moved 403 `.ses` files** from root to `runner/ses_profiles/`
-5. **Cleaned `I:\llama`**: deleted old CUDA/SYCL builds → reclaimed ~3.2GB
-6. **Cleaned `I:\model`**: deleted unused models/tokenizer data → reclaimed ~5GB
-7. **Downloaded b9733**: `llama-b9733-bin-win-vulkan-x64.zip` (113MB extracted) — confirmed LFM2 architecture support in `llama.dll` symbols
-8. **Downloaded LFM2.5-1.2B**: Q4_K_M (694 MB) — tested with b9733, generates "Hello!" at 65.4 t/s
-9. **Confirmed: b9528 does NOT support LFM2** — loads metadata + SID cache but fails silently at decode
-
-### Saved Space
-| Location | Reclaimed | Kept |
-|----------|-----------|------|
-| `I:\llama\` | ~3.2 GB | Only b9528-vulkan (current working) |
-| `I:\model\` | ~5 GB | SmolLM2 Q8, Qwen2.5 Q8, Qwen3 Q8, smolVLM dir, LFM2 Q4 |
-| Total: | **~8.2 GB** | |
-
-### Key Binary Facts
-- `CP_MAGIC = 0x504F434C` (not `0x434F5350`)
-- `offsetof(struct ggml_tensor, data) = 248` for b9528
-- b9733: Clang 20.1.8, supports LFM2/LFM2MOE/Qwen3.5/Qwen5/SmolLM3/Mistral3/Step35 etc.
-- ABI compatibility b9528↔b9733: unknown (struct layout may have changed)
-
----
-
-## 🎭 Cosplay: Signature-Derived Perturbation Profile (June 19 — Validated)
-
-### What It Does
-Replaces 485MB `.gsten` tensor store with a **~2.7KB `.cpl` file** (0.0005%) that encodes minimal perturbation rules derived from SID signatures. At inference, cosplay applies sparse byte-level XOR to SID-cache tensor data before swap injection — producing **detectably different model output** while keeping the model fully coherent.
-
-Key insight: ~1.5% of bytes per tensor flipped by ±1 is enough to change the output measurably, but the model absorbs the noise and stays coherent.
-
-### File Format (`.cpl`, version 2)
-- **Header**: magic(4) + version(4) + n(4) + n_layers(4) + n_heads(2) + n_embd(2) = 20B
-- **Per-entry**: name_hash(4) + mode(1) + arg(1) + stride(2) + data_size(4) + tick(4) = 16B
-- Lookup key: FNV-1a hash of tensor name (computed identically in trainer and runner)
-- Backward compat: reads v1 (12B entries, data_size default 0)
-- **2.7KB for 170 entries vs 485MB gsten = 0.0005%**
-
-### Perturbation Strategy
-- Target: only tensors in SID cache (weight tensors ≥64KB, ~170 of 291)
-- `stride=64`, XOR `arg=0x01`: ~1.5% of bytes flipped per tensor
-- Statistical: ~6% of perturbed bytes hit block scales (harmless empirically)
-- Trainer: `n_targets=0` → auto-select all weight tensors (skips F32 norms/biases <64KB)
-- `.cpl` size scaling: 36B (1 tensor) → 400B (25) → 2.7KB (170)
-
-### Scaling Results (Qwen2.5-0.5B Q4_K_M, prompt "Hello", temp=0)
-| # Tensors | `.cpl` size | First token | Output tail |
-|-----------|------------|-------------|-------------|
-| 0 (baseline) | — | `\n` | `Hello! How can I assist you today? ...valuable source of information for others like you in the future. 😊` |
-| 1 (output.weight) | 36 B | `\n` | `...of utmost importance in helping me improve my responses. Thank you!` |
-| 3 | 68 B | `\n` | `I'm not sure what you're asking for. Can you please provide more information?` |
-| 9 | 164 B | `\n` | `I'm not sure what you mean by "Hello", but it seems like a response...` |
-| 25 (all attn_output) | 420 B | `\n` | `I'm not sure what you mean by "Hello", but if you have a specific question... Goodbye!` |
-| **170 (ALL weights)** | **2.7 KB** | `,` | `I'm not sure what you're asking for. If there's any information I can help with, please let me know!` |
-
-All outputs are **coherent English** — no crash, no garbage, just different responses.
-
-### Files
-- `runner/cosplay.h` — CosplayProfile, CosplayEntry, save/load (v1+v2), lookup, verify, apply, train API
-- `runner/cosplay_train.c` — CLI: `cosplay_train <store.gsten> <output.cpl>` (default: all weight tensors)
-- `runner/llama_pogls_runner_sid_v2.c` — `--cosplay PATH` + `--cosplay-compare` flags
-- `docs/COSPLAY.md` — Full documentation with format details, API ref, scaling table, philosophy
-
-### Key APIs
-```c
-cosplay_train(cp, gi, gsten_path, target_names, n_targets);  // train from gsten
-cosplay_save(path, cp);                                       // save .cpl (v2)
-cosplay_load(path, cp);                                       // load .cpl (v1 or v2)
-cosplay_find(cp, name_hash);                                  // lookup by FNV-1a hash
-cosplay_apply(&ce, data, size);                               // → malloc'd perturbed copy
-```
-
-### New: `--cosplay-compare` (Cosplay + Time Travel)
-At startup, before the main loop, runs a **controlled comparison**:
-1. Decode test prompt "Hello" **WITH** cosplay → save logits + first token
-2. `llama_memory_clear()` → reset KV cache
-3. Toggle delta arrays to original (unperturbed) cached data
-4. Decode **WITHOUT** cosplay → save logits + first token
-5. Print comparison: token diff, cosine similarity, max logit diff, same-sign ratio, top-5 overlap
-6. Toggle back, clear KV cache, continue normally WITH cosplay
-
-**Sample output** (170 tensors, Qwen2.5-0.5B):
-```
-  First token WITH cosplay:    ',' (token 11)
-  First token WITHOUT cosplay: '\n' (token 271)
-  Same token? NO
-  Logits cosine similarity:    0.997262
-  Max logit difference:        1.467321
-  Same-sign ratio:             97.9%
-  Top-5 overlap:               5/5
-```
-The first token changes from `\n` to `,` — **proof that cosplay measurably affects output** despite 99.7% logit similarity.
-
-### New: `--experiment DIR` (Multi-Delta Experiment Framework)
-Auto-runs all `.cpl` files in a directory + baseline, compares outputs:
-
-```
-experiment_dir/
-  ├── subtle.cpl
-  ├── moderate.cpl
-  ├── aggressive.cpl
-  └── results/
-      ├── 00-baseline/{tokens.txt,logits.bin}
-      ├── 01-subtle.cpl/...
-      ├── 02-moderate.cpl/...
-      ├── 03-aggressive.cpl/...
-      └── report.txt
-```
-
-For each condition: snapshot → apply perturbation → generate → save → cross-compare.
-Output: first token, full text, timing, pairwise logit cosine similarity matrix.
-
-**Sample**: 6 conditions on Qwen2.5-0.5B:
-```
-  00-baseline:          first=11 ','  (coherent)
-  01-25-attn-output:    first=11 ','  (same first token, different content!)
-  02-full-170-stride32: first=18137   (garbled — too aggressive)
-  03-full-170-stride64: first=220     (coherent, different)
-  04-full-170:          first=271     (coherent, different)
-  05-same-cpl:          first=11 ','  (coherent, different content)
-```
-
-Key insight: **same .cpl with same first token can produce different content** — perturbation changes the model's latent path without changing the immediate sample.
-At startup, before the main loop, runs a **controlled comparison**:
-1. Decode test prompt "Hello" **WITH** cosplay → save logits + first token
-2. `llama_memory_clear()` → reset KV cache
-3. Toggle delta arrays to original (unperturbed) cached data
-4. Decode **WITHOUT** cosplay → save logits + first token
-5. Print comparison: token diff, cosine similarity, max logit diff, same-sign ratio, top-5 overlap
-6. Toggle back, clear KV cache, continue normally WITH cosplay
-
-**Sample output** (170 tensors, Qwen2.5-0.5B):
-```
-  First token WITH cosplay:    ',' (token 11)
-  First token WITHOUT cosplay: '\n' (token 271)
-  Same token? NO
-  Logits cosine similarity:    0.997262
-  Max logit difference:        1.467321
-  Same-sign ratio:             97.9%
-  Top-5 overlap:               5/5
-```
-
-The first token changes from `\n` to `,` — **proof that cosplay measurably affects output** despite 99.7% logit similarity.
-
-### Key Design Decisions
-- **Lookup by FNV-1a name hash** (not SID node_id): avoids collisions where multiple F32 norm tensors map to the same SID coordinate
-- **`cosplay_apply()` returns malloc'd buffer**: runner uses `is_malloc` flag for cleanup in `sid_swaps[]`
-- **Trainer is flexible**: `n_targets=0` → all weight tensors (≥64KB), or explicit target list
-- **Only weight tensors in SID cache** are perturbable: F32 norms/blases not in SID cache are skipped
-- **Comparison uses raw tensor_set_data()** (not time travel ring) to avoid side effects
-
-### Known Limitations
-- ~6% of perturbed bytes may hit block scales (adds noise but empirically harmless at stride=64)
-- `.cpl` file is model-specific (trained from a gsten bake); requires source gsten
-- Full-weight perturbation changes output detectably but model stays coherent — no "controlled identity" mode yet
-
-### Compile (standard cosplay trainer)
-```
-gcc -O2 -std=c11 -I. -Icollection -Icollection/src -Icollection/core -Icollection/core/core -Icollection/core/pogls_engine/core -Icollection/core/geo_headers -Icollection/geo_jump_module/include -II:/llama.cpp/include -II:/llama.cpp/ggml/include -o runner/cosplay_train.exe runner/cosplay_train.c collection/geo_jump_module/src/geo_jump.c -lm
-```
-
-### Profile-Aware Cosplay Trainer
-`runner/cosplay_profile_train.c` — uses `.ses` session profile to modulate per-tensor stride based on face usage frequencies. See Session June 20 (late) section below for details and trained files.
-
----
-
-## ✅ Session June 18 (late) — Icosa Bridge GPU Context Fix: Kernel Dispatch Now Works
-
-### Goal
-Fix `"invalid resource handle"` (CUDA error 400) when `icosa_bridge.dll` dispatches the icosa lane kernel during llama.cpp GPU inference — caused by CUDA context conflict between `icosa_bridge.dll` and `ggml-cuda.dll`.
-
-### Root Cause
-`icosa_bridge.dll` uses CUDA runtime API (implicit primary context), while `ggml-cuda.dll` uses CUDA driver API to create separate contexts for each GPU. When ggml-cuda does inference work, its context becomes current, making our runtime handles (stream, allocations) invalid. The `cudaSetDevice(0)` workaround was insufficient because it doesn't restore the driver-level context.
-
-### Fix
-Added CUDA driver API context save/restore in `_dispatch_chunk()` at `collection/src/icosa_twin_bridge.cu:270`:
-1. Added `CUcontext cu_ctx` field to `IcosaGpuCtx` struct
-2. Save context at init via `cuCtxGetCurrent()` after CUDA runtime is initialized
-3. In `_dispatch_chunk()`: save previous context → `cuCtxSetCurrent(ctx->cu_ctx)` → do CUDA work → restore previous context
-4. Added `#include <cuda.h>` and linked with `-lcuda` (driver API lib)
-
-### Result
-- **Dual GPU inference (`--ngl 29`) + `--twin-gpu`: NO errors** — model generates "! How are you feeling today? 😊" from prompt "Hello"
-- **CPU inference + `--twin-gpu`: also works** — same output
-- No "invalid resource handle" (error 400), no "dispatch error", no crashes
-- All CUDA resources clean up properly (buffer sizes match expectations)
-- Compile command: `nvcc -O2 -arch=sm_61 -shared -o icosa_bridge.dll icosa_twin_bridge.cu -lcudart -lcuda -DICOSA_BUILD_DLL -DICOSA_SKIP_MAIN -allow-unsupported-compiler -D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH`
-
-### Files Changed
-- `collection/src/icosa_twin_bridge.cu`: Added `#include <cuda.h>`, `CUcontext cu_ctx` field, `cuCtxGetCurrent()` at init, context save/restore in `_dispatch_chunk()`
-- `collection/src/icosa_bridge.dll`: Recompiled with context fix
-
-### Still Pending
-- Chat mode with `--twin-gpu --ngl 29` not yet verified (should work)
-- Full gear lock integration (meaningful icosa lane processing, not just push)
-- Build Colab deployment package: `.cu` + build script for T4 (sm_75)
-
----
-
-## ✅ Session June 18 — ZoneCardSID Y-Triangle + Tensor Memory Store + SID E2E Verified
-
-### Goal
-Retarget ZoneCardSID to Y-triangle, create tensor memory store, get SID pipeline to run end-to-end with real model.
-
-### What Changed
-
-#### New/Modified Files
-- **`collection/zone_card_sid.h`**: Retargeted — `node_id(4B)+capo_key(2B)` replaces `face(1B)+zone(1B)+slot(1B)+tring_pos(2B)`. Uses `geo_jump.h` with `GEO_JUMP_INLINE`.
-- **`collection/sid.h`**: Removed 5 dead functions referencing old ZoneCardSID fields (`sid_coord_from_zcsid`, `sid_comm_payload`, `sid_capture`, `sid_summon`, `sid_summon_sig`).
-- **`collection/src/tensor_memory.h`**: New — TensorMemStore with TMEM_NONE/TMEM_DELTA compression, mask-based query (`tmem_query`), save/load (`tmem_save`/`tmem_load`), `tmem_foreach`. 31/31 tests pass.
-- **`collection/tests/test_tensor_memory.c`**: New — 31 tests covering query, save/load, foreach, delta compression.
-- **`runner/llama_pogls_runner_sid_v2.c`**: Added `--mem-store PATH` (logging at wrong level — see below), `sid_mem_store_log()`, `geo_jump.c` in build command. Updated build command in header.
-
-### SID E2E Pipeline Status
-- **Model load**: 458-503 ms ✓
-- **Tensor scan**: Both `-O0` and `-O2` find **291/291** (previously reported 13/291 is resolved; Tier 2 ``find_layers_ptr`` works correctly with both opt levels) ✓
-- **SID cache init**: 170 weight tensors read = 485 MB, verified ✓
-- **SID swap setup**: 170/291 tensors selected for per-decode swap ✓
-- **Reaches decode with swaps**: Running inference reaches `llama_decode` with swapped tensor->data pointers ✓
-- **GPU backend**: Hardcoded CPU (`ggml-cpu-sse42.dll`); `ggml-vulkan.dll` exists but not yet integrated
-
-### Key Findings
-- **`geo_jump.c` must be linked explicitly**: `tw_bridge.h` includes `geo_jump.h` without `GEO_JUMP_INLINE`, so geo_jump functions become `extern` and need `geo_jump.c` in the link line.
-- **TensorMemStore integration at wrong level**: Current `--mem-store` logs per-decode tensor data (raw swap log), but vision is condensed user behavioral profile. Needs redesign.
-- **`_hilbert_idx` warning**: pre-existing in `tw_bridge.h:267`; inside `#ifdef GEO_JUMP_INLINE` block, unavailable when `geo_jump.h` included without it.
-
-### Still Pending
-1. **`--mem-store` redesign**: Align with vision (user behavioral profile, not raw swap log)
-2. **`--capture` pipeline**: Not tested with real model yet
-3. **GPU backend**: Unblock Vulkan for faster inference
-4. **`_hilbert_idx` warning**: Fix or suppress
-
-### Bug Fix (June 18) — `sid_summon` node_id/shell_id confusion
-- **Root cause:** `sid_summon()` at `collection/sid.h:312` passed `coord->node_id` (0..20735) directly to `geo_shell_decode()` which expects a `shell_id` (0..287). `shell_id % 288` corrupted face/ring info.
-- **Effect:** 5/20 tensors failed roundtrip in real model test. Wrong face/ring → wrong centroid → wrong (vx,vy) → recapture node_id mismatch.
-- **Fix:** `geo_shell_decode(coord->node_id, ...)` → `geo_shell_face(coord->node_id)` + `geo_shell_ring(coord->node_id)`. These extract face/ring from `node_id = face*1728 + ring*144 + side*72`, the correct inverse of `tw_to_node()`.
-
----
-
-## 🔮 SID Vision (from user, June 18)
-
-### Shadow Clone + Venom Philosophy
-- **Shadow Clone**: independent execution, expire → transfer experience. Not parallel dummy.
-- **Venom**: inject, take over, carry forward, enhance next target. Zero waste, evolutionary.
-- **No reverse engineering**: chasing version updates is unsustainable.
-
-### Next Phase: SID → Tensor Memory → Topology
-```
-input (screen/text/event)
-    ↓
-encode → SID coordinate (face, spoke, slot)
-    ↓
-map   → tensor region (layer, head, channel)
-    ↓
-bond  → neighbor tensors via topology edges
-```
-
-### Bond Discovery (user's findings with line primitives)
-Lines, length, angle, intersection can be:
-- Projected, offset, reconstructed
-- Origin drift/shift along path
-- Parameterized lines = **routers** without needing actual geometry
-
-**Bond is lower-level than geometry** — it's a level below geometric forms, acting as a pure topological primitive.
-
----
-
-## Time Travel (June 15 — Delta Ring + Rewind/Fast-Forward)
-
-### Core Files
-- **`runner/sid_delta_ring.h`** — Circular buffer journal of SID swap operations. Each entry records `(ft_idx, tensor_ptr, orig_data, sid_data, size)`. Supports checkpoint names (up to 64), automatic tail eviction on overflow.
-- **`runner/sid_timetravel.h`** — Orchestrator wrapping delta ring. `sid_timetravel_before_decode()` pushes swap entries into ring before each `sid_swap_apply()`. `sid_timetravel_after_decode()` processes pending checkpoint/rewind/ffwd commands.
-
-### How It Works
-- Before every `sid_swap_apply()`, the delta ring records all tensor pointers being swapped: the original data pointer AND the SID cache pointer. **No data copying** — just pointer tracking.
-- After every `sid_swap_restore()`, pending time travel commands are processed:
-  - **Rewind**: walks the ring backward from tail to checkpoint, restores `orig_data` pointer in each tensor struct. Undoes all SID injections back to the checkpoint.
-  - **Fast-forward**: walks forward from checkpoint to head, re-applies `sid_data` pointers. Re-does all SID injections.
-  - **Checkpoint**: marks current ring position with a name.
-  - **Branch**: copies ring state up to checkpoint into a new ring.
-- Ring capacity = 1024 entries. Older entries evicted from tail when full.
-
-### CLI Flags & Chat Commands
-```
---sid-checkpoint NAME    /checkpoint NAME     Save checkpoint
---sid-rewind NAME        /rewind NAME         Rewind (undo swaps)
---sid-ff NAME            /ff NAME             Fast-forward (redo swaps)
---sid-branch NAME        /branch NAME         Branch state
-                         /tt                  Print time travel state
-```
-
-### Key Design Decision
-- **Pointer-only journaling**: no data copies. Rewind = pointer restore in reverse; Fast-forward = pointer re-apply forward. Copy-on-write branching with different SID data is future work.
-- **Chronological ring**: each swap cycle produces one entry per tensor. 170 tensors × 2 cycles/token = 340 entries/token. Capacity 1024 entries ≈ 3 tokens of history. Bump `SID_DELTA_MAX_ENTRIES` for longer history.
-
----
-
-## 🌡️ Bond Prediction (June 15 — Cardioid Express + Metatron Route)
-
-### What It Does
-When `--bond` is passed, the runner builds a **bond graph** over all 290 discovered tensors, then computes a **hotness score** (0.0 cold → 1.0 hot) for each tensor using:
-
-1. **Cardioid Express** — Maps each layer to a cardioid geometry position `pos = layer * 720 / n_layers`. Applies `r(θ)=a(1+cosθ)` Q8 fixed-point gate: inside cardioid = express (hot=1.0), outside = warm (0.5), cusp near θ=π = cold (0.1). Signal byte `(layer*17+42)&0xFF` as deterministic per-layer data value.
-
-2. **Metatron Route Topology** — Maps each weight tensor to a Metatron face (0..11) based on slot type + ring, then discovers:
-   - **META_ORB**: same face, adjacent slot (= same type, consecutive layers)
-   - **META_CHIRAL**: opposite face (±6), same slot (= same type, opposite ring)
-   - **META_CROSS**: inter-ring bijection via CROSS_MAP LUT
-
-3. **Hotness Propagation** — 3-pass diffusion: each tensor's hotness spreads to bonded neighbors (weighted by bond strength). After propagation, hotness reflects both cardioid position AND topological connectivity.
-
-### CLI Flag
-- `--bond`: Enables bond discovery, cardioid scoring, and Metatron topology. When combined with `--sid-face N`, cold tensors (hotness < 0.3) are skipped from SID swaps.
-
-### Output
-```
-[bond] 2320 total bonds:
-  LAYER_SLOT:    217
-  INTRA_LAYER:   672
-  CARDIOID:      889
-  META_ORB:      270
-  META_CHIRAL:   144
-  META_CROSS:    128
-[predict] hot=32.4% warm=57.2% cold=10.3%
-[predict] top-5 hottest:
-  1.00  blk.0.attn_norm.weight
-  1.00  blk.0.ffn_norm.weight
-  1.00  blk.1.attn_norm.weight
-  1.00  blk.1.ffn_norm.weight
-  1.00  blk.2.attn_norm.weight
-[sid] bond filter active: will skip cold tensors (hotness < 0.3)
-[sid] 217 / 290 tensors will be swapped per decode (bond filter skipped 30 cold)
-```
-
-### Relevant Files
-- **`runner/bond_discovery.h`**: All bond types — static (LAYER_SLOT, INTRA_LAYER), cardioid express phase, and Metatron topology (orbital, chiral, cross). Also: `bond_predict_hotness()`, `bond_predict_print()`, heap-allocated BondGraph with `bond_graph_init()`/`bond_graph_free()`.
-- **`runner/llama_pogls_runner_sid_v2.c`**: `--bond` flag integration at line ~382. Computes n_layers from found tensor names, passes to bond discovery, stores bond_hotness array, applies cold filter in SID swap setup (line ~510).
-
-### Notes
-- Cardioid bonds limited to `|layer_diff| <= 1` to avoid N² explosion.
-- BondGraph is heap-allocated with capacity `n_found * 8` (up to 32768).
-- BOND_METATRON_HUB defined in enum but not currently discovered (too noisy).
-- Hotness propagation: 3 passes, 0.7 self-weight + 0.3 × bond_weight × neighbor hotness.
-
----
-
-## ✅ Milestone v1.0 "12-Face Bridge Pipeline" — COMPLETE (June 16)
-
-### Summary
-All 3 phases of milestone v1.0 have been implemented, compiled, and verified (5265 PASS / 0 FAIL with T8 skipped due to no tensor data).
-
-### Files Created
-- `runner/capture_pipeline.h` — Full capture pipeline header: `CaptureResult`, `CaptureTensor`, `capture_init()`, `capture_tensor()`, `capture_write_freeze_wallet()`, `capture_write_store()`, `capture_verify()`, `capture_run_full()`, `capture_summary()`. Uses `tw_capture_tensor_raw` for dequant + signature, runs `tw_iterate_faces` for full 12-face capture per tensor.
-
-### Files Modified
-- `collection/tw_face_bridge.h`
-  - Added `#include "tw_tensor_capture.h"`
-  - Added `TWCapture12FaceResult` struct + `tw_capture_12face_init/free()`
-  - Added `tw_capture_tensor_12face()` — orchestrator: `tw_capture_tensor_by_name` → `tw_capture_priority` → `frame_at` → rewind store → freeze wallet in one call
-  - Added `tw_capture_tensor_12face_batch()` — multi-tensor batch wrapper
-  - Added `DualFrame df` field to `TWCapture12FaceResult` for timeline integration
-
-- `collection/tests/test_tw_face_bridge.c`
-  - Upgraded T8 to use `tw_capture_tensor_12face()` orchestrator
-  - Added T9 orchestrator unit test (init/free/priority integration)
-  - Added T10 timeline round-trip test (DualFrame verification, determinism, World B)
-  - Added B1 benchmark test (behind `#ifdef BENCHMARK`)
-
-- `runner/llama_pogls_runner_sid_v2.c`
-  - Added `#include "capture_pipeline.h"` after `FoundTensor` definition
-  - Added `--capture DIR` CLI flag with arg parsing and help text
-  - Added capture call after prompt decode in both chat and prompt modes
-  - Uses `CaptureTensor` descriptor to bridge `FoundTensor` → capture pipeline
-
-### Key Design Decisions
-- `capture_pipeline.h` defines `CaptureTensor` (lightweight, runner-agnostic) to avoid coupling to `FoundTensor` struct
-- `CAPTURE_TENSOR_FROM_FOUND` macro inlined (GCC scoping quirk with `#ifdef` + `for`-scope vars)
-- `.tw` (freeze wallet) + `.gsten` (full tensor store) both written per capture
-- Lossless verification via `tw_capture_tensor_raw` roundtrip
-
-### Next
-- User needs to run `--capture` with an actual GGUF model to verify freeze wallet + .gsten output files are correct
-- Benchmark with `-DBENCHMARK` to measure 12-face capture throughput against 2000 t/s target
-
----
-
-## 🎤 Qwen3 TTS Pipeline (June 17 — bf16 Fixes NaN + Manual ST Load)
-
-### tl;dr
-**bfloat16 fixes `TensorCompare.cu:110 Assertion 'input[0] != 0'`** caused by float16 overflow during attention softmax computation. Model outputs all-(-1.0) audio (silence/DC) — generation runs without crash but codes are invalid.
-
-### Working Pipeline (test_fix_v9.py)
-1. **Load main model**: meta → replace params with CUDA bf16 → copy weights from CPU sd (dtype conversion on CPU, `copy_` to CUDA — avoids intermediate CUDA tensor)
-2. **Load speech tokenizer**: create on **CPU** (not meta — preserves scalar buffers like `padding_total`, `stride`), move float params+buffers to CUDA bf16, load weights tensor-by-tensor via manual safetensors parse (avoids mmap paging error)
-3. **Monkey-patch SafeCE**: clamp embedding indices to `num_embeddings-1` to avoid OOB
-4. **`generate_voice_clone()`**: runs without NaN crash but output is all -1.0
-
-### Key Findings
-- **float16 overflows**: `torch.where()` assert fires because softmax produces NaN from overflowed logits in float16. bf16 has same exponent range as f32 — no overflow.
-- **safe_open paging error**: Windows `safe_open` mmap exhausts page file when loading 682MB speech tokenizer after main model weights. Manual safetensors parse (raw bytes → `torch.frombuffer`) avoids mmap.
-- **Speech tokenizer scalar buffers**: `MimiConv1d.register_buffer("padding_total", ...)` creates scalar int64 buffers. Must keep on CPU or the Mimi encoder's `_pad1d()` breaks (`pad()` expects Python ints, not CUDA tensors).
-- **Float buffers must move to CUDA**: Codebook `embed` is a buffer, not a parameter. Need to iterate `named_buffers()` and move float ones to CUDA.
-
-### Current Limitation
-- Audio output is all -1.0 (DC silence). Likely cause: generated tokens/codes are wrong. Possibly embedding weights not matching between talker and code_predictor, or the code_predictor generates invalid codes that decode to silence.
-
-### Relevant Files
-- `I:\FGLS_new\test_fix_v9.py`: Working pipeline (bf16 + manual ST)
-- `I:\FGLS_new\test_fix_v8.py`: Previous version (f16 — NaN crash)
-- `I:\model\qwen3-tts-0.6b\`: Model directory
-- `I:\model\.cache\pykokoro\`: Kokoro TTS (working independently)
-
----
-
-## 🔺 Session June 17 — Y-Triangle Migration (geo_jump, Remove TETRA/OCTA)
-
-### Goal
-Replace compound-of-5-tetra/octa addressing (3456/6912) with geo_jump Y-triangle (GEO_FULL=20736) for O(1) access, no warmup, simpler frustum routing.
-
-### What Changed
-
-| File | Change |
+### ✅ Pipeline หลัก — ทั้งหมดผ่าน
+| Component | Status |
 |---|---|
-| `geo_compound_cfg.h` (8 copies) | Removed `GeoCompoundType`, `GeoFaceBase`, `frustum_divisor`, `geo_face_route()`, `geo_addr_translate()`, `geo_compound_cfg_verify()`, `geo_cfg_frustum_unit()`. Single `GEO_CFG` at GEO_FULL=20736. |
-| `shell_container.h` | Removed mode/geometry params. `shell_init()` now takes only `(s, shell_id, subdivision, seed)`. Anchor space = GEO_FULL/12 = 1728. |
-| `shell_hop.h` | Bridge is identity (1:1) — shell_to_geo and geo_to_shell both mod GEO_FULL. Removed scale_factor. |
-| `shell_weight_map.h` | Removed `.geometry` field from Chord init. (already removed from struct) |
-| `onion_stack.h`, `onion_shell.h` | Removed mode param from `shell_init()` calls. |
-| `tgw_frustum_wire.h` (4 copies) | `FRUSTUM_TETRA_CEILING = GEO_FULL/6`, `FRUSTUM_JUNCTION = GEO_FULL/3`. core/ copy uses hardcoded values (same math, no geo_jump.h dependency). |
-| `lc_wire.h` (collection/ copy) | `LCW_MAIN_SPACE = GEO_FULL`, `LCW_RESIDUE = GEO_FULL/3`. core/ copy uses hardcoded. |
-| `test_onion.c` | 3 `shell_init()` calls updated (no mode param), 3 Chord inits without `.geometry`. |
+| SID cache init + per-decode swap | ✅ |
+| Cosplay perturbation (`.cpl`) | ✅ |
+| `--cosplay-compare` WITH/WITHOUT | ✅ |
+| `--experiment` multi-delta framework | ✅ |
+| Session profiles (SES2) | ✅ |
+| `ses_cmp/cluster/featurize/merge` tools | ✅ |
+| Profile batch mode (`--profile-batch`) | ✅ |
+| Profile-aware cosplay training | ✅ |
+| KV state perturbation | ✅ |
+| **KV SID eviction (pointer swap)** | **✅ (verified: Bob test)** |
+| **Incremental pending token-suffix** | **✅ (prefix-match delta decode)** |
+| **`--script FILE` chat input** | **✅ (deterministic scripted testing)** |
+| Time travel (delta ring + rewind/ffwd) | ✅ |
+| Bond prediction (`--bond`) | ✅ |
+| Capture pipeline (`--capture`) | ✅ |
+| Gear lock feedback (`--gear-lock`) | ✅ |
+| Icosa bridge GPU context fix | ✅ |
+| Y-triangle migration (geo_jump) | ✅ |
+| Vulkan GPU backend | ✅ |
+| b9733 + LFM2 support | ✅ (DLLs + runner verified working) |
+| Colab deploy script | ✅ (`deploy/colab/build_colab.sh`) |
+| `_hilbert_idx` warning | ✅ ไม่มี warning นี้ใน code ปัจจุบันแล้ว |
+| **KV Remap (skeleton+delta)** | **✅ adaptive 3-tier system tested** |
+| **KV Remap Rail (background verify)** | **✅ 3-lane idle-driven scan/patch** |
 
-### Key Design Decisions
-- **Y-triangle eliminates frustum quad conversion**: direction = topology natively, no need for tetra+octa hybrid
-- **geo_compound_cfg.h kept as backward-compat shim** — new code should use `geo_jump.h` directly (`JUMP_PENTAGON`, `geo_pentagon_id`, `geo_capo`, `geo_field_climate`)
-- **3456/6912 still appear** in `frustum_slot64.h`, `frustum_layout_v2.h`, `geo_field_core.h`, `exp_frame_hash.c` — these are data sizes / hash seeds, NOT TRing-related, left untouched
-- **core/ directory** is self-contained (no geo_jump.h) — uses hardcoded values that match GEO_FULL arithmetic
+### 📁 Key Binaries (ใน `runner/`)
+- `llama_pogls_runner_sid_v2.exe` — Main runner (b9528)
+- `llama_b9733.dll` + `ggml*.dll` (b9733) — พร้อมใช้งาน
+- `cosplay_train.exe`, `cosplay_profile_train.exe`
+- `ses_cmp.exe`, `ses_cluster.exe`, `ses_featurize.exe`, `ses_merge.exe`
+- `test_kv_remap.exe` — KV Remap test suite (7 tests, all pass)
+- 403 `.ses` profiles ใน `runner/ses_profiles/`
+- 9 `.cpl` cosplay profiles ใน `runner/cpl_profiles/`
 
-### Verification
-- Zero actual code references to removed types/functions remain (all in comments only)
-- `FRUSTUM_TETRA_CEILING = 20736/6 = 3456` ✓
-- `FRUSTUM_JUNCTION = 20736/3 = 6912` ✓
-- `LCW_RESIDUE = 20736/3 = 6912 = 4×12³` ✓
-- `GEO_CFG.slots_per_spoke = 20736/6 = 3456` ✓
-- `shell_init()` calls all 4-param, no `.geometry` anywhere ✓
-
-### NEXT: Capture Pipeline Retarget
-`tw_face_bridge.h` and `capture_pipeline.h` still use 12-face / 1440 TRing (face rotation, hex+tri dual grid, centroids, resid). Need to retarget to geo_jump Y-triangle:
-- Replace 12-face iteration → Y-triangle node_id (0..20735) mapping
-- Replace `TWFreezeEntry.tring_pos` (0..1439) → node_id (0..20735)
-- Replace `TW_REWIND_SLOTS=1440` → 20736 or per-shell partition
-- Replace face rotation + resid → `geo_pentagon_id()` + `geo_capo()` O(1) targeting
-
----
-
-## ✅ Session June 19 — Multi-Turn Chat Profile (SES2 + Transition Matrix)
-
-### Goal
-Upgrade SessionProfile from flat histogram (960 bins per face×spoke×slot) to include **face-to-face transition tracking** and **conversation timeline**, so multi-turn chat sessions produce distinguishable "trajectory fingerprints" — not just per-face aggregates.
-
-### What Changed
-
-#### `session_profile.h` — SES2 Format Upgrade
-- **New magic**: `SES2` (old `SES1` still loads → auto-migrate)
-- **New fields**:
-  - `last_face` — previous face index for transition tracking
-  - `trans[8][8]` — 8×8 uint32 transition matrix (256 bytes)
-  - `timeline[4096]` — in-memory ring of `(face, step)` pairs (not saved to file)
-- **New APIs**:
-  - `ses_profile_transition(sp, from, to)` — increment `trans[from][to]`
-  - `ses_profile_push_timeline(sp, face, step)` — append to ring
-  - `ses_profile_print()` — now also prints: face usage histogram + transition matrix + timeline preview
-- **File size**: SES1 = 3848B → SES2 = 4108B (+260B for trans + face header)
-- **Backward compat**: verified — SES1 file loads as SES2, frames preserved, re-saved as SES2
-
-#### `llama_pogls_runner_sid_v2.c` — Chat Loop Transition Tracking
-- **`g_turn_count`**: new static counter, increment per user message
-- **Turn-varying hash**: `ses_fnv1a_ints(tokens) ^ (turn * 0x9E3779B9U)` — identical messages in different turns → different faces
-- **Per-message transition recording**: `sid_rebuild_swaps(new_face)` followed by `ses_profile_transition(last_face, new_face-1)` + `ses_profile_push_timeline(new_face-1, turn)`
-- **Initial face recording**: first face (or face=9 clamped to 0) pushed as timeline[0]
-
-### Verified
-- **Tech conversation** (3 turns: "linked list → pointers → malloc"):
-  ```
-  Timeline:     F0 → F6 → F2 → F5
-  Transitions:  F0→F6→F2→F5
-  Face usage:   F2=49%, F5=38%, F6=13%
-  ```
-- **SES1→SES2 migration**: 100-frame SES1 loaded → accumulated 2014 more → saved as SES2 (4108B)
-- **SES2 binary layout**: magic(4) + n_frames(4) + last_face(1) + pad(3) + bins(3840) + trans(256) = 4108B ✓
-
-### Still Pending (user's roadmap)
-1. ✅ Phase 1 — Weighted face selection + decay + quality score
-2. ✅ Phase 2 — ses_cmp: histogram + transition + timeline comparison
-3. ✅ Phase 3 — ses_cluster: unsupervised HAC clustering
-4. ✅ Phase 4 — ses_merge: merge histograms + transition matrices
-5. ✅ Phase 5 — ses_featurize: profile → CSV feature vector
-6. ✅ Phase 6 — profile-batch: multi-session generation in single process
-7. 🔜 Feedback loop — last, after stable baseline
-
-### Key Files
-- `I:\FGLS_new\runner\session_profile.h` — SES2 format, transition matrix, timeline, backward compat, quality score metrics
-- `I:\FGLS_new\runner\llama_pogls_runner_sid_v2.c` — g_turn_count, turn-varying hash, transition recording
+### 📁 KV Remap Files (สร้างวันนี้)
+- `runner/kv_remap.h` — Adaptive skeleton+delta (RLE compressed, self-contained)
+- `runner/kv_remap_rail.h` — Rail 3-lane background scan (freeze/resume)
+- `runner/test_kv_remap.c` — Full test suite
 
 ---
 
-## ✅ Session June 19 (late) — Phase 1: Weighted Face Selection + Decay + Quality Score
+## Next Scope: POGLS File Management
 
-### What Changed
+ผู้ใช้จะไปดูว่า POGLS จัดการกับไฟล์ต่างๆ อย่างไรในระบบ — การอ่าน/เขียน/store/versioning ผ่าน pipeline POGLS
 
-#### Weighted Face Selection (`ses_select_face`)
-- Replaces old XOR (`fnv(tokens) ^ (turn * C)`) with per-byte weighted blend:
-  - `blended_byte = sem_byte * sem_weight + hist_byte * hist_weight + rnd_byte * rnd_weight`
-  - Deterministic — same input + same weights → same output
-  - First turn (turn=0) uses pure semantic hash (no history yet)
-- CLI flags:
-  - `--semantic-weight F` (default 0.8)
-  - `--history-weight F` (default 0.2)
-  - `--random-weight F` (default 0.0)
-  - All three weights act independently; no requirement to sum to 1.0
+### ⚠️ Diamond Shell FLAT Fix (June 22)
+Fixed critical bug in `diamond_shell_codec.h`: codec classified non-zero chunks as FLAT (reconstructed as all-zero) when `fibo_intersect == 0`, causing data loss. Fix: only use FLAT when chunk is truly all-zero.
+- Fixed in: `collection/geopixel/hbv_bundle/Diamond_decode_hamburger/diamond_shell_codec.h` 
+- Also fixed in: `collection/dgls/diamond/include/diamond_shell_codec.h` (mirror)
 
-#### Edge Weight Decay (`ses_decay_transitions`)
-- `--decay F` (default 1.0 = no decay): applied after each turn to all transition matrix entries
-  - `trans[i][j] *= factor`
-  - With `--decay 0.99`, older transitions fade by 1% per turn — profile reflects recent behavior
-  - Entries become ~0 after enough decay (but remain as zero-valued uint32)
-
-#### Quality Score Metrics (`session_profile.h`)
-- **`ses_profile_face_entropy()`** — Shannon entropy of face distribution (0..3, bits)
-- **`ses_profile_face_balance()`** — normalized entropy (0 = all one face, 1 = perfectly balanced)
-- **`ses_profile_transition_entropy()`** — avg entropy of each transition row (0 = deterministic path)
-- **`ses_profile_stability()`** — fraction of self-loop transitions (high = repetitive path)
-- **`ses_profile_quality()`** — composite: 0.40×balance + 0.35×(1-trans_entropy) + 0.25×stability
-- **`ses_profile_print_quality()`** — prints all metrics at session end
-
-### Verified
-- Default (sem=0.8/hist=0.2): `F5→F6→F1`, quality=0.5448 (entropy=1.461)
-- History-heavy (sem=0.1/hist=0.9): `F5→F8→F6` — different trajectory, different weights
-- `--decay 0.5` parsed correctly, no crash
-- `--help` shows all new flags
-
-### Still Pending
-1. **`ses_cmp` v2** — histogram + transition Frobenius/KL + timeline LCS
-2. **`ses_cluster`** — unsupervised clustering of N sessions
-3. **`ses_merge`** — merge profiles (histograms + transition matrices)
-4. **Feedback loop** — last, after baseline is stable
+### Related Files (เบื้องต้น)
+- `collection/geo_vault*.h/c` — GeoVault I/O
+- `collection/geopixel/` — Geopixel encoding pipeline
+- `collection/core/pogls_engine/` — POGLS engine core
+- `collection/python_src/` — Python bridge scripts
+- `runner/capture_pipeline.h` — Capture → store pipeline
+- `collection/src/tensor_memory.h` — TensorMemStore
 
 ---
 
-## ✅ Session June 19 (late) — Phase 2: ses_cmp CLI Tool
-
-### What Changed
-- **`runner/ses_cmp.c`** (new) — standalone CLI comparing two SES1/SES2 profiles
-
-### Metrics Reported
-| Section | Metric | Description |
-|---|---|---|
-| Histogram | Cosine similarity | Face/spoke/slot distribution overlap |
-| Histogram | L2 distance | Euclidean distance between bin vectors |
-| Histogram | Face usage | Per-face usage vector + dominant face match |
-| Transition | Frobenius norm | `||A - B||_F` of raw transition matrices |
-| Transition | KL divergence | Mean row-wise KL (row-normalized) |
-| Transition | Matrix diff | Side-by-side per-row comparison |
-| Timeline | LCS similarity | Longest common subsequence of face steps |
-| Summary | Verdict | Combined heuristic classification |
-
-### Sample Output
-```
-── Histogram ──
-  cosine similarity:  0.345230
-  dominant face: A=F5 B=F4 (diff)
-
-── Transition ──
-  Frobenius norm:     2.449490
-  KL divergence (mean row): 19.931568
-
-── Summary ──
-  histogram: Different topics (cos=0.3452)
-  transition: Very different trajectory (Frob=2.4495 KL=19.9316)
-  verdict: Likely different topics
-```
-
-### Compile
-```
-gcc -O2 -std=c11 -I. -Irunner -o runner/ses_cmp.exe runner/ses_cmp.c -lm
-```
-
-### Verified
-- Self-comparison: cosine=1.0, L2=0, Frobenius=0, KL=0 ✓
-- Same topic, different weights (0.8/0.2 vs 0.1/0.9): cos=0.345 — different face selection changes profile ✓
-- Transition matrix diff shows exactly which rows differ ✓
-- SES1 and SES2 both work (load function handles both)
-
----
-
-## ✅ Session June 19 (late) — Phase 3: ses_cluster
-
-### What Changed
-- **`runner/ses_cluster.c`** (new) — Unsupervised hierarchical clustering of N session profiles
-
-### Features
-- Scans directory for all `*.ses` files
-- Combined distance metric: `0.5 × (1 - hist_cosine) + 0.5 × clamp01(trans_frobenius / 10)`
-- Hierarchical Agglomerative Clustering with average linkage
-- Auto-determines optimal K via intra/inter-cluster ratio score
-- Output: distance matrix + cluster assignments + dendrogram with intra/inter distances
-- Platform support: Windows (`FindFirstFile`) and POSIX (`readdir`)
-
-### CLI
-```
-ses_cluster <dir> [--min-similarity F] [--min-clusters N] [--max-clusters N]
-```
-
-### Verified
-- 3 profiles loaded, distance matrix computed ✓
-- HAC clustering produces 2-group assignment ✓
-- Dendrogram shows intra/inter cluster distances ✓
-
-### Compile
-```
-gcc -O2 -std=c11 -I. -Irunner -o runner/ses_cluster.exe runner/ses_cluster.c -lm
-```
-
----
-
-## ✅ Session June 19 (late) — Phase 4: ses_merge
-
-### What Changed
-- **`runner/ses_merge.c`** (new) — Merge 2+ session profiles into one
-
-### Features
-- Merges histogram bins (weighted average by n_frames)
-- Merges transition matrices (sum of counts)
-- Merges timelines (concatenated)
-- `--ratio A B` override weighting for 2-profile merge
-- `--out PATH` output file
-
-### Usage
-```
-ses_merge A.ses B.ses --out merged.ses
-ses_merge A.ses B.ses --ratio 0.7 0.3 --out merged.ses
-ses_merge *.ses --out merged.ses
-```
-
-### Verified
-- code_A + code_B + code_C → merged: histogram weighted by n_frames ✓
-- Ratio merge `--ratio 0.8 0.2`: merged profile closer to A (cos=0.95 vs A) ✓
-- Transition matrices summed correctly ✓
-
-### Compile
-```
-gcc -O2 -std=c11 -I. -Irunner -o runner/ses_merge.exe runner/ses_merge.c -lm
-```
-
----
-
-## ✅ Session June 19 (late) — Phase 5: ses_featurize
-
-### What Changed
-- **`runner/ses_featurize.c`** (new) — แปลง SES2 → CSV feature vector (108 features)
-
-### Features (108 columns per profile)
-| Group | Count | Description |
-|---|---|---|
-| `face_0..face_7` | 8 | Face usage frequencies |
-| `spoke_0..spoke_23` | 24 | Spoke (layer) frequencies |
-| `slot_0..slot_4` | 5 | Slot type frequencies |
-| `trans_0_0..trans_7_7` | 64 | Row-normalized transition probabilities |
-| `entropy, face_balance, trans_entropy, stability, quality` | 5 | Quality metrics |
-| `n_frames, last_face` | 2 | Metadata |
-| **Total** | **108** | |
-
-### Usage
-```
-ses_featurize <dir/*.ses> --output features.csv
-ses_featurize file1.ses file2.ses --output features.csv
-ses_featurize <dir> --output features.csv --no-header
-```
-
-### Downstream (Python)
-```python
-import pandas as pd
-df = pd.read_csv("features.csv")
-X = df.drop(columns=["filename"]).values
-# UMAP, t-SNE, HDBSCAN, k-NN, silhouette score, etc.
-```
-
-### Compile
-```
-gcc -O2 -std=c11 -I. -Irunner -o runner/ses_featurize.exe runner/ses_featurize.c -lm
-```
-
----
-
-## ✅ Session June 19 (late) — Phase 6: Profile Batch Mode
-
-### What Changed
-- **`--profile-batch FILE`** in `llama_pogls_runner_sid_v2.c` — generate 400+ profiles in a single process
-
-### How It Works
-- โหลดโมเดลครั้งเดียว
-- Batch file format: `session_name|prompt1|prompt2|prompt3` (pipe-delimited)
-- วนแต่ละบรรทัด: reset profile → 3-turn chat → save .ses → recreate context → next
-- Maximum speed: **~5-10s/profile vs ~25s** เรียกแยก process
-- 400 sessions ≈ **~1 hour** (serial) instead of ~3 hours
-
-### Stability
-- Re-create context ระหว่าง session (เหมือน `/clear`)
-- SID cache/FNV/swap state ถูก reset ทุก session
-- Memory: leak-free (context freed/refreed)
-
-### Batch File Format
-```
-# topic|prompt1|prompt2|prompt3
-coding_001|What is a linked list?|Explain pointers|How does malloc work?
-coding_002|What is sorting?|What is binary search?|What is a hash table?
-math_001|What is a derivative?|What is an integral?|What is a limit?
-# lines starting with # are skipped
-```
-
-### Usage
-```
-runner/llama_pogls_runner_sid_v2.exe model.gguf --sid-prompt-hash ^
-  --semantic-weight 0.8 --history-weight 0.2 --temp 0 --n-predict 1 ^
-  --profile-batch batch_400.txt
-
-ses_featurize . --output all_features.csv
-```
-
-### Roadmap
-1. ✅ Phase 1 — Weighted face selection + decay + quality score
-2. ✅ Phase 2 — ses_cmp: histogram + transition + timeline comparison
-3. ✅ Phase 3 — ses_cluster: unsupervised HAC clustering (⚠️ C crash, Python workaround in cluster_profiles.py)
-4. ✅ Phase 4 — ses_merge: merge histograms + transition matrices
-5. ✅ Phase 5 — ses_featurize: profile → CSV feature vector
-6. ✅ Phase 6 — profile-batch: multi-session generation in single process
-7. ✅ Large-scale validation benchmark (400 unique profiles generated, clustered)
-8. ✅ Profile-aware cosplay training: `cosplay_profile_train` tool using selected representatives
-
----
-## ✅ Session June 20 — Cluster Analysis + Representative Selection for Cosplay
-
-### Goal
-Cluster 402 unique simulated session profiles, select diverse representatives for cosplay perturbation training.
-
-### What Happened
-1. **Replaced batch_400.txt** (101 topics × 4 seeds → identical prompts → identical profiles) with **batch_400_unique.txt** (400 unique prompt combos across 270 diverse topics).
-2. **Ran `--simulate`** generating 402 `.ses` files (400 unique + 2 compare_test survivors).
-3. **`ses_featurize`** → `features_800mix.csv` (402 profiles × 108 columns).
-4. **`ses_cluster.exe` has pre-existing heap corruption bug** (STATUS_HEAP_CORRUPTION 0xC0000374 after ~318 profile loads). Workaround: Python clustering script `cluster_profiles.py` using scipy + pandas.
-5. **Clustering result (k=3, avg linkage, ratio=0.7649):**
-   - **C0 (92):** API/HTTP/CDN/LLM/NLP/web-oriented topics — intra avg 0.1651
-   - **C1 (69):** Systems/OS/testing/scheduling topics — intra avg 0.1549
-   - **C2 (241):** General/algorithms/data structures/math topics — intra avg 0.2339
-   - Inter-cluster distances: 0.1171–0.1336 (moderate separation)
-
-### Selected Representatives (3 per cluster)
-| Cluster | Role | Profile | Avg Intra Dist |
-|---------|------|---------|---------------|
-| C0 | Centroid | `hash_table_005.ses` | 0.1341 |
-| C0 | Edge | `java_265.ses` | 0.1907 |
-| C0 | Edge | `java_367.ses` | 0.1907 |
-| C1 | Centroid | `jwt_348.ses` | 0.1297 |
-| C1 | Edge | `devops_101.ses` | 0.1965 |
-| C1 | Edge | `devops_203.ses` | 0.1965 |
-| C2 | Centroid | `nosql_233.ses` | 0.1884 |
-| C2 | Edge | `regex_142.ses` | 0.3044 |
-| C2 | Edge | `regex_040.ses` | 0.3044 |
-
-### Bug Note: ses_cluster.exe Heap Corruption
-- Consistent crash at 0xC0000374 after ~318 `ses_profile_load()` calls
-- Not realloc-related (pre-allocating 512 slots didn't help)
-- Not file-specific (ses_cmp loads all files fine individually)
-- Suspected: heap metadata corruption from `_strdup` or `fopen`/`fclose` cycles under MinGW CRT
-- **Workaround**: Python script `cluster_profiles.py` replicates the combined distance metric and HAC clustering using scipy, outputs identical format
-- `ses_cluster.c` left with debug prints commented and distance matrix print suppressed; can be restored
-
----
-## ✅ Session June 20 (late) — Profile-Aware Cosplay Training
-
-### Goal
-Create `cosplay_profile_train` tool that uses `.ses` session profile to modulate per-tensor cosplay perturbation stride, producing profile-characteristic `.cpl` files.
-
-### New Tool: `runner/cosplay_profile_train.c`
-
-**Usage:** `cosplay_profile_train <profile.ses> <store.gsten> <output.cpl>`
-
-**How it works:**
-1. Load `.ses` profile → compute per-face usage frequency (aggregate all (spoke, slot) bins per face 0..7)
-2. Load `.gsten` tensor store → iterate all tensors ≥64KB (standard SID weight filter)
-3. For each tensor: compute its permanent face via FNV-1a(name) % 20 → `GEO_OCTANT[20]` LUT (same as runner's `geo_addr.h`)
-4. Map face usage → stride:
-   - usage > 0.20 → stride=32 (heavy perturbation — distort signature path)
-   - usage > 0.10 → stride=48 (medium-heavy)
-   - usage > 0.04 → stride=64 (standard)
-   - usage > 0.005 → stride=96 (light)
-   - usage ≤ 0.005 → stride=128 (very light — preserve unused path)
-5. Write `.cpl` with per-tensor varying stride (all mode=CP_XOR, arg=0x01)
-
-No format changes needed — `.cpl` already supports per-entry stride.
-
-### Trained 9 Profile-Aware `.cpl` Files
-
-| Profile | Cluster | Active Faces | stride=32 | stride=48 | stride=128 | Unique |
-|---------|---------|-------------|:---------:|:---------:|:----------:|:------:|
-| `hash_table_005.cpl` | C0 centroid | F4(1.0), F7(0.31) | 47 | 0 | 123 | ✅ |
-| `java_265.cpl` | C0 edge | F4(0.81), F7(1.0) | 47 | 0 | 123 | ❌ dup |
-| `java_367.cpl` | C0 edge | F4(0.81), F7(1.0) | 47 | 0 | 123 | ❌ dup |
-| `jwt_348.cpl` | C1 centroid | F2(1.0), F5(0.38) | 53 | 0 | 117 | ✅ |
-| `devops_101.cpl` | C1 edge | F2(0.83), F7(1.0) | 48 | 0 | 122 | ❌ dup |
-| `devops_203.cpl` | C1 edge | F2(0.83), F7(1.0) | 48 | 0 | 122 | ❌ dup |
-| `nosql_233.cpl` | C2 centroid | F0(1.0), F1(0.88), F5(0.92) | 70 | 0 | 100 | ✅ |
-| `regex_142.cpl` | C2 edge | F5(1.0), F6(0.17) | 23 | 8 | 139 | ✅ |
-| `regex_040.cpl` | C2 edge | F5(1.0), F6(0.17) | 23 | 8 | 139 | ❌ dup |
-
-**5 unique signatures** — within-cluster duplicates expected (similar topic patterns → similar face usage).
-
-### Compile
-```
-gcc -O2 -std=c11 -I. -Irunner -Icollection -Icollection/src -Icollection/core -Icollection/core/core -Icollection/core/pogls_engine/core -Icollection/core/geo_headers -Icollection/geo_jump_module/include -o runner/cosplay_profile_train.exe runner/cosplay_profile_train.c -lm
-```
-
-### Next Steps (original — DONE ✅ June 20 late-late)
-- Run `--experiment DIR` with all 5 unique `.cpl` files + baseline to compare output differences ✅
-- Or `--cosplay PATH` with a single file to test specific profile-aware perturbation ✅
-- Files in `runner/cpl_profiles/`
-
----
-
-## ✅ Session June 20 (late-late) — Full Pipeline Validation + Cleanup
-
-### What Was Validated
-
-| Component | Status | Evidence |
-|-----------|--------|----------|
-| b9528 + Haswell model load | ✅ | 456-547ms, 291/291 tensors |
-| SID cache init (485MB) | ✅ | 170 weight tensors, verified |
-| Init redirect (tensor->data → heap) | ✅ | 170 redirects before context creation |
-| Context creation (kv_cache, sched) | ✅ | 37.53 MiB compute buffer |
-| `llama_decode` (prompt + generation) | ✅ | Exit 0, coherent output |
-| Per-decode SID swap (main loop) | ✅ | Exit 0, output `, it is` |
-| `--cosplay` single mode | ✅ | Output `) + (string length` ≠ baseline |
-| `--experiment` (10 conditions) | ✅ | Full cosine matrix, exit 0 |
-| Main runner (non-test) with b9528 | ✅ | `llama_main_b9528.exe` exit 0 |
-| DLL cleanup (remove stale .bak) | ✅ | All old b9686 DLLs removed |
-
-### Root Cause of Previous Crash
-b9686 CPU backend scheduler **deadlocks** if `tensor->data` pointer changes between `sched_reserve` and `llama_decode`. Our init redirect avoids this by setting pointers BEFORE context creation. The crash was from **DLL version mismatch**: `llama.dll` (b9528) + `ggml-cpu-*.dll` (b9686) = ACCESS_VIOLATION. Fixed by using all DLLs from same b9528 build.
-
-### Experiment Results (Qwen2.5-0.5B, prompt "Hello", temp=0, max_new=1)
-All 9 profile-aware `.cpl` files produce different logits from baseline:
-- **C0** (devops/hash_table): cosine 0.946–0.953 (most aggressive)
-- **C1/C2** (jwt/regex/nosql): cosine 0.983–0.985 (conservative)
-- Within-cluster duplicates: identical cosines
-- Full report: `runner/cpl_profiles/results/report.txt`
-
-### Key Files
-- `runner/llama_main_b9528.exe` — Main runner compiled against b9528
-- `runner/llama_test_haswell.exe` — Test binary (experiment support)
-- `runner/ggml-cpu-haswell.dll` — b9528 Haswell CPU backend
-- `runner/ggml-cpu-sse42.dll` — b9528 SSE4.2 CPU backend
-- `runner/ggml-cpu-x64.dll` — b9528 generic x64 CPU backend
-- `runner/ggml.dll`, `ggml-base.dll`, `llama.dll` — all b9528
-- `runner/cpl_profiles/results/report.txt` — experiment report
-- `docs/DEVELOPMENT_SUMMARY.md` — full development summary
-
-### Remaining
-- `llama_pogls_runner_sid_v2_new5.exe` (old b9686 build) — still present but won't work; use `llama_main_b9528.exe` instead
-- `test_tokenize.c`, `test_swap_*.c`, `test_modelonly.c`, etc. — separate test files with their own fflush, unrelated to main pipeline
-
----
-
-## ✅ Session June 20 (late-late-late) — LFM2 Support Requires b9733+
-
-### LFM2.5-1.2B-Instruct (Q4_K_M, 694 MB)
-
-| Component | Result |
-|-----------|--------|
-| **b9528** (runner DLLs) | Loads metadata, SID cache (103/103 tensors), context created, but `llama_decode()` fails silently → no output. b9528 binary predates LFM2 architecture support. |
-| **b9733** `llama-cli.exe` | ❌ Test with `&` in PowerShell hangs (process wait issue). ✅ Test with `cmd /c` works: loads model, generates "Hello!" at 65.4 t/s. |
-| **b9733** `llama.dll` symbols | Confirmed: `.?AU?$graph@$00@llama_model_lfm2@@` and `.?AU?$graph@$0A@@llama_model_lfm2@@` present in binary. Also supports `llama_model_lfm2moe`. |
-
-### Architecture Details (LFM2)
-- 16 layers, 2048 embd, 32 heads, GQA (n_head_kv varies: some layers 0, some 8)
-- Recurrent architecture: uses `llama_memory_recurrent` (R/S state) in addition to KV cache
-- "fused Gated Delta Net (autoregressive)" and "fused Gated Delta Net (chunked)" both enabled
-- Special layers: `shortconv.conv`, `shortconv.in_proj`, `shortconv.out_proj` per block
-- Some layers have `attn_q_norm` and `attn_k_norm` (5 of 16: layers 2,5,8,10,12,14)
-- 103 weight tensors in SID filter (vs 170 for Qwen2.5-0.5B)
-- Contains VLM reserved tokens (image rows 1-10, image_start/end, thumbnail)
-
-### Implication for SID Pipeline
-- To use LFM2 with SID, need to **recompile runner against b9733 DLLs**
-- b9733 is newer (build 9733, Clang 20.1.8, June 20, 2026) vs b9528
-- b9733 has more architectures: LFM2, LFM2MOE, Qwen3.5, Qwen5, SmolLM3, Mistral3, Step35, etc.
-- b9733 dropped CUDA 12.0 support (needs 12.4+), but still has CUDA 12.4 + 13.3 + Vulkan
-- ABI compatibility between b9528 ↔ b9733 unknown — struct layout may have changed
-
-### New Files
-- `I:\llama\llama-b9733-bin-win-vulkan-x64\` — 113 MB extracted, includes `llama.dll` (2.5 MB), `ggml.dll`, `ggml-cpu-*.dll`, `ggml-vulkan.dll` (74 MB), `libomp140.x86_64.dll`
-- `I:\model\LFM2.5-1.2B-Instruct-Q4_K_M.gguf` — 694 MB, architecture `lfm2`, 148 tensors
-
-### Next Steps
-1. Try **replacing** `runner/llama.dll` + `runner/ggml*.dll` with b9733 versions — if ABI-compatible, runner may work with LFM2
-2. OR: recompile `llama_pogls_runner_sid_v2.c` against b9733 headers + DLLs
-3. Generate profile-aware `.cpl` for LFM2 using `cosplay_profile_train`
-4. Train on LFM2 → experiment with all profiles
-
----
-
-## ✅ Session June 20 (very late) — KV State Format Parsed + K/V Perturbation via Public API Viable
-
-### Goal
-Understand KV cache state serialization format to perturb K/V data without internal C++ access.
-
-### Key Discovery: `llama_tokenize()` API Change in b9733
-**Returns `-N` (negative needed count) instead of positive** when buffer is NULL:
-```c
-int need = llama_tokenize(vocab, text, len, NULL, 0, add, parse);
-if (need < 0) need = -need;  // new convention: -N means N tokens needed
-```
-Old code interpreting negative as failure allocates huge buffer and crashes at `llama_decode`.
-
-### Key Discovery: State Format Layout (verified with Qwen2.5-0.5B, 1 token, 24 layers = 12900 bytes)
-```
-[magic:4] [seq_id:4]                    ← 8B wrapper (validated on restore)
-[n_stream:4] [cell_count:4]              ← 8B header
-[per cell: pos(4) + n_seq_id(4) + seq_ids(n_seq_id×4)]
-[v_trans:4] [n_layer:4]                  ← 8B data section header
-[per layer × n_layer:
-   k_type(4) + k_size_row(8) + K_data(cell_count × k_size_row)
-   v_type(4) + v_size_row(8) + V_data(cell_count × v_size_row)
-]
-```
-For Qwen2.5-0.5B: `n_layer=24`, `k_size_row=256` (f16, n_embd_k_gqa=128), `v_size_row=256` — layer stride = 536B.
-
-Total = 8 + 8 + 12 + 8 + 24×(12 + 256 + 12 + 256) = **12900** bytes per token.
-
-### Verified
-- **K/V data perturbation works**: flipping bytes in K_data or V_data regions restores successfully (12900/12900). Metadata bytes never touched.
-- **Metadata perturbation FAILS**: flipping pos/k_type/k_size_row/v_type causes restore failures with "mismatched key type" or "invalid seq_id-agnostic kv cell"
-- **Single-cell stride-64 XOR**: restore OK → output token unchanged (logit 17.6 vs 17.8, same argmax). Needs more KV cells for compounding.
-- **State save/restore roundtrip**: 100% lossless, verified across 10+ restore cycles
-
-### KV Virtualization Workflow (Validated)
-1. `llama_state_seq_get_data_ext()` → save state buffer
-2. Parse buffer → locate K/V data byte ranges (skip all headers)
-3. Perturb only data bytes (stride XOR, or per-layer profiles)
-4. `llama_state_seq_set_data_ext()` → restore perturbed state
-5. `llama_decode()` → generates with perturbed KV cache
-6. Buffer size for n_ctx=2048, 24 layers: ~24 MiB — safe on heap
-
-### Still Blocked
-- **LFM2 recurrent R/S state**: Not included in KV state API. `state_seq_write_data()` only handles `llama_kv_cache` (via `memory->state_write()`). Recurrent state in `llama_memory_recurrent` has separate R/S tensors.
-- **Multi-turn re-mapping**: `state_read_meta` calls `find_slot(ubatch)` which re-allocates cell indices. Need per-turn cell-to-position tracking.
-
-### Test Files
-- `runner/test_state_format2.c` → `test_state_format7.c`: progressive investigation (vocab validation, format parsing, perturbation verification)
-- Source: `I:\llama.cpp\src\llama-kv-cache.cpp:1862-2264` (state_write/read/meta/data)
-- Source: `I:\llama.cpp\src\llama-context.cpp:2808-2877` (magic + seq_id wrapper)
+## Session History (สรุปย่อ)
+
+### June 26 — KV Remap System (Adaptive Skeleton+Delta + Rail)
+- **New system**: Adaptive 3-tier KV cache management:
+  - 0-15% change → ENTROPY (XOR + RLE compressed delta)
+  - 15-85% change → GEO (byte-offset ranges)
+  - 85%+ change → REBUILD (flush + new skeleton)
+- **Files created**:
+  - `runner/kv_remap.h` — Adaptive skeleton+delta (self-contained, no zstd dependency)
+  - `runner/kv_remap_rail.h` — Rail 3-lane background scan (idle-driven, freeze/resume)
+  - `runner/test_kv_remap.c` — 7 tests, all pass
+- **Key insight**: Quantize ≠ Geometry but Topology is very similar — they complement, not compete
+- **Geometry mapping**: 6 attention layers = 6 triangles = 1 hexagon (model unit)
+- **Train station metaphor**: Each attention layer = one station, rail = connection between stations
+- **Bug fixed**: classify() offset calculation (was assuming [K0,K1,...,V0,V1,...] but actual layout is [K0,V0,K1,V1,...])
+- **Bug fixed**: rand() on Windows/MinGW only returns 15-bit values — replaced with xorshift32 for full 32-bit range
+
+### June 26 — KV Tensor Access Architecture-Agnostic (Hybrid fix)
+- **Root cause**: LFM2 is hybrid architecture (`llama_memory_hybrid`) — `dynamic_cast<llama_kv_cache*>` fails because the actual type is `llama_memory_hybrid` (not `llama_kv_cache`)
+- **Fix**: `resolve_kv()` in `kv_tensor_access.cpp` tries multiple memory types:
+  1. `dynamic_cast<llama_kv_cache*>` — works for standard transformers (Qwen2.5, etc.)
+  2. `dynamic_cast<llama_memory_hybrid*>` → `get_mem_attn()` — works for hybrids (LFM2, Qwen3.5)
+  3. `dynamic_cast` to `llama_kv_cache_dsa*` — placeholder for DeepSeekV3
+- **Verification**:
+  - Qwen2.5-0.5B: `14llama_kv_cache`, 24 layers ✅
+  - LFM2.5-1.2B: `19llama_memory_hybrid`, 6 attention layers ✅
+- **Build change**: `gcc -m64` used as linker driver instead of `ld` (auto-finds CRT objects), requires `libllama.dll.a` import lib generated via `gendef` + `dlltool`
+- **Key insight**: LFM2 layers alternate attention/recurrent via `hparams.is_recr_impl[il] = (n_head_kv == 0)`. Only attention layers (6 of 16 for LFM2 1.2B) have KV cache tensors
+
+### June 25 — KV SID Eviction VERIFIED + Incremental Pending + --script
+- **Root cause found**: chat loop clears/refills full conversation every turn via `llama_memory_seq_rm(0,-1,-1)` — KV eviction had no visible effect
+- **Incremental "pending" token-suffix pattern**: `pending_toks` buffer stores full prompt tokens, prefix-matched via `tok_prefix_len()`, only delta decoded on match
+- **`--script FILE` option**: non-interactive deterministic chat input via `fopen` + `fgets`
+- **Helper functions**: `tok_prefix_len()`, `tokbuf_reserve()`, `tokbuf_copy()`, `tokbuf_append()`
+- **Build pipeline**: C11 compile with `gcc -std=c11` + link with `ld.exe` (bypasses `collect2` error 53)
+- **MSYS2 PATH fix**: `cc1plus.exe` needs `C:\msys64\mingw64\bin` in PATH to load DLLs
+- **KV Eviction CONFIRMED working** (Bob test):
+  - No eviction: "What is my name?" → **"Your name is Bob."** ✅
+  - After `/evict 24`: "What is my name?" → **"Sure, is there a job offer?"** ❌ (forgot)
+  - All 24 layers swapped to backup via `tensor->data` pointer swap; originals poisoned 0xDE/0xAD
+- Build command: `gcc -O2 -std=c11 -I. -I../collection ... -c -o llama_pogls_runner_sid_v2.o`
+  Then: `ld.exe -m i386pep -Bdynamic --stack 16777216 ... --start-group -lstdc++ ... --end-group`
+- **Alternative link (after June 26)**: `gcc -m64 -O2 -o runner.exe main.o kv_tensor_access.o -L. -llibllama -lggml -lggml-base -lggml-cpu -lggml-vulkan -lstdc++`
+
+### June 22 — DGLS Integration + Diamond Shell FLAT Bugfix + SID Cache Compression
+- Integrated DGLS components into FGLS_new: 6 new files + 3 updated files
+- Full DGLS directory copy at `collection/dgls/` (mirror)
+- Fixed `binary_shell_codec.h` missing include + `diamond_shell_codec.h` FLAT misclassification
+- Benchmarks: DRam 2122 MB/s, Shell 4-5x ratio/lossless, Q4 Weights **1.88x/1400 MB/s decode**
+- **SID Cache compression**: Added `sid_cache_put_compressed()` + transparent decompression in `sid_cache_get()`. Verified: Q4 weights → **1.88x compression**, lossless PASS. Random data → falls back to raw. Modified `sid_loader_load` to use compression. Added include paths to runner Makefile.
+- All 35 DGLS pipeline tests pass
+
+### June 20 — Cosplay Fix + Experiment + LFM2
+- Fixed `CP_MAGIC` (0x504F434C), implemented `--cosplay-compare` + `--experiment`
+- Profile-aware cosplay trainer + 5 unique `.cpl` files
+- b9733 + LFM2.5-1.2B tested: 65.4 t/s on Vulkan
+- Full pipeline validation: all components pass
+
+### June 19 — SES2 + Cosplay Profile Training
+- SES2 format with transition matrix + timeline
+- Phase 1-6: weighted face selection, quality metrics, cmp/cluster/merge/featurize/batch
+- Profile-aware cosplay training: stride modulation from face usage
+- 400+ session profiles generated + clustered (k=3)
+- cosplay_profile_train tool
+
+### June 18 — ZoneCardSID Y-Triangle + SID E2E
+- Retargeted ZoneCardSID to Y-triangle (GEO_FULL=20736)
+- TensorMemStore with TMEM_DELTA compression
+- SID E2E: 291/291 tensors, 170 weight swaps, decode at 65+ t/s
+- Icosa bridge GPU context fix: CUDA error 400 resolved
+
+### June 17 — Y-Triangle Migration
+- Removed TETRA/OCTA compound addressing
+- Unified to geo_jump Y-triangle (GEO_FULL=20736)
+- Qwen3 TTS pipeline: bf16 fixes NaN, manual safetensors load
+
+### June 15-16 — Milestone v1.0
+- 12-Face Bridge Pipeline complete
+- Capture pipeline + freeze wallet + gsten store
+- SID coordinate system + time travel delta ring
+- Bond prediction: cardioid express + Metatron topology

@@ -32,7 +32,7 @@ Cross-session state persists in .inbox_state.json + .inbox_index.md (human-reada
 New sessions: call get_project_index(skeleton) for instant cached overview.
 """
 
-import os, re, struct, sys, json, hashlib, zipfile, io, time
+import os, re, struct, sys, json, hashlib, zipfile, io, time, csv
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -42,9 +42,12 @@ from mcp.server.fastmcp import FastMCP
 # ── globals ──────────────────────────────────────────────────────────
 WORKSPACE = Path(__file__).parent.resolve()
 _DRIVE_ROOT = Path(Path(__file__).anchor)
-VAULT_DIR = Path(os.environ.get("INBOX_VAULT_DIR", str(_DRIVE_ROOT / ".vault"))).resolve()
+_PROJECT_SLUG = WORKSPACE.name
+VAULT_DIR = Path(os.environ.get("INBOX_VAULT_DIR", str(_DRIVE_ROOT / ".vault" / _PROJECT_SLUG))).resolve()
 STATE_FILE = VAULT_DIR / ".inbox_state.json"
 ZIP_ARCHIVE = VAULT_DIR / "zips"
+MANIFEST_FILE = VAULT_DIR / "manifest.csv"
+BLOB_DIR = VAULT_DIR / "blobs"
 
 MAX_VAULT_PER_FILE = 10
 VAULT_SIZE_LIMIT = 3 * 1024 * 1024  # 3 MB max per file
@@ -419,73 +422,106 @@ def _auto_place(item: dict, state: dict) -> str:
     return f"{suggested_dir}{name}"
 
 
+# ── CSV manifest + change-only vault ─────────────────────────────────
+def _scan_file_info(rel: str) -> dict | None:
+    fp = WORKSPACE / rel
+    if not fp.exists(): return None
+    try:
+        st = fp.stat()
+        if st.st_size > VAULT_SIZE_LIMIT: return None
+        h = _sha256(fp.read_bytes())
+        return {"rel": rel, "size": st.st_size, "mtime": st.st_mtime, "hash": h}
+    except:
+        return None
+
+
+def _load_manifest() -> dict[str, list[dict]]:
+    """Load manifest.csv → {rel: [version_records]} newest first."""
+    if not MANIFEST_FILE.exists(): return {}
+    result = {}
+    with open(MANIFEST_FILE, "r", newline="") as f:
+        for row in csv.DictReader(f):
+            rel = row.get("rel", "")
+            if not rel: continue
+            row["size"] = int(row.get("size", 0))
+            row["mtime"] = float(row.get("mtime", 0))
+            row["version"] = int(row.get("version", 0))
+            row["ts"] = int(row.get("ts", 0))
+            result.setdefault(rel, []).append(row)
+    for rel in result:
+        result[rel].sort(key=lambda x: x["version"], reverse=True)
+    return result
+
+
+def _save_manifest(manifest: dict[str, list[dict]]):
+    VAULT_DIR.mkdir(parents=True, exist_ok=True)
+    rows = []
+    for rel, vers in manifest.items():
+        rows.extend(vers)
+    rows.sort(key=lambda r: (r["rel"], -r["version"]))
+    with open(MANIFEST_FILE, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["rel", "version", "hash", "size", "mtime", "ts"])
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def _vault_file(rel: str, state: dict):
-    """Snapshot existing file to vault before overwrite."""
-    fi = state["file_index"].get(rel)
-    if not fi: return
+    """Snapshot existing file to vault — CSV manifest + blob storage, change-only."""
     ext = Path(rel).suffix.lower()
     if ext not in VAULT_EXTS: return
     src = WORKSPACE / rel
     if not src.exists(): return
-    size = src.stat().st_size
-    if size > VAULT_SIZE_LIMIT: return
+    info = _scan_file_info(rel)
+    if not info: return
     VAULT_DIR.mkdir(parents=True, exist_ok=True)
-    content = src.read_bytes()
-    h = _sha256(content)
-    base = fi.get("parsed", {}).get("base") or fi["name"]
-    vault_entry = {
-        "ver": fi.get("parsed", {}).get("ver") or "0",
-        "orig_rel": rel,
-        "ts": int(datetime.now().timestamp()),
-        "hash": h,
-        "size": size,
+    manifest = _load_manifest()
+    existing = manifest.get(rel, [])
+    latest_ver = existing[0] if existing else None
+    if latest_ver and latest_ver.get("hash") == info["hash"]:
+        return
+    new_ver = (latest_ver["version"] + 1) if latest_ver else 1
+    now_ts = int(datetime.now().timestamp())
+    record = {
+        "rel": rel, "version": new_ver, "hash": info["hash"],
+        "size": info["size"], "mtime": info["mtime"], "ts": now_ts,
     }
-    state.setdefault("vault", {}).setdefault(base, []).append(vault_entry)
+    BLOB_DIR.mkdir(parents=True, exist_ok=True)
+    blob_path = BLOB_DIR / info["hash"]
+    if not blob_path.exists():
+        blob_path.write_bytes(src.read_bytes())
+    manifest.setdefault(rel, []).insert(0, record)
+    manifest[rel] = sorted(manifest[rel], key=lambda x: x["version"], reverse=True)[:MAX_VAULT_PER_FILE]
+    _save_manifest(manifest)
+    base = Path(rel).stem
+    state.setdefault("vault", {}).setdefault(base, []).append({
+        "ver": str(new_ver), "orig_rel": rel, "ts": now_ts,
+        "hash": info["hash"], "size": info["size"],
+    })
     state["vault"][base] = sorted(state["vault"][base], key=lambda x: x["ts"], reverse=True)[:MAX_VAULT_PER_FILE]
-    # physical backup
-    vault_name = f"{base}_v{vault_entry['ts']}.bak"
-    (VAULT_DIR / vault_name).write_bytes(content)
 
 
 def _rebuild_vault_index(state: dict) -> int:
-    """Scan physical vault files and rebuild JSON vault index."""
-    if not VAULT_DIR.exists(): return 0
-    vault = state.setdefault("vault", {})
-    prev = len(vault)
-    for vf in sorted(VAULT_DIR.iterdir()):
-        if vf.suffix not in (".bak", ".snap") or not vf.is_file(): continue
-        name = vf.stem
-        # parse base name + timestamp from patterns: base_vTS or base.v_TS
-        ts = 0
-        base = name
-        if "_v" in name:
-            base, ts_str = name.rsplit("_v", 1)
-            try: ts = int(float(ts_str))
-            except: ts = 0
-        elif ".v_" in name:
-            base, ts_str = name.rsplit(".v_", 1)
-            try: ts = int(float(ts_str))
-            except: ts = 0
-        if not ts: continue
-        vault.setdefault(base, [])
-        # avoid duplicates
-        existing = {e.get("ts") for e in vault[base]}
-        if ts in existing: continue
-        entry = {
-            "ver": "0",
-            "orig_rel": "",
-            "ts": ts,
-            "hash": _sha256(vf.read_bytes()) if vf.stat().st_size < 10_000_000 else "",
-            "size": vf.stat().st_size,
-        }
-        vault[base].append(entry)
-        vault[base] = sorted(vault[base], key=lambda x: x["ts"], reverse=True)[:MAX_VAULT_PER_FILE]
-    return len(vault) - prev
+    """Rebuild JSON vault index from CSV manifest + blobs (fallback .bak)."""
+    manifest = _load_manifest()
+    if manifest:
+        vault = state.setdefault("vault", {})
+        prev = len(vault)
+        for rel, vers in manifest.items():
+            base = Path(rel).stem
+            for v in vers:
+                vault.setdefault(base, []).append({
+                    "ver": str(v["version"]), "orig_rel": rel,
+                    "ts": v.get("ts", 0), "hash": v.get("hash", ""),
+                    "size": v.get("size", 0),
+                })
+            vault[base] = sorted(vault[base], key=lambda x: x["ts"], reverse=True)[:MAX_VAULT_PER_FILE]
+        return len(vault) - prev
+    return 0
 
 
 @mcp.tool()
 def vault_rebuild_index() -> str:
-    """Scan physical .vault/ directory and rebuild JSON vault index."""
+    """Rebuild JSON vault index from manifest.csv + blobs."""
     state = _load_state()
     n = _rebuild_vault_index(state)
     _save_state(state)
@@ -495,7 +531,7 @@ def vault_rebuild_index() -> str:
 
 @mcp.tool()
 def resolve(conflict_name: str, strategy: str = "incoming") -> str:
-    """Resolve conflict for a file. strategy: incoming|keep|merge (future)."""
+    """Resolve conflict for a file. strategy: incoming|keep|merge."""
     state = _load_state()
     items = [i for i in state.get("incoming", []) if i["name"] == conflict_name and i["status"] in ("conflict", "downgrade")]
     if not items:
@@ -524,28 +560,21 @@ def resolve(conflict_name: str, strategy: str = "incoming") -> str:
 
 @mcp.tool()
 def rollback(base_name: str, version_index: int = 0) -> str:
-    """Restore a vaulted version. version_index=0 means most recent."""
+    """Restore a vaulted version by hash lookup (blob storage)."""
     state = _load_state()
     versions = state.get("vault", {}).get(base_name, [])
     if not versions: return f"no vault entries for {base_name}"
     if version_index < 0 or version_index >= len(versions):
         return f"version_index {version_index} out of range (0-{len(versions)-1})"
     v = versions[version_index]
-    vault_name = f"{base_name}_v{v['ts']}.bak"
-    vp = VAULT_DIR / vault_name
-    if not vp.exists():
-        vault_name_old = f"{base_name}_v{v['ts']}.snap"
-        vp = VAULT_DIR / vault_name_old
-        if not vp.exists():
-            # fallback: glob for any matching vault file
-            import glob
-            pat = str(VAULT_DIR / f"{base_name}_v*")
-            matches = sorted(glob.glob(pat))
-            if matches:
-                vp = Path(matches[0])
-            else:
-                return f"vault file missing: {vault_name}"
-    # find original location
+    blob_hash = v.get("hash", "")
+    if blob_hash:
+        blob_path = BLOB_DIR / blob_hash
+        if not blob_path.exists():
+            return f"blob missing: {blob_hash}"
+        content = blob_path.read_bytes()
+    else:
+        return f"no hash for {base_name} v{version_index}"
     orig_rel = v.get("orig_rel")
     if not orig_rel:
         for r, fi in state["file_index"].items():
@@ -554,9 +583,8 @@ def rollback(base_name: str, version_index: int = 0) -> str:
     if not orig_rel: return f"cannot find original location for {base_name}"
     target = WORKSPACE / orig_rel
     target.parent.mkdir(parents=True, exist_ok=True)
-    # vault current before overwrite
     _vault_file(orig_rel, state)
-    target.write_bytes(vp.read_bytes())
+    target.write_bytes(content)
     _save_state(state)
     scan(None)
     return f"ok  rolled back {base_name} → {orig_rel} (v{v.get('ver', '?')})"
@@ -564,19 +592,25 @@ def rollback(base_name: str, version_index: int = 0) -> str:
 
 @mcp.tool()
 def vault_list(base_filter: str | None = None) -> str:
-    """List vault contents."""
-    state = _load_state()
-    vault = state.get("vault", {})
-    if base_filter:
-        vault = {k: v for k, v in vault.items() if base_filter in k}
-    if not vault:
+    """List vault contents from manifest.csv."""
+    if not MANIFEST_FILE.exists():
+        return "vault is empty (no manifest)"
+    manifest = _load_manifest()
+    if not manifest:
         return "vault is empty"
-    lines = [f"{'base':25s} {'versions':>8s}  latest"]
-    lines.append("-" * 60)
-    for base in sorted(vault.keys())[:50]:
-        vers = vault[base]
-        latest = vers[0] if vers else {}
-        lines.append(f"{base:25s} {len(vers):>8d}  v{latest.get('ver','?')}  {datetime.fromtimestamp(latest.get('ts',0)).strftime('%Y-%m-%d %H:%M')}")
+    rows = []
+    for rel, vers in manifest.items():
+        if base_filter and base_filter not in rel and base_filter not in Path(rel).stem:
+            continue
+        latest = vers[0]
+        rows.append((rel, len(vers), latest["version"], latest["ts"]))
+    if not rows:
+        return f"no entries matching '{base_filter}'"
+    rows.sort(key=lambda x: x[3], reverse=True)
+    lines = [f"{'file':35s} {'versions':>8s}  latest  ts"]
+    lines.append("-" * 70)
+    for rel, nv, lv, ts in rows:
+        lines.append(f"{rel:35s} {nv:>8d}  v{lv:<5d}  {datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M')}")
     return "\n".join(lines)
 
 
@@ -881,7 +915,7 @@ try:
     from file_vault.core import FileVault as _FileVault
 
     def _fvault() -> _FileVault:
-        return _FileVault(WORKSPACE)
+        return _FileVault(WORKSPACE, vault_dir=VAULT_DIR)
 
     @mcp.tool()
     def fvault_checkpoint(label: str = "") -> str:
@@ -963,14 +997,14 @@ try:
         ]
         return "\n".join(lines)
 
-    print(f"[inbox] file-vault tools registered (snapshot dir: {WORKSPACE / '.file_vault'})", flush=True)
+    print(f"[inbox] file-vault tools registered (snapshot dir: {VAULT_DIR})", flush=True)
 
 except ImportError:
     print(f"[inbox] file-vault not available (pip install -e I:\\storage-cleaner)", flush=True)
 
 
 if __name__ == "__main__":
-    # ── auto-migrate old vault from workspace root to drive root ──
+    # ── auto-migrate old vault from workspace root to project vault ──
     _old_vault = WORKSPACE / ".vault"
     _old_state = WORKSPACE / ".inbox_state.json"
     if _old_vault.exists() and _old_vault != VAULT_DIR:

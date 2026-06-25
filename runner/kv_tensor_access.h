@@ -25,6 +25,15 @@ int kv_get_cache_tensors(void *ctx,
     int *n_embd_k, int *n_head_kv, int *layer_id,
     int max_layers);
 
+/* Get ggml_tensor pointers for K/V per layer (for pointer swap eviction).
+   k_tensor_ptr[l] = ggml_tensor* for K cache layer l
+   v_tensor_ptr[l] = ggml_tensor* for V cache layer l
+   These can be used to swap tensor->data directly (zero-copy eviction).
+   Returns number of layers, or -1 on error. */
+int kv_get_cache_tensor_ptrs(void *ctx,
+    void **k_tensor_ptr, void **v_tensor_ptr,
+    int max_layers);
+
 #ifdef __cplusplus
 }
 #endif
