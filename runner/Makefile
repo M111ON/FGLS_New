@@ -34,7 +34,7 @@ llama_pogls_runner_sid.exe: llama_pogls_runner_sid.c gguf_index.h sid_loader.h s
 llama_pogls_runner_sid_v2.exe: llama_pogls_runner_sid_v2.o geo_jump.o kv_tensor_access.o
 	$(CC) -m64 -O2 -o $@ $^ -L. -llibllama -lggml -lggml-base -lggml-cpu-x64 -lggml-vulkan -lstdc++ -lm $(ZSTDLIB)
 
-llama_pogls_runner_sid_v2.o: llama_pogls_runner_sid_v2.c gguf_index.h sid_loader.h sid_cache.h bond_discovery.h hex_grid.h th_grid.h goldberg_sid.h sid_delta_ring.h sid_timetravel.h geo_addr.h dramtile_store.h kv_page_store.h kv_sid_evict.h ../collection/geo_dram_tile.h
+llama_pogls_runner_sid_v2.o: llama_pogls_runner_sid_v2.c gguf_index.h sid_loader.h sid_cache.h bond_discovery.h hex_grid.h th_grid.h goldberg_sid.h sid_delta_ring.h sid_timetravel.h geo_addr.h dramtile_store.h kv_page_store.h kv_sid_evict.h kv_remap.h kv_remap_rail.h ../collection/geo_dram_tile.h
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 geo_jump.o: ../collection/geo_jump_module/src/geo_jump.c

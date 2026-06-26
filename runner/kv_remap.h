@@ -70,6 +70,9 @@ typedef struct {
     uint32_t n_ranges;
     uint32_t total_changed_positions;
 
+    void    *geo_data;      /* actual byte values for changed ranges */
+    size_t   geo_data_size;
+
     size_t   delta_size;
 } KVRemapDelta;
 
@@ -299,16 +302,36 @@ static inline int kv_remap_set_skeleton(KVRemapCtx *ctx) {
     ctx->skeleton_comp = 0;
 
     ctx->skeleton_orig = ctx->total_kv_bytes;
+    fprintf(stderr, "[kv-remap] set_skeleton: n_layers=%d total=%zu bytes\n",
+        ctx->n_layers, ctx->skeleton_orig);
+
+    if (ctx->skeleton_orig == 0) return -1;
+
     uint8_t *buf = (uint8_t *)malloc(ctx->skeleton_orig);
-    if (!buf) return -1;
+    if (!buf) {
+        fprintf(stderr, "[kv-remap] OOM: cannot alloc %zu bytes for skeleton\n", ctx->skeleton_orig);
+        return -1;
+    }
 
     size_t off = 0;
     for (int l = 0; l < ctx->n_layers; l++) {
-        memcpy(buf + off, ctx->layers[l].k_data, ctx->layers[l].k_size);
-        off += ctx->layers[l].k_size;
-        memcpy(buf + off, ctx->layers[l].v_data, ctx->layers[l].v_size);
-        off += ctx->layers[l].v_size;
+        fprintf(stderr, "[kv-remap] layer %d: k_data=%p k_size=%zu v_data=%p v_size=%zu\n",
+            l, ctx->layers[l].k_data, ctx->layers[l].k_size,
+            ctx->layers[l].v_data, ctx->layers[l].v_size);
+        if (!ctx->layers[l].k_data || !ctx->layers[l].v_data) {
+            fprintf(stderr, "[kv-remap] SKIP layer %d: NULL data pointer\n", l);
+            continue;
+        }
+        if (ctx->layers[l].k_size > 0) {
+            memcpy(buf + off, ctx->layers[l].k_data, ctx->layers[l].k_size);
+            off += ctx->layers[l].k_size;
+        }
+        if (ctx->layers[l].v_size > 0) {
+            memcpy(buf + off, ctx->layers[l].v_data, ctx->layers[l].v_size);
+            off += ctx->layers[l].v_size;
+        }
     }
+    fprintf(stderr, "[kv-remap] copied %zu bytes into skeleton buffer\n", off);
 
     free(ctx->ref_skeleton);
     ctx->ref_skeleton = (uint8_t *)malloc(ctx->skeleton_orig);
@@ -344,21 +367,37 @@ static inline int kv_remap_classify(KVRemapCtx *ctx) {
     size_t total = ctx->total_kv_bytes;
     uint64_t diff_bytes = 0;
 
-    /* Layout: [K0, V0, K1, V1, ...] — interleaved per layer */
+    /* memcmp on 4096-byte strides — ~100x faster than byte-by-byte */
+    #define CLASSIFY_STRIDE 4096
     size_t off = 0;
     for (int l = 0; l < ctx->n_layers; l++) {
         const uint8_t *sk_k = ctx->ref_skeleton + off;
         const uint8_t *live_k = (const uint8_t *)ctx->layers[l].k_data;
-        for (size_t i = 0; i < ctx->layers[l].k_size; i++)
-            if (sk_k[i] != live_k[i]) diff_bytes++;
+        size_t k_rem = ctx->layers[l].k_size;
+        size_t k_off = 0;
+        while (k_rem > 0) {
+            size_t chunk = k_rem < CLASSIFY_STRIDE ? k_rem : CLASSIFY_STRIDE;
+            if (memcmp(sk_k + k_off, live_k + k_off, chunk) != 0)
+                diff_bytes += chunk;
+            k_off += chunk;
+            k_rem -= chunk;
+        }
         off += ctx->layers[l].k_size;
 
         const uint8_t *sk_v = ctx->ref_skeleton + off;
         const uint8_t *live_v = (const uint8_t *)ctx->layers[l].v_data;
-        for (size_t i = 0; i < ctx->layers[l].v_size; i++)
-            if (sk_v[i] != live_v[i]) diff_bytes++;
+        size_t v_rem = ctx->layers[l].v_size;
+        size_t v_off = 0;
+        while (v_rem > 0) {
+            size_t chunk = v_rem < CLASSIFY_STRIDE ? v_rem : CLASSIFY_STRIDE;
+            if (memcmp(sk_v + v_off, live_v + v_off, chunk) != 0)
+                diff_bytes += chunk;
+            v_off += chunk;
+            v_rem -= chunk;
+        }
         off += ctx->layers[l].v_size;
     }
+    #undef CLASSIFY_STRIDE
 
     return (int)(diff_bytes * 100 / total);
 }
@@ -418,6 +457,9 @@ static inline int kv_remap_store_delta(KVRemapCtx *ctx, int change_pct) {
     free(ctx->delta.entropy_data);
     ctx->delta.entropy_data = NULL;
     ctx->delta.entropy_size = 0;
+    free(ctx->delta.geo_data);
+    ctx->delta.geo_data = NULL;
+    ctx->delta.geo_data_size = 0;
     ctx->delta.n_ranges = 0;
     ctx->delta.change_pct = (uint16_t)change_pct;
 
@@ -467,13 +509,60 @@ static inline int kv_remap_store_delta(KVRemapCtx *ctx, int change_pct) {
         ctx->delta.type = DELTA_GEO;
         ctx->delta.n_ranges = kv_remap_build_geo_ranges(
             diff, total, ctx->delta.ranges, KV_REMAP_MAX_GEO_RANGES);
+
+        /* If ranges overflowed, fall back to ENTROPY (full XOR + RLE) */
+        /* Count how many ranges there actually are to detect overflow */
+        {
+            GeoRange tmp_ranges[4096];
+            uint32_t actual = kv_remap_build_geo_ranges(
+                diff, total, tmp_ranges, 4096);
+            if (actual > ctx->delta.n_ranges || actual >= KV_REMAP_MAX_GEO_RANGES) {
+                /* Overflow: use ENTROPY instead */
+                ctx->delta.type = DELTA_ENTROPY;
+                ctx->delta.n_ranges = 0;
+                void *comp = NULL;
+                size_t comp_size = 0;
+                int r = kv_remap_compress(diff, total, &comp, &comp_size);
+                free(diff);
+                if (r < 0 || !comp) return -1;
+                ctx->delta.entropy_data = comp;
+                ctx->delta.entropy_size = comp_size;
+                ctx->delta.delta_size = comp_size;
+                double ratio = (double)total / (double)(comp_size > sizeof(RLEHeader) ?
+                    comp_size - sizeof(RLEHeader) : 1);
+                fprintf(stderr, "[kv-remap] store: DELTA_GEO→ENTROPY (%d%%, ranges overflow), compressed=%zu, ratio=%.2fx\n",
+                    change_pct, comp_size > sizeof(RLEHeader) ? comp_size - sizeof(RLEHeader) : 0, ratio);
+                return 0;
+            }
+        }
+
+        /* Store actual byte values for each changed range */
+        uint8_t *gd = NULL;
+        size_t gd_off = 0, gd_cap = 0;
+        for (uint32_t ri = 0; ri < ctx->delta.n_ranges; ri++) {
+            uint32_t start = ctx->delta.ranges[ri].start;
+            uint32_t len   = ctx->delta.ranges[ri].length;
+            size_t need = gd_off + len;
+            if (need > gd_cap) {
+                gd_cap = need + 65536;
+                uint8_t *ngd = (uint8_t *)realloc(gd, gd_cap);
+                if (!ngd) { free(gd); free(diff); return -1; }
+                gd = ngd;
+            }
+            /* Store XOR diff values for this range */
+            memcpy(gd + gd_off, diff + start, len);
+            gd_off += len;
+        }
         free(diff);
 
-        ctx->delta.delta_size = ctx->delta.n_ranges * sizeof(GeoRange);
+        free(ctx->delta.geo_data);
+        ctx->delta.geo_data = gd;
+        ctx->delta.geo_data_size = gd_off;
+        ctx->delta.delta_size = ctx->delta.n_ranges * sizeof(GeoRange) + gd_off;
         ctx->delta.total_changed_positions = (uint32_t)(change_pct * ctx->n_ctx / 100);
 
-        fprintf(stderr, "[kv-remap] store: DELTA_GEO (%d%%), %u ranges, %zu bytes storage\n",
-            change_pct, ctx->delta.n_ranges, ctx->delta.delta_size);
+        fprintf(stderr, "[kv-remap] store: DELTA_GEO (%d%%), %u ranges, data=%zu, total=%zu bytes\n",
+            change_pct, ctx->delta.n_ranges, gd_off, ctx->delta.delta_size);
     }
 
     ctx->n_delta_stores++;
@@ -486,25 +575,21 @@ static inline int kv_remap_store_delta(KVRemapCtx *ctx, int change_pct) {
  * ============================================================= */
 
 static inline int kv_remap_restore(KVRemapCtx *ctx) {
-    if (!ctx->enabled || !ctx->skeleton_valid) return -1;
+    if (!ctx->enabled || !ctx->skeleton_valid || !ctx->ref_skeleton) return -1;
 
     if (ctx->delta.type == DELTA_REBUILD)
         return -1;
 
-    size_t dec_size = 0;
-    void *dec = kv_remap_decompress(ctx->skeleton_data, ctx->skeleton_comp, &dec_size);
-    if (!dec) return -1;
-
-    /* Write skeleton to live KV */
+    /* ── Step 1: copy skeleton ref to live KV ── */
     size_t off = 0;
     for (int l = 0; l < ctx->n_layers; l++) {
-        memcpy(ctx->layers[l].k_data, (uint8_t *)dec + off, ctx->layers[l].k_size);
+        memcpy(ctx->layers[l].k_data, ctx->ref_skeleton + off, ctx->layers[l].k_size);
         off += ctx->layers[l].k_size;
-        memcpy(ctx->layers[l].v_data, (uint8_t *)dec + off, ctx->layers[l].v_size);
+        memcpy(ctx->layers[l].v_data, ctx->ref_skeleton + off, ctx->layers[l].v_size);
         off += ctx->layers[l].v_size;
     }
 
-    /* Apply entropy delta (XOR) */
+    /* ── Step 2: apply delta ── */
     if (ctx->delta.type == DELTA_ENTROPY && ctx->delta.entropy_data) {
         size_t delta_dec_size = 0;
         void *delta_dec = kv_remap_decompress(
@@ -512,27 +597,50 @@ static inline int kv_remap_restore(KVRemapCtx *ctx) {
         if (delta_dec) {
             size_t apply = delta_dec_size < ctx->total_kv_bytes ?
                 delta_dec_size : ctx->total_kv_bytes;
-            uint8_t *live = (uint8_t *)malloc(ctx->total_kv_bytes);
-            if (live) {
-                memcpy(live, dec, ctx->total_kv_bytes < dec_size ?
-                    ctx->total_kv_bytes : dec_size);
-                for (size_t i = 0; i < apply; i++)
-                    live[i] ^= ((uint8_t *)delta_dec)[i];
-                size_t woff = 0;
-                for (int l = 0; l < ctx->n_layers; l++) {
-                    memcpy(ctx->layers[l].k_data, live + woff, ctx->layers[l].k_size);
-                    woff += ctx->layers[l].k_size;
-                    memcpy(ctx->layers[l].v_data, live + woff, ctx->layers[l].v_size);
-                    woff += ctx->layers[l].v_size;
-                }
-                free(live);
+            /* XOR delta into live KV (already has skeleton) */
+            off = 0;
+            for (int l = 0; l < ctx->n_layers; l++) {
+                for (size_t i = 0; i < ctx->layers[l].k_size && off + i < apply; i++)
+                    ((uint8_t *)ctx->layers[l].k_data)[i] ^= ((uint8_t *)delta_dec)[off + i];
+                off += ctx->layers[l].k_size;
+                for (size_t i = 0; i < ctx->layers[l].v_size && off + i < apply; i++)
+                    ((uint8_t *)ctx->layers[l].v_data)[i] ^= ((uint8_t *)delta_dec)[off + i];
+                off += ctx->layers[l].v_size;
             }
             free(delta_dec);
         }
     }
+    else if (ctx->delta.type == DELTA_GEO && ctx->delta.geo_data && ctx->delta.n_ranges > 0) {
+        /* GEO restore: reconstruct flat buffer from skeleton + XOR geo values */
+        uint8_t *recon = (uint8_t *)malloc(ctx->total_kv_bytes);
+        if (recon) {
+            memcpy(recon, ctx->ref_skeleton, ctx->total_kv_bytes);
+            const uint8_t *gd = (const uint8_t *)ctx->delta.geo_data;
+            size_t gd_off = 0;
+            for (uint32_t r = 0; r < ctx->delta.n_ranges; r++) {
+                GeoRange *gr = &ctx->delta.ranges[r];
+                size_t end = (size_t)gr->start + gr->length;
+                if (end > ctx->total_kv_bytes) end = ctx->total_kv_bytes;
+                for (size_t i = gr->start; i < end; i++)
+                    recon[i] ^= gd[gd_off + (i - gr->start)];
+                gd_off += end - gr->start;
+            }
+            off = 0;
+            for (int l = 0; l < ctx->n_layers; l++) {
+                memcpy(ctx->layers[l].k_data, recon + off, ctx->layers[l].k_size);
+                off += ctx->layers[l].k_size;
+                memcpy(ctx->layers[l].v_data, recon + off, ctx->layers[l].v_size);
+                off += ctx->layers[l].v_size;
+            }
+            free(recon);
+        }
+    }
 
-    free(dec);
     ctx->n_restores++;
+    fprintf(stderr, "[kv-remap] restore: type=%s pct=%u\n",
+        ctx->delta.type == DELTA_ENTROPY ? "ENTROPY" :
+        ctx->delta.type == DELTA_GEO ? "GEO" : "NONE",
+        ctx->delta.change_pct);
     return 0;
 }
 
@@ -554,6 +662,9 @@ static inline int kv_remap_rebuild(KVRemapCtx *ctx) {
     free(ctx->delta.entropy_data);
     ctx->delta.entropy_data = NULL;
     ctx->delta.entropy_size = 0;
+    free(ctx->delta.geo_data);
+    ctx->delta.geo_data = NULL;
+    ctx->delta.geo_data_size = 0;
     ctx->delta.type = DELTA_REBUILD;
     ctx->delta.n_ranges = 0;
 
@@ -607,6 +718,7 @@ static inline void kv_remap_destroy(KVRemapCtx *ctx) {
     free(ctx->skeleton_data);
     free(ctx->ref_skeleton);
     free(ctx->delta.entropy_data);
+    free(ctx->delta.geo_data);
     fprintf(stderr, "[kv-remap] destroyed (rebuilds=%u, stores=%u, restores=%u)\n",
         ctx->n_rebuilds, ctx->n_delta_stores, ctx->n_restores);
     memset(ctx, 0, sizeof(*ctx));

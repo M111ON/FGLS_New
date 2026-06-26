@@ -1,0 +1,2 @@
+termux_ssh= ssh u0_a268@192.168.1.235 -p 8022 
+termux_pass= hnaoto88

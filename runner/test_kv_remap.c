@@ -208,22 +208,44 @@ static void test_full_cycle(void) {
     printf("  Change: %d%%, delta type=%d (%s)\n", pct, ctx.delta.type,
         ctx.delta.type == 1 ? "ENTROPY" : ctx.delta.type == 2 ? "GEO" : "?");
 
-    /* Restore should reconstruct current state */
+    /* Save post-perturbation live KV for verification */
+    uint8_t *post_perturb = (uint8_t *)malloc(total);
+    off = 0;
+    for (int l = 0; l < N_LAYERS; l++) {
+        memcpy(post_perturb + off, layer_k[l], k_size[l]);
+        off += k_size[l];
+        memcpy(post_perturb + off, layer_v[l], v_size[l]);
+        off += v_size[l];
+    }
+
+    /* Restore: writes skeleton + applies delta → should match post-perturb */
     kv_remap_restore(&ctx);
 
-    /* Verify restored == current (before perturbation was applied) */
-    /* Actually restore writes skeleton+delta to live KV,
-     * so live KV should match what it was after perturbation.
-     * We can't directly verify because restore overwrites live KV.
-     * But we can check that it doesn't crash and delta size is reasonable. */
-    printf("  Delta entropy size: %zu bytes\n", ctx.delta.entropy_size);
-    printf("  Skeleton compressed: %zu bytes\n", ctx.skeleton_comp);
+    /* Verify restored matches post-perturb (skeleton + delta) */
+    int match = 1;
+    for (size_t i = 0; i < total; i++) {
+        uint8_t val = 0;
+        size_t toff = i;
+        for (int l = 0; l < N_LAYERS; l++) {
+            if (toff < k_size[l]) { val = ((uint8_t*)layer_k[l])[toff]; break; }
+            toff -= k_size[l];
+            if (toff < v_size[l]) { val = ((uint8_t*)layer_v[l])[toff]; break; }
+            toff -= v_size[l];
+        }
+        if (val != post_perturb[i]) { match = 0; break; }
+    }
 
-    double ratio = (double)total / (double)(ctx.delta.entropy_size > 0 ?
-        ctx.delta.entropy_size : 1);
-    printf("  Compression ratio: %.2fx\n", ratio);
+    printf("  Delta type: %s (change=%d%%)\n",
+        ctx.delta.type == 1 ? "ENTROPY" : ctx.delta.type == 2 ? "GEO" : "?",
+        ctx.delta.change_pct);
+    printf("  Delta: entropy=%zu geo=%zu | Skeleton: orig=%zu comp=%zu\n",
+        ctx.delta.entropy_size, ctx.delta.geo_data_size,
+        ctx.skeleton_orig, ctx.skeleton_comp);
+    printf("  Restore %s (skeleton + delta == post-perturb)\n",
+        match ? "VERIFIED ✓" : "MISMATCH ✗");
 
     free(ref_live);
+    free(post_perturb);
     kv_remap_destroy(&ctx);
     free_mock_kv();
 }

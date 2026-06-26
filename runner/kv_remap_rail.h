@@ -232,35 +232,58 @@ static inline int kv_remap_rail_step(KVRemapRail *rail) {
             ? (const uint8_t *)lyr->k_data
             : (const uint8_t *)lyr->v_data;
 
-        /* Walk one chunk within current region */
-        #define RAIL_SCAN_CHUNK 4096
-        size_t end = cl->cur_off + RAIL_SCAN_CHUNK;
-        if (end > region_size) end = region_size;
-
-        /* Compute ref_skeleton offset for this layer's K/V */
-        size_t sk_off = 0;
+        /* Pre-compute skeleton offset for this layer's K or V */
+        size_t base_sk_off = 0;
         for (int l = 0; l < cl->cur_layer; l++)
-            sk_off += ctx->layers[l].k_size + ctx->layers[l].v_size;
-        if (cl->cur_phase == 1) sk_off += lyr->k_size;
+            base_sk_off += ctx->layers[l].k_size + ctx->layers[l].v_size;
+        if (cl->cur_phase == 1) base_sk_off += lyr->k_size;
 
-        for (size_t i = cl->cur_off; i < end; i++) {
-            if (ctx->ref_skeleton[sk_off + i] != live[i]) cl->diff_count++;
-            cl->checked++;
-        }
+        /* Process multiple chunks per step using memcmp (much faster than byte-by-byte) */
+        #define RAIL_SCAN_CHUNK  4096
+        #define RAIL_SCAN_BATCH  64   /* 64 chunks = 256KB per step */
+        int remaining = RAIL_SCAN_BATCH;
 
-        cl->cur_off = end;
-        if (cl->cur_off >= region_size) {
-            /* Move to next phase or next layer */
-            cl->cur_phase++;
-            cl->cur_off = 0;
-            if (cl->cur_phase > 1) {
-                cl->cur_phase = 0;
-                cl->cur_layer++;
-                if (cl->cur_layer >= cl->layer_end)
-                    cl->complete = 1;
+        while (remaining > 0 && cl->cur_off < region_size) {
+            size_t end = cl->cur_off + RAIL_SCAN_CHUNK;
+            if (end > region_size) end = region_size;
+            size_t chunk_sz = end - cl->cur_off;
+
+            if (memcmp(ctx->ref_skeleton + base_sk_off + cl->cur_off,
+                       live + cl->cur_off, chunk_sz) != 0)
+                cl->diff_count += chunk_sz;
+            cl->checked += chunk_sz;
+
+            cl->cur_off = end;
+            remaining--;
+
+            if (cl->cur_off >= region_size) {
+                cl->cur_phase++;
+                cl->cur_off = 0;
+                if (cl->cur_phase > 1) {
+                    cl->cur_phase = 0;
+                    cl->cur_layer++;
+                    if (cl->cur_layer >= cl->layer_end) {
+                        cl->complete = 1;
+                        break;
+                    }
+                    /* Recompute base_sk_off for next layer */
+                    base_sk_off = 0;
+                    for (int l = 0; l < cl->cur_layer; l++)
+                        base_sk_off += ctx->layers[l].k_size + ctx->layers[l].v_size;
+                } else {
+                    /* Switch from K to V — add K size to sk_off */
+                    base_sk_off += lyr->k_size;
+                }
+                /* Update layer/region for next iteration */
+                lyr = &ctx->layers[cl->cur_layer];
+                region_size = (cl->cur_phase == 0) ? lyr->k_size : lyr->v_size;
+                live = (cl->cur_phase == 0)
+                    ? (const uint8_t *)lyr->k_data
+                    : (const uint8_t *)lyr->v_data;
             }
         }
         #undef RAIL_SCAN_CHUNK
+        #undef RAIL_SCAN_BATCH
 
         return 0;
     }
@@ -357,16 +380,12 @@ static inline void kv_remap_rail_freeze(KVRemapRail *rail) {
     rail->freeze_state = rail->state;
     rail->freeze_lane = rail->lane;
     rail->state = RAIL_FREEZE;
-    fprintf(stderr, "[rail] FROZEN at state=%d lane=%d\n",
-        rail->freeze_state, rail->freeze_lane);
 }
 
 static inline void kv_remap_rail_resume(KVRemapRail *rail) {
     if (rail->state != RAIL_FREEZE) return;
     rail->state = rail->freeze_state;
     rail->lane = rail->freeze_lane;
-    fprintf(stderr, "[rail] RESUMED state=%d lane=%d\n",
-        rail->state, rail->lane);
 }
 
 

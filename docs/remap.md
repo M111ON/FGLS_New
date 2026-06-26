@@ -35,7 +35,12 @@ The rail system scans KV cache in background during idle time. Instead of scanni
 ```
 ┌─────────────────────────────────────────┐
 │  Init: register KV tensors from model   │
-│  Set skeleton baseline (compress+store) │
+│  (skeleton deferred — no memory spike)  │
+└──────────────────┬──────────────────────┘
+                   │
+┌──────────────────▼──────────────────────┐
+│  /rscan: set skeleton baseline (first   │
+│  use) then rail scan to completion      │
 └──────────────────┬──────────────────────┘
                    │
 ┌──────────────────▼──────────────────────┐
@@ -49,7 +54,7 @@ The rail system scans KV cache in background during idle time. Instead of scanni
                    │
 ┌──────────────────▼──────────────────────┐
 │  After generation response:             │
-│    1. Rail idle step (scan 1 chunk)     │
+│    1. Rail idle step (if skeleton valid)│
 │    2. kv_remap_cycle() (classify→store) │
 └──────────────────┬──────────────────────┘
                    │
@@ -111,10 +116,11 @@ Live KV State ──→ classify() ──→ change_pct
 
 ### Integration Points in Runner
 
-- **Init** (after model load): `kv_remap_register()` + `kv_remap_set_skeleton()`
+- **Init** (after model load): `kv_remap_register()` — stores KV pointers, no copy
+- **`/rscan`** (first use): `kv_remap_set_skeleton()` — copies + compresses KV as baseline
 - **Before decode**: `kv_remap_rail_freeze()` — pause rail scan
 - **After decode**: `kv_remap_rail_resume()` — resume rail scan
-- **After generation**: `kv_remap_rail_step()` + `kv_remap_cycle()` — idle work
+- **After generation**: `kv_remap_rail_step()` + `kv_remap_cycle()` — idle work (only if skeleton valid)
 - **Exit**: `kv_remap_rail_destroy()` + `kv_remap_destroy()`
 
 ### Windows Compatibility
