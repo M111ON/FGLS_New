@@ -20,6 +20,13 @@
 #include <string.h>
 #include <stdio.h>
 
+/* Optional: shadow zone heartbeat integration */
+#ifdef KV_REMAP_USE_SHADOW
+#include "../collection/shadow_zone.h"
+/* bond_key derived from delta hash to find stored delta */
+#define KV_REMAP_SHADOW_BOND_BASE  0x4B56524D  /* "KVRM" */
+#endif
+
 /* ── Thresholds ─────────────────────────────────────────── */
 #define KV_REMAP_THRESH_LOW     15
 #define KV_REMAP_THRESH_HIGH    85
@@ -114,6 +121,14 @@ typedef struct {
     double   total_remap_time_ms;
 
     int      enabled;
+
+#ifdef KV_REMAP_USE_SHADOW
+    ShadowZone  shadow;              /* shadow zone heartbeat                */
+    uint64_t    shadow_bond_key;     /* current delta bond_key               */
+    uint32_t    shadow_node_id;      /* node_id of stored delta              */
+    uint8_t     shadow_has_delta;    /* 1 = delta stored in zone             */
+#endif
+
 } KVRemapCtx;
 
 
@@ -288,6 +303,24 @@ static inline void kv_remap_register(KVRemapCtx *ctx,
     ctx->layer_kv_bytes = ctx->total_kv_bytes / (size_t)n_layers;
     ctx->enabled = 1;
 }
+
+
+/* =============================================================
+ * Init shadow zone backend
+ * ============================================================= */
+
+#ifdef KV_REMAP_USE_SHADOW
+static inline int kv_remap_init_shadow(KVRemapCtx *ctx) {
+    if (!ctx->enabled) return -1;
+    shadow_zone_init(&ctx->shadow, SHADOW_ZONE_A);
+    ctx->shadow_bond_key = 0;
+    ctx->shadow_node_id = 0;
+    ctx->shadow_has_delta = 0;
+    fprintf(stderr, "[kv-remap-shadow] initialized (zone A, %u slots)\n",
+        SHADOW_N_SLOTS);
+    return 0;
+}
+#endif
 
 
 /* =============================================================
@@ -566,6 +599,61 @@ static inline int kv_remap_store_delta(KVRemapCtx *ctx, int change_pct) {
     }
 
     ctx->n_delta_stores++;
+
+#ifdef KV_REMAP_USE_SHADOW
+    /* ── Shadow zone heartbeat: store delta metadata ── */
+    if (ctx->delta.type != DELTA_NONE && ctx->delta.delta_size > 0) {
+        /* Pack metadata into ≤ DIAMOND_BLOCK_SIZE (64) bytes:
+         *   type(1) + change_pct(2) + delta_size(4) + entropy_size(4) +
+         *   geo_data_size(4) + n_ranges(4) = 19 bytes */
+        uint8_t packet[DIAMOND_BLOCK_SIZE];
+        memset(packet, 0, sizeof(packet));
+        size_t wp = 0;
+        packet[wp++] = (uint8_t)ctx->delta.type;
+        packet[wp++] = (uint8_t)(ctx->delta.change_pct & 0xFF);
+        packet[wp++] = (uint8_t)((ctx->delta.change_pct >> 8) & 0xFF);
+        uint32_t ds = (uint32_t)ctx->delta.delta_size;
+        packet[wp++] = (uint8_t)(ds & 0xFF);
+        packet[wp++] = (uint8_t)((ds >> 8) & 0xFF);
+        packet[wp++] = (uint8_t)((ds >> 16) & 0xFF);
+        packet[wp++] = (uint8_t)((ds >> 24) & 0xFF);
+        uint32_t es = (uint32_t)ctx->delta.entropy_size;
+        packet[wp++] = (uint8_t)(es & 0xFF);
+        packet[wp++] = (uint8_t)((es >> 8) & 0xFF);
+        packet[wp++] = (uint8_t)((es >> 16) & 0xFF);
+        packet[wp++] = (uint8_t)((es >> 24) & 0xFF);
+        uint32_t gs = (uint32_t)ctx->delta.geo_data_size;
+        packet[wp++] = (uint8_t)(gs & 0xFF);
+        packet[wp++] = (uint8_t)((gs >> 8) & 0xFF);
+        packet[wp++] = (uint8_t)((gs >> 16) & 0xFF);
+        packet[wp++] = (uint8_t)((gs >> 24) & 0xFF);
+        uint32_t nr = ctx->delta.n_ranges;
+        packet[wp++] = (uint8_t)(nr & 0xFF);
+        packet[wp++] = (uint8_t)((nr >> 8) & 0xFF);
+        packet[wp++] = (uint8_t)((nr >> 16) & 0xFF);
+        packet[wp++] = (uint8_t)((nr >> 24) & 0xFF);
+
+        /* Free previous slot if alive */
+        if (ctx->shadow_has_delta && ctx->shadow_bond_key != 0)
+            shadow_free(&ctx->shadow, ctx->shadow_bond_key);
+
+        ctx->shadow_bond_key = KV_REMAP_SHADOW_BOND_BASE | (uint64_t)(ctx->n_delta_stores & 0xFFFF);
+        uint32_t node_id = 0;
+        int r = shadow_write(&ctx->shadow, ctx->shadow_bond_key,
+                             ctx->n_delta_stores, /* tick */
+                             1,                   /* temperature */
+                             packet, sizeof(packet), &node_id);
+        ctx->shadow_has_delta = (r == SHADOW_OK && node_id != 0);
+        ctx->shadow_node_id = node_id;
+
+        if (r == SHADOW_OK)
+            fprintf(stderr, "[kv-remap-shadow] metadata stored (node=%u, bond=0x%llx, type=%d, pct=%u)\n",
+                node_id, (unsigned long long)ctx->shadow_bond_key, ctx->delta.type, ctx->delta.change_pct);
+        else
+            fprintf(stderr, "[kv-remap-shadow] write failed: %d\n", r);
+    }
+#endif
+
     return 0;
 }
 
@@ -589,7 +677,24 @@ static inline int kv_remap_restore(KVRemapCtx *ctx) {
         off += ctx->layers[l].v_size;
     }
 
-    /* ── Step 2: apply delta ── */
+    /* ── Step 2: try heap delta, or fallback to shadow zone ── */
+
+#ifdef KV_REMAP_USE_SHADOW
+    /* ── Shadow zone heartbeat check ── */
+    if (ctx->shadow_has_delta && ctx->shadow_bond_key != 0) {
+        const ShadowSlotMeta *m = shadow_find_by_bond(&ctx->shadow, ctx->shadow_bond_key);
+        if (m && m->alive) {
+            fprintf(stderr, "[kv-remap-shadow] delta metadata alive in zone (node=%u, tick=%u, bond=0x%llx)\n",
+                ctx->shadow_node_id, m->tick, (unsigned long long)m->bond_key);
+        } else {
+            fprintf(stderr, "[kv-remap-shadow] delta evicted from shadow zone\n");
+            ctx->shadow_has_delta = 0;
+            ctx->shadow_bond_key = 0;
+            ctx->shadow_node_id = 0;
+        }
+    }
+#endif
+
     if (ctx->delta.type == DELTA_ENTROPY && ctx->delta.entropy_data) {
         size_t delta_dec_size = 0;
         void *delta_dec = kv_remap_decompress(
@@ -669,6 +774,17 @@ static inline int kv_remap_rebuild(KVRemapCtx *ctx) {
     ctx->delta.n_ranges = 0;
 
     ctx->n_rebuilds++;
+
+#ifdef KV_REMAP_USE_SHADOW
+    if (ctx->shadow_has_delta && ctx->shadow_bond_key != 0) {
+        shadow_free(&ctx->shadow, ctx->shadow_bond_key);
+        ctx->shadow_has_delta = 0;
+        ctx->shadow_bond_key = 0;
+        ctx->shadow_node_id = 0;
+        fprintf(stderr, "[kv-remap-shadow] delta slot freed (rebuild)\n");
+    }
+#endif
+
     return kv_remap_set_skeleton(ctx);
 }
 
@@ -712,6 +828,13 @@ static inline void kv_remap_print_status(const KVRemapCtx *ctx) {
         fprintf(stderr, "[kv-remap] geo ranges: %u\n", ctx->delta.n_ranges);
     fprintf(stderr, "[kv-remap] stats: rebuilds=%u stores=%u restores=%u\n",
         ctx->n_rebuilds, ctx->n_delta_stores, ctx->n_restores);
+#ifdef KV_REMAP_USE_SHADOW
+    if (ctx->shadow_has_delta)
+        fprintf(stderr, "[kv-remap] shadow: has_delta=1 node=%u bond=0x%llx\n",
+            ctx->shadow_node_id, (unsigned long long)ctx->shadow_bond_key);
+    else
+        fprintf(stderr, "[kv-remap] shadow: no delta stored\n");
+#endif
 }
 
 static inline void kv_remap_destroy(KVRemapCtx *ctx) {
@@ -719,6 +842,10 @@ static inline void kv_remap_destroy(KVRemapCtx *ctx) {
     free(ctx->ref_skeleton);
     free(ctx->delta.entropy_data);
     free(ctx->delta.geo_data);
+#ifdef KV_REMAP_USE_SHADOW
+    if (ctx->shadow_has_delta && ctx->shadow_bond_key != 0)
+        shadow_free(&ctx->shadow, ctx->shadow_bond_key);
+#endif
     fprintf(stderr, "[kv-remap] destroyed (rebuilds=%u, stores=%u, restores=%u)\n",
         ctx->n_rebuilds, ctx->n_delta_stores, ctx->n_restores);
     memset(ctx, 0, sizeof(*ctx));

@@ -50,6 +50,7 @@
 #include <stdint.h>
 #include <string.h>
 #include "bermuda_export.h"    /* bermuda_init, snap_gear, traverse, etc. */
+#include "shadow_zone.h"       /* ShadowZone, shadow_write */
 
 /* ══════════════════════════════════════════════════════════════
    CONSTANTS
@@ -247,6 +248,58 @@ static inline uint8_t bermuda_shadow_dispatch(
         uint16_t g_idx = bermuda_traverse(idx, gear, 2u);
         bermuda_route_token(g_idx, gear, 2u, route_out);
         route_out->polarity = 1u;  /* force GROUND */
+    }
+    return BERMUDA_SHADOW_COLD;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   SHADOW ZONE DISPATCH — COLD → ShadowZone (sector 10/11)
+   ══════════════════════════════════════════════════════════════
+   Same as bermuda_shadow_dispatch but writes COLD entries into
+   ShadowZone (instead of ring buffer). Returns node_id in shadow
+   space via out_node_id. bond_key = node_id for retrieval.
+
+   Returns: BERMUDA_SHADOW_HOT or COLD
+   ══════════════════════════════════════════════════════════════ */
+
+static inline uint8_t bermuda_shadow_dispatch_to_zone(
+    BermudaShadowRing  *ring,
+    ShadowZone         *shadow,
+    const uint8_t      *chunk64,
+    uint16_t            idx,
+    uint8_t             gear,
+    uint8_t             mode,
+    uint64_t            addr,
+    uint64_t            bond_key,
+    BermudaRouteEntry  *route_out,
+    uint32_t           *out_node_id)
+{
+    BermudaShadowEntry e = bermuda_shadow_classify(
+                               chunk64, idx, gear, addr, bond_key);
+
+    if (e.temperature == BERMUDA_SHADOW_HOT) {
+        ring->total_hot++;
+        if (route_out) bermuda_route_token(idx, gear, mode, route_out);
+        if (out_node_id) *out_node_id = 0;
+        return BERMUDA_SHADOW_HOT;
+    }
+
+    ring->total_cold++;
+
+    uint32_t node_id;
+    int rc = shadow_write(shadow, bond_key, ring->total_cold, BERMUDA_SHADOW_COLD,
+                           chunk64, BERMUDA_CHUNK, &node_id);
+    if (rc != SHADOW_OK) {
+        /* fallback to ring buffer if shadow zone full */
+        bermuda_shadow_push(ring, &e);
+    }
+
+    if (out_node_id) *out_node_id = node_id;
+
+    if (route_out) {
+        uint16_t g_idx = bermuda_traverse(idx, gear, 2u);
+        bermuda_route_token(g_idx, gear, 2u, route_out);
+        route_out->polarity = 1u;
     }
     return BERMUDA_SHADOW_COLD;
 }

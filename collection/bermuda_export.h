@@ -19,23 +19,13 @@
 #ifndef BERMUDA_EXPORT_H
 #define BERMUDA_EXPORT_H
 
+#include "coord_spine.h"    /* BERMUDA_* constants (single source of truth) */
 #include <stdint.h>
 #include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/* ── Constants (mirrors bermuda_reshape_v3.py) ─────────────── */
-#define BERMUDA_STRIDE       37u
-#define BERMUDA_N_ZONES      12u
-#define BERMUDA_TRING_SLOTS  720u
-
-/* Gear table: 128*n slots, 2^k aligned */
-#define BERMUDA_GEAR1_SLOTS  512u
-#define BERMUDA_GEAR2_SLOTS  1024u
-#define BERMUDA_GEAR3_SLOTS  2048u
-#define BERMUDA_GEAR4_SLOTS  4096u
 
 /* ── Runtime Tables (filled by bermuda_init) ─────────────────
  *

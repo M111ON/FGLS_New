@@ -26,7 +26,7 @@
 
 ---
 
-## สถานะระบบปัจจุบัน (June 26, 2026)
+## สถานะระบบปัจจุบัน (June 27, 2026)
 
 ### ✅ Pipeline หลัก — ทั้งหมดผ่าน
 | Component | Status |
@@ -56,6 +56,7 @@
 | **KV Remap (skeleton+delta)** | **✅ adaptive 3-tier system tested** |
 | **KV Remap Rail (background verify)** | **✅ layer-based segment chunking** |
 | **KV Remap runner integration (`--remap`)** | **✅ integrated into runner + rail freeze/resume** |
+| **KV Remap Shadow Zone (`--shadow`)** | **✅ delta metadata heartbeat via shadow_zone.h** |
 
 ### 📁 Key Binaries (ใน `runner/`)
 - `llama_pogls_runner_sid_v2.exe` — Main runner (b9528)
@@ -126,6 +127,22 @@ Fixed critical bug in `diamond_shell_codec.h`: codec classified non-zero chunks 
   - RailLane struct: `layer_start`, `layer_end`, `cur_layer`, `cur_phase` (0=K, 1=V) instead of flat byte ranges
 - **Windows compatibility fix**: `POGLS_RAIL_USE_POGTIME` macro resolves conflict between runner's custom `clock_gettime(PoglsTime*)` and rail's `struct timespec`
 - **Build**: runner compiles+links clean (0 errors), `test_kv_remap.exe` 7/7 tests pass
+
+### June 27 — Shadow Zone → KV Remap Integration
+- **Connected shadow zone to KV remap hotpath** (`kv_remap.h`):
+  - Added `#ifdef KV_REMAP_USE_SHADOW` guard with `shadow_zone.h` include
+  - `kv_remap_init_shadow()` — init shadow zone A for delta metadata heartbeat
+  - `kv_remap_store_delta()`: after heap store, packs delta metadata (type, pct, sizes, ranges) into a 64-byte DIAMOND_BLOCK packet and writes to shadow zone via `shadow_write()` with bond_key
+  - `kv_remap_restore()`: checks `shadow_find_by_bond()` for alive delta metadata
+  - `kv_remap_rebuild()`: frees shadow bond key on rebuild (`shadow_free()`)
+  - `kv_remap_destroy()`: cleanup shadow zone on exit
+- **Runner integration** (`llama_pogls_runner_sid_v2.c`):
+  - `#define KV_REMAP_USE_SHADOW 1` before `#include "kv_remap.h"`
+  - `g_opt_shadow` flag + `--shadow` CLI arg + help text
+  - `kv_remap_init_shadow()` called after rail init when `--shadow` is set
+  - Shadow reinit in `/clear` handler
+- **Verification**: runner compiles clean (0 errors), `test_kv_remap.exe` 7/7 tests pass
+- **Key design**: Shadow zone stores only delta metadata (19 bytes → padded to 64), not full delta data. Acts as heartbeat/registry — alive check tells whether delta was evicted. Shadow zone capacity (1728 slots × 64B) naturally manages delta lifetime across context switches.
 
 ### June 26 — KV Tensor Access Architecture-Agnostic (Hybrid fix)
 - **Root cause**: LFM2 is hybrid architecture (`llama_memory_hybrid`) — `dynamic_cast<llama_kv_cache*>` fails because the actual type is `llama_memory_hybrid` (not `llama_kv_cache`)

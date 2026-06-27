@@ -26,17 +26,9 @@
 #ifndef TW_CAPTURE_INT_H
 #define TW_CAPTURE_INT_H
 
+#include "coord_spine.h"    /* TW_* constants (single source of truth) */
+#include "shadow_zone.h"    /* ShadowZone, shadow_write */
 #include <stdint.h>
-
-#define TW_SCALE       207360   /* 12^4 * 10 */
-#define TW_N_SECTORS   10
-#define TW_SLOTS_PER   6
-#define TW_N_SLOTS     60
-
-/* margin band as permille of |v| cross-product magnitude (~0.5deg ~ 8.7e-3 rad
- * -> sin(0.5deg)=0.00873 ; use 9/1000 as integer ratio (9 permille) */
-#define TW_MARGIN_NUM  9
-#define TW_MARGIN_DEN  1000
 
 /* Unit boundary direction vectors * TW_SCALE, at angles (90 - 36*k) deg */
 static const int32_t TW_BOUNDARY_DIR[TW_N_SECTORS][2] = {
@@ -354,6 +346,58 @@ static inline void tw_reconstruct_int_combined(const TWCaptureInt *in,
         tw_reconstruct_int_tri(in, vx, vy);
     else
         tw_reconstruct_int(in, vx, vy);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   SHADOW ROUTING — boundary/drain → shadow zone
+   ══════════════════════════════════════════════════════════════
+   If capture has drain=1, routes the drain capture to a shadow
+   zone instead of the secondary sector. Returns node_id for
+   retrieval. */
+typedef struct {
+    TWCaptureInt capture;
+    uint8_t      shadow_zone;       /* SHADOW_ZONE_A or B, or 0 if no drain */
+    uint8_t      shadow_slot;       /* slot index in shadow zone */
+    uint32_t     shadow_node_id;    /* GEO_FULL address in shadow zone */
+    uint8_t      is_tri;
+} TWShadowCapture;
+
+static inline void tw_capture_shadow(int64_t vx, int64_t vy,
+                                      ShadowZone *shadow,
+                                      TWShadowCapture *out)
+{
+    uint8_t is_tri;
+    tw_capture_int_combined(vx, vy, &out->capture, &is_tri);
+    out->is_tri = is_tri;
+
+    if (!out->capture.drain || !shadow) {
+        out->shadow_zone = 0;
+        out->shadow_slot = 0;
+        out->shadow_node_id = 0;
+        return;
+    }
+
+    /* route drain to shadow zone instead of neighbor sector */
+    uint64_t bond_key = (uint64_t)(uint32_t)vx ^ ((uint64_t)(uint32_t)vy << 32);
+    uint32_t tick = out->capture.drain_zone;  /* reuse as tick */
+
+    uint8_t drain_data[DIAMOND_BLOCK_SIZE];
+    memset(drain_data, 0, DIAMOND_BLOCK_SIZE);
+    drain_data[0] = out->capture.drain_zone;
+    drain_data[1] = (uint8_t)(out->capture.drain_slot);
+
+    uint32_t node_id;
+    if (shadow_write(shadow, bond_key, tick, BERMUDA_SHADOW_COLD,
+                      drain_data, DIAMOND_BLOCK_SIZE, &node_id) == SHADOW_OK)
+    {
+        out->shadow_zone = shadow->zone_id;
+        out->shadow_slot = node_id % SHADOW_N_SLOTS;
+        out->shadow_node_id = node_id;
+    } else {
+        out->shadow_zone = 0;
+        out->shadow_slot = 0;
+        out->shadow_node_id = 0;
+    }
 }
 
 #endif /* TW_CAPTURE_INT_H */

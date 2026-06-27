@@ -60,6 +60,7 @@
 #include "kv_sid_evict.h"
 #include "kv_page_store.h"
 #include "kv_tensor_access.h"
+#define KV_REMAP_USE_SHADOW 1
 #include "kv_remap.h"
 #define POGLS_RAIL_USE_POGTIME
 #include "kv_remap_rail.h"
@@ -331,6 +332,7 @@ static KVSwapCtx g_kv_swap;
 static KVRemapCtx g_remap_ctx;
 static KVRemapRail g_remap_rail;
 static int g_opt_remap = 0;
+static int g_opt_shadow = 0;
 
 /* tensor memory store (--mem-store) */
 static const char *g_opt_mem_store = NULL;
@@ -561,6 +563,7 @@ int main(int argc,char**argv){
         else if(!strcmp(argv[i],"--kv-page"))opt_kv_page=1;
         else if(!strcmp(argv[i],"--kv-page-evict")&&i+1<argc){opt_kv_page=1;opt_kv_page_evict=atoi(argv[++i]);}
         else if(!strcmp(argv[i],"--remap"))g_opt_remap=1;
+        else if(!strcmp(argv[i],"--shadow"))g_opt_shadow=1;
         else if(!strcmp(argv[i],"--ctx")&&i+1<argc)opt_ctx=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--dramtile"))g_opt_dramtile=1;
         else if(!strcmp(argv[i],"--simulate"))g_opt_simulate=1;
@@ -620,6 +623,7 @@ int main(int argc,char**argv){
             fprintf(stderr,"  --kv-page                KV Page Store: token-position-granular paging with DRamTile backing\n");
             fprintf(stderr,"  --kv-page-evict N        KV Page Store: evict oldest N pages after init\n");
             fprintf(stderr,"  --remap                  KV remap: adaptive skeleton+delta + rail verify\n");
+            fprintf(stderr,"  --shadow                 KV remap shadow zone: delta metadata heartbeat\n");
             fprintf(stderr,"  --dramtile                Enable DRamTile zero-copy tensor store\n");
             fprintf(stderr,"  --simulate                Simulate session (no model)\n");
             fprintf(stderr,"  --profile-batch FILE      Batch generate session profiles\n");
@@ -1375,6 +1379,10 @@ int main(int argc,char**argv){
             /* Skeleton set AFTER first prompt decode (KV needs real data) */
             g_remap_ctx.skeleton_valid = 0;
             kv_remap_rail_init(&g_remap_rail, &g_remap_ctx);
+            if (g_opt_shadow) {
+                kv_remap_init_shadow(&g_remap_ctx);
+                fprintf(stderr, "[remap] shadow zone active\n");
+            }
             fprintf(stderr, "[remap] initialized with %d KV layers, ctx=%d (skeleton deferred to first decode)\n", n_kv, opt_ctx);
         } else {
             fprintf(stderr, "[remap] no KV cache layers found, disabled\n");
@@ -1637,7 +1645,7 @@ int main(int argc,char**argv){
             if(ll==0)continue;
             if (opt_script) fprintf(stderr, "[chat-script] %s\n", line);
             if(!strcmp(line,"/exit"))break;
-            if(!strcmp(line,"/clear")){for(int _ci=0;_ci<cc;_ci++)free(content[_ci]);cc=0;roles[0]="system";content[0]=strdup("You are a helpful assistant.");cc=1;free(pending_toks);pending_toks=NULL;pending_n=0;pending_cap=0;pending_ready=0;llama_free(lctx);lctx=llama_init_from_model(model,cp);if(!lctx){fprintf(stderr,"ERROR: reinit context\n");break;}v=llama_model_get_vocab(model);nv=llama_vocab_n_tokens(v);if(g_opt_remap){kv_remap_destroy(&g_remap_ctx);kv_remap_rail_destroy(&g_remap_rail);kv_remap_init(&g_remap_ctx, opt_ctx);void *rk[KV_REMAP_MAX_LAYERS],*rv[KV_REMAP_MAX_LAYERS];size_t rks[KV_REMAP_MAX_LAYERS],rvs[KV_REMAP_MAX_LAYERS],rknb[KV_REMAP_MAX_LAYERS],rvnb[KV_REMAP_MAX_LAYERS];int rne[KV_REMAP_MAX_LAYERS],rli[KV_REMAP_MAX_LAYERS];int nnk=kv_get_cache_tensors(lctx,rk,rv,rks,rvs,rne,NULL,rli,KV_REMAP_MAX_LAYERS);if(nnk>0){for(int ii=0;ii<nnk;ii++){rknb[ii]=rks[ii]/opt_ctx;rvnb[ii]=rvs[ii]/opt_ctx;}kv_remap_register(&g_remap_ctx,rk,rv,rknb,rvnb,rks,rvs,rne,rli,nnk);g_remap_ctx.skeleton_valid=0;kv_remap_rail_init(&g_remap_rail,&g_remap_ctx);}}printf("Cleared.\n");continue;}
+            if(!strcmp(line,"/clear")){for(int _ci=0;_ci<cc;_ci++)free(content[_ci]);cc=0;roles[0]="system";content[0]=strdup("You are a helpful assistant.");cc=1;free(pending_toks);pending_toks=NULL;pending_n=0;pending_cap=0;pending_ready=0;llama_free(lctx);lctx=llama_init_from_model(model,cp);if(!lctx){fprintf(stderr,"ERROR: reinit context\n");break;}v=llama_model_get_vocab(model);nv=llama_vocab_n_tokens(v);if(g_opt_remap){kv_remap_destroy(&g_remap_ctx);kv_remap_rail_destroy(&g_remap_rail);kv_remap_init(&g_remap_ctx, opt_ctx);void *rk[KV_REMAP_MAX_LAYERS],*rv[KV_REMAP_MAX_LAYERS];size_t rks[KV_REMAP_MAX_LAYERS],rvs[KV_REMAP_MAX_LAYERS],rknb[KV_REMAP_MAX_LAYERS],rvnb[KV_REMAP_MAX_LAYERS];int rne[KV_REMAP_MAX_LAYERS],rli[KV_REMAP_MAX_LAYERS];int nnk=kv_get_cache_tensors(lctx,rk,rv,rks,rvs,rne,NULL,rli,KV_REMAP_MAX_LAYERS);if(nnk>0){for(int ii=0;ii<nnk;ii++){rknb[ii]=rks[ii]/opt_ctx;rvnb[ii]=rvs[ii]/opt_ctx;}kv_remap_register(&g_remap_ctx,rk,rv,rknb,rvnb,rks,rvs,rne,rli,nnk);g_remap_ctx.skeleton_valid=0;kv_remap_rail_init(&g_remap_rail,&g_remap_ctx);if(g_opt_shadow)kv_remap_init_shadow(&g_remap_ctx);}}printf("Cleared.\n");continue;}
 #ifdef KV_ARCHIVE
             if(!strncmp(line,"/evict ",7)){
                 int _n=atoi(line+7);
