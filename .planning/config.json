@@ -1,0 +1,17 @@
+{
+  "workflow": {
+    "mode": "interactive",
+    "discuss_mode": "discuss",
+    "nyquist_validation": true,
+    "gates": {
+      "researcher": true,
+      "plan_checker": true,
+      "verifier": true
+    }
+  },
+  "planning": {
+    "commit_docs": false,
+    "search_gitignored": false
+  },
+  "model_profile": "balanced"
+}

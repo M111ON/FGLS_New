@@ -33,6 +33,8 @@
       ts->tv_nsec=(long)(c.QuadPart%f.QuadPart*1000000000LL/f.QuadPart);return 0;}
 #else
   #include <time.h>
+  #include <dirent.h>
+  #include <sys/stat.h>
   typedef struct timespec PoglsTime;
 #endif
 
@@ -202,20 +204,49 @@ static const char* tensor_name(const void *tensor) { return (const char*)tensor 
 static void* tensor_data(const void *tensor) { void *d; memcpy(&d, (const char*)tensor + 248, sizeof(d)); return d; }
 static void tensor_set_data(void *tensor, void *new_data) { memcpy((char*)tensor + 248, &new_data, sizeof(void*)); }
 
-static int name_wanted(const char *name, const GGUFTensorIndex *gidx) {
-    for (uint64_t i = 0; i < gidx->n_tensors; i++)
-        if (strcmp(name, gidx->names[i]) == 0) return 1;
+/* ── Hash table for GGUF name lookup (avoids O(n) strcmp loop in scan) ── */
+#define NAME_HT_SIZE 512
+
+typedef struct { uint32_t hash; const char *name; } NameHTEntry;
+
+static NameHTEntry name_ht[NAME_HT_SIZE];
+
+static uint32_t name_hash_fnv1a(const char *s) {
+    uint32_t h = 2166136261u;
+    while (*s) { h ^= (uint8_t)*s++; h *= 16777619u; }
+    return h;
+}
+
+static void name_ht_init(const GGUFTensorIndex *gidx) {
+    memset(name_ht, 0, sizeof(name_ht));
+    for (uint64_t i = 0; i < gidx->n_tensors; i++) {
+        uint32_t h = name_hash_fnv1a(gidx->names[i]);
+        int slot = (int)(h % NAME_HT_SIZE);
+        while (name_ht[slot].name != NULL) slot = (slot + 1) % NAME_HT_SIZE;
+        name_ht[slot].hash = h;
+        name_ht[slot].name = gidx->names[i];
+    }
+}
+
+static int name_ht_lookup(const char *name) {
+    uint32_t h = name_hash_fnv1a(name);
+    int slot = (int)(h % NAME_HT_SIZE);
+    while (name_ht[slot].name != NULL) {
+        if (name_ht[slot].hash == h && strcmp(name_ht[slot].name, name) == 0) return 1;
+        slot = (slot + 1) % NAME_HT_SIZE;
+    }
     return 0;
 }
 
 static int scan_region(const uint8_t *start, const uint8_t *end,
     const GGUFTensorIndex *gidx, void **ptrs, int max, int *count)
 {
+    (void)gidx;
     for (const uint8_t *p = start; p + 8 < end && *count < max; p += 8) {
         void *cand; memcpy(&cand, p, sizeof(cand));
         if (!cand || (uintptr_t)cand < 0x10000) continue;
         if (!is_valid_tensor_ptr(cand)) continue;
-        if (!name_wanted(tensor_name(cand), gidx)) continue;
+        if (!name_ht_lookup(tensor_name(cand))) continue;
         int dup = 0;
         for (int i = 0; i < *count; i++)
             if (ptrs[i] == cand) { dup = 1; break; }
@@ -322,6 +353,7 @@ static double g_opt_sem_weight = 0.8, g_opt_hist_weight = 0.2, g_opt_rnd_weight 
 /* DRamTile */
 static DRamTileStore g_dramtile;
 static int g_opt_dramtile = 0;
+static const char *g_opt_dramtile_file = NULL;
 
 /* KV swap */
 static int g_opt_kv_swap = 0;       /* bytes to perturb (0=disabled) */
@@ -566,6 +598,7 @@ int main(int argc,char**argv){
         else if(!strcmp(argv[i],"--shadow"))g_opt_shadow=1;
         else if(!strcmp(argv[i],"--ctx")&&i+1<argc)opt_ctx=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--dramtile"))g_opt_dramtile=1;
+        else if(!strcmp(argv[i],"--dramtile-file")&&i+1<argc){g_opt_dramtile=1;g_opt_dramtile_file=argv[++i];}
         else if(!strcmp(argv[i],"--simulate"))g_opt_simulate=1;
         else if(!strcmp(argv[i],"--profile-batch")&&i+1<argc)g_opt_profile_batch=argv[++i];
         else if(!strcmp(argv[i],"--semantic-weight")&&i+1<argc)g_opt_sem_weight=(float)atof(argv[++i]);
@@ -624,7 +657,8 @@ int main(int argc,char**argv){
             fprintf(stderr,"  --kv-page-evict N        KV Page Store: evict oldest N pages after init\n");
             fprintf(stderr,"  --remap                  KV remap: adaptive skeleton+delta + rail verify\n");
             fprintf(stderr,"  --shadow                 KV remap shadow zone: delta metadata heartbeat\n");
-            fprintf(stderr,"  --dramtile                Enable DRamTile zero-copy tensor store\n");
+            fprintf(stderr,"  --dramtile                Enable DRamTile zero-copy tensor store (anonymous)\n");
+            fprintf(stderr,"  --dramtile-file PATH      Enable DRamTile with file-backed twin persistence\n");
             fprintf(stderr,"  --simulate                Simulate session (no model)\n");
             fprintf(stderr,"  --profile-batch FILE      Batch generate session profiles\n");
             fprintf(stderr,"  --semantic-weight N       Semantic hash weight (default: 0.8)\n");
@@ -679,13 +713,62 @@ int main(int argc,char**argv){
         llama_model_free(model); llama_backend_free(); return 1;
     }
 
-    /* ── Scan model memory for tensor pointers (skipped — pogls_query_memory unstable) ── */
-    fprintf(stderr, "\n--- tensor scan (skipped) ---\n");
-    int n_found = 0;
-    int n_layers = 0;
-    { /* dummy block to match downstream code that references n_found, n_layers */
+    /* ── Scan model memory for tensor pointers ── */
+    fprintf(stderr, "\n--- tensor scan ---\n");
 
-    } /* end skipped tensor scan block */
+    name_ht_init(&gidx);
+
+    PoglsMemInfo mi;
+    pogls_query_memory(model, &mi);
+    uint8_t *base = (uint8_t*)mi.base_addr;
+    uint8_t *base_end = base + mi.region_size;
+    if (base_end - base > 65536) base_end = base + 65536;
+
+    void *ptrs[MAX_TENSORS] = {0};
+    int n = 0;
+    scan_region(base, base_end, &gidx, ptrs, MAX_TENSORS, &n);
+    fprintf(stderr, "[scan] Tier 1 (model struct): %d tensors (base=%p end=%p)\n", n, (void*)base, (void*)base_end);
+
+    void *layers = find_layers_ptr((const uint8_t*)model);
+    if (layers) {
+        PoglsMemInfo lmi;
+        if (pogls_query_memory(layers, &lmi) == 0 && lmi.state == POGLS_MEM_COMMIT) {
+            uint8_t *ls = (uint8_t*)lmi.base_addr;
+            uint8_t *le = ls + lmi.region_size;
+            if (le > ls + SCAN_LIMIT) le = ls + SCAN_LIMIT;
+            scan_region(ls, le, &gidx, ptrs, MAX_TENSORS, &n);
+            fprintf(stderr, "[scan] Tier 2 (layers heap): %d tensors\n", n);
+        }
+    } else {
+        fprintf(stderr, "[scan] No layers ptr found (Tier 2 skipped)\n");
+    }
+
+    /* populate found_tensors from ptrs */
+    for (int i = 0; i < n; i++) {
+        found_tensors[i].ptr = ptrs[i];
+        found_tensors[i].orig_data = tensor_data(ptrs[i]);
+        int64_t ne[4]; memcpy(ne, (const char*)ptrs[i] + 16, sizeof(ne));
+        size_t nb[4]; memcpy(nb, (const char*)ptrs[i] + 48, sizeof(nb));
+        size_t nb_total = (size_t)ne[0] * nb[0];
+        for (int j = 1; j < 4; j++) { size_t ni = (size_t)ne[j] * nb[j]; if (ni > nb_total) nb_total = ni; }
+        found_tensors[i].nbytes = nb_total;
+        memcpy(found_tensors[i].ne, ne, sizeof(ne));
+        int t; memcpy(&t, ptrs[i], sizeof(t));
+        found_tensors[i].dtype = (uint32_t)t;
+        size_t nl = strnlen(tensor_name(ptrs[i]), 63);
+        memcpy(found_tensors[i].name, tensor_name(ptrs[i]), nl);
+        found_tensors[i].name[nl] = 0;
+    }
+    n_found = n;
+    fprintf(stderr, "[scan] Total found: %d / %llu GGUF tensors\n", n_found,
+        (unsigned long long)gidx.n_tensors);
+
+    /* ── compute n_layers from found tensors ── */
+    int n_layers = 0;
+    for (int i = 0; i < n_found; i++) {
+        int l = bond_extract_layer(found_tensors[i].name);
+        if (l + 1 > n_layers) n_layers = l + 1;
+    }
 
     /* ── Arena / bond / prediction ── */
     float *bond_hotness = NULL;
@@ -810,9 +893,7 @@ int main(int argc,char**argv){
         llama_model_free(model); llama_backend_free(); return 0;
     }
 
-    /* ── SID cache init (quant-agnostic: cache ALL non-norm tensors) ── */
-    fprintf(stderr, "\n--- SID cache init ---\n");
-
+    /* ── Count weight tensors (needed for DRamTile capacity) ── */
     uint64_t total_bytes = 0, max_sz = 0;
     int n_weight_tensors = 0;
     for (uint64_t i = 0; i < gidx.n_tensors; i++) {
@@ -824,71 +905,129 @@ int main(int argc,char**argv){
     fprintf(stderr, "[sid] weight tensors: %d, total data: %llu bytes, max tensor: %llu\n",
         n_weight_tensors, (unsigned long long)total_bytes, (unsigned long long)max_sz);
 
-    SIDCache sid_cache;
-    sid_cache_init(&sid_cache, total_bytes + (1u << 20));
+    SIDCache sid_cache = {0};
+    SIDLoaderCtx slc = {0};
+    uint8_t *read_buf = NULL;
 
-    SIDLoaderCtx slc;
-    if (sid_loader_open(&slc, gguf_path, &sid_cache) != 0) {
-        fprintf(stderr, "ERROR: sid_loader_open failed\n");
-        gguf_idx_close(&gidx);
-        llama_model_free(model); llama_backend_free(); return 1;
-    }
-
-    uint8_t *read_buf = (uint8_t*)malloc((size_t)max_sz);
-    uint8_t *verify_buf = (uint8_t*)malloc((size_t)max_sz);
-    if (!read_buf || !verify_buf) {
-        fprintf(stderr, "ERROR: OOM\n");
-        free(read_buf); free(verify_buf); sid_loader_close(&slc);
-        gguf_idx_close(&gidx);
-        llama_model_free(model); llama_backend_free(); return 1;
-    }
-
-    fprintf(stderr, "[sid] cached tensors: %d (verification skipped for speed)\n", n_weight_tensors);
-
-    free(verify_buf);
-    free(read_buf);
-
-    /* ── DRamTile init (zero-copy tensor store) ── */
+    /* ── DRamTile init (zero-copy tensor store) ──
+     *   --dramtile-file PATH  → file-backed twin (persistent across restart)
+     *   --dramtile            → anonymous (ephemeral)
+     *
+     *   Must run BEFORE SID cache init so DRamTile data can back SID.
+     */
     if (g_opt_dramtile && n_weight_tensors > 0) {
         fprintf(stderr, "\n--- DRamTile init ---\n");
-        if (dt_store_init(&g_dramtile, total_bytes + (1u << 20)) == 0) {
-            fprintf(stderr, "[dramtile] mmap'd %zu bytes (%d weight tensors)\n",
-                g_dramtile.capacity, n_weight_tensors);
+        int dt_ok = 0;
 
-            /* Populate DRamTile from SID cache: dump each cached tensor
-             * into the DRamTile mmap region at its deterministic address. */
-            int dt_loaded = 0;
-            size_t dt_bytes = 0;
-            for (int si = 0; si < n_sid_swaps; si++) {
-                const char *name = found_tensors[si].name;
-                uint8_t *cached = NULL; size_t cached_sz = 0;
-                if (sid_cache_get(&sid_cache, name, &cached, &cached_sz) != 0)
-                    continue;
-                uint8_t *dt_ptr = dt_put(&g_dramtile, name, cached, cached_sz);
-                if (dt_ptr) {
-                    dt_loaded++;
-                    dt_bytes += cached_sz;
+        if (g_opt_dramtile_file) {
+            dt_ok = (dt_store_init_twin(&g_dramtile, g_opt_dramtile_file,
+                                         total_bytes + (1u << 20)) == 0);
+            if (dt_ok) {
+                fprintf(stderr, "[dramtile] twin file=%s cap=%zu n_stored=%u\n",
+                    g_opt_dramtile_file, g_dramtile.capacity, g_dramtile.n_stored);
+            }
+        } else {
+            dt_ok = (dt_store_init(&g_dramtile, total_bytes + (1u << 20)) == 0);
+            if (dt_ok) {
+                fprintf(stderr, "[dramtile] anonymous mmap'd %zu bytes (%d weight tensors)\n",
+                    g_dramtile.capacity, n_weight_tensors);
+            }
+        }
+
+        if (dt_ok) {
+            if (g_dramtile.n_stored == 0) {
+                int dt_loaded = 0; size_t dt_bytes = 0;
+                for (int fi = 0; fi < n_found; fi++) {
+                    if (sid_loader_is_norm(found_tensors[fi].name)) continue;
+                    uint8_t *src = (uint8_t*)found_tensors[fi].orig_data;
+                    size_t src_sz = found_tensors[fi].nbytes;
+                    if (dt_put(&g_dramtile, found_tensors[fi].name, src, src_sz))
+                        { dt_loaded++; dt_bytes += src_sz; }
+                }
+                fprintf(stderr, "[dramtile] loaded %d tensors (%zu bytes, %.1f%% of pool)\n",
+                    dt_loaded, dt_bytes,
+                    100.0 * dt_bytes / g_dramtile.capacity);
+
+                /* Redirect found_tensors[].orig_data to DRamTile pointers
+                 * so SID restore reads from DRamTile instead of mmap.
+                 * Also save GGUF path for optional fallback. */
+                for (int fi = 0; fi < n_found; fi++) {
+                    if (sid_loader_is_norm(found_tensors[fi].name)) continue;
+                    uint8_t *dt_data = dt_get(&g_dramtile, found_tensors[fi].name);
+                    if (dt_data)
+                        found_tensors[fi].orig_data = dt_data;
+                }
+            } else {
+                int dt_missing = 0; size_t dt_miss_bytes = 0;
+                for (int fi = 0; fi < n_found; fi++) {
+                    if (sid_loader_is_norm(found_tensors[fi].name)) continue;
+                    if (dt_get(&g_dramtile, found_tensors[fi].name) != NULL) continue;
+                    uint8_t *src = (uint8_t*)found_tensors[fi].orig_data;
+                    size_t src_sz = found_tensors[fi].nbytes;
+                    if (dt_put(&g_dramtile, found_tensors[fi].name, src, src_sz))
+                        { dt_missing++; dt_miss_bytes += src_sz; }
+                }
+                fprintf(stderr, "[dramtile] reopened twin file: %u tensors (%zu bytes, %.1f%% of pool)",
+                    g_dramtile.n_stored, g_dramtile.used,
+                    100.0 * g_dramtile.used / g_dramtile.capacity);
+                if (dt_missing > 0)
+                    fprintf(stderr, " + %d refilled (%zu bytes)", dt_missing, dt_miss_bytes);
+                fprintf(stderr, "\n");
+                dt_store_sync(&g_dramtile, 0);
+
+                /* Redirect orig_data to DRamTile (same as fresh-load branch) */
+                for (int fi = 0; fi < n_found; fi++) {
+                    if (sid_loader_is_norm(found_tensors[fi].name)) continue;
+                    uint8_t *dt_data = dt_get(&g_dramtile, found_tensors[fi].name);
+                    if (dt_data)
+                        found_tensors[fi].orig_data = dt_data;
                 }
             }
-            /* Also load tensors that weren't in SID swap set but are weight tensors */
-            int dt_extra = 0;
-            for (uint64_t gi = 0; gi < gidx.n_tensors; gi++) {
-                if (sid_loader_is_norm(gidx.names[gi])) continue;
-                if (dt_get(&g_dramtile, gidx.names[gi]) != NULL) continue; /* already loaded */
-                uint8_t *cached = NULL; size_t cached_sz = 0;
-                if (sid_cache_get(&sid_cache, gidx.names[gi], &cached, &cached_sz) != 0)
-                    continue;
-                if (dt_put(&g_dramtile, gidx.names[gi], cached, cached_sz)) {
-                    dt_extra++;
-                    dt_bytes += cached_sz;
-                }
-            }
-            fprintf(stderr, "[dramtile] loaded %d+%d tensors (%zu bytes, %.1f%% of pool)\n",
-                dt_loaded, dt_extra, dt_bytes,
-                100.0 * dt_bytes / g_dramtile.capacity);
         } else {
             fprintf(stderr, "[dramtile] init failed — falling back to heap\n");
             g_opt_dramtile = 0;
+        }
+    }
+
+    free(read_buf);
+
+    if (sid_face > 0) {
+        fprintf(stderr, "\n--- SID cache init ---\n");
+        sid_cache_init(&sid_cache, total_bytes + (1u << 20));
+
+        if (g_opt_dramtile && g_dramtile.used > 0) {
+            /* Populate SID cache from DRamTile with raw copy (no compression).
+             * SID swap setup reads from DRamTile directly via dt_get();
+             * the cache is only needed for geodesic expansion fallback
+             * (hybrid cluster) and experiment/cosplay-compare. */
+            int n_cached = 0;
+            for (int fi = 0; fi < n_found; fi++) {
+                if (sid_loader_is_norm(found_tensors[fi].name)) continue;
+                uint8_t *src = dt_get(&g_dramtile, found_tensors[fi].name);
+                if (src) {
+                    sid_cache_put(&sid_cache, found_tensors[fi].name, 0,
+                                  src, found_tensors[fi].nbytes);
+                    n_cached++;
+                }
+            }
+            fprintf(stderr, "[sid] cached %d tensors from DRamTile (raw)\n", n_cached);
+        } else {
+            /* Fall back to GGUF file */
+            if (sid_loader_open(&slc, gguf_path, &sid_cache) != 0) {
+                fprintf(stderr, "ERROR: sid_loader_open failed\n");
+                gguf_idx_close(&gidx);
+                llama_model_free(model); llama_backend_free(); return 1;
+            }
+            read_buf = (uint8_t*)malloc((size_t)max_sz);
+            uint8_t *verify_buf = (uint8_t*)malloc((size_t)max_sz);
+            if (!read_buf || !verify_buf) {
+                fprintf(stderr, "ERROR: OOM\n");
+                free(read_buf); free(verify_buf); sid_loader_close(&slc);
+                gguf_idx_close(&gidx);
+                llama_model_free(model); llama_backend_free(); return 1;
+            }
+            fprintf(stderr, "[sid] cached tensors: %d (verification skipped for speed)\n", n_weight_tensors);
+            free(verify_buf);
         }
     }
 
@@ -1995,8 +2134,16 @@ int main(int argc,char**argv){
         fprintf(stderr, "[twin-gpu] bridge unloaded\n");
     }
 
-    /* ── DRamTile cleanup ── */
-    if (g_opt_dramtile) dt_store_destroy(&g_dramtile);
+    /* ── DRamTile cleanup ──
+     *   twin mode → saves hash directory + syncs to file
+     *   anonymous → just releases memory
+     */
+    if (g_opt_dramtile) {
+        if (g_dramtile.is_twin)
+            dt_store_destroy_twin(&g_dramtile);
+        else
+            dt_store_destroy(&g_dramtile);
+    }
 
     /* ── Cleanup ── */
     for (int i = 0; i < n_sid_swaps; i++) {

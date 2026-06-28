@@ -67,6 +67,18 @@
 - 403 `.ses` profiles ใน `runner/ses_profiles/`
 - 9 `.cpl` cosplay profiles ใน `runner/cpl_profiles/`
 
+### ✨ June 28 — DRamTile Cold Migrate + Eviction + KV Compose
+- **Phase 10**: `dt_migrate_step()` / `dt_migrate_promote_one()` — promote bond entries from cold back to primary (LRU sort by session_tick)
+- **Phase 11**: `dt_evict_step()` — LRU evict oldest cold entries (lowest session_tick)
+- **Phase 12**: `dt_cold_make_room()` — auto-evict before cold alloc when full
+- **Phase 13**: `kv_compose()` — KV spill to cold when kv_base full, transparent read/write via dt_get/dt_put_kv
+- **Bugs fixed**:
+  - `dt_store_destroy()`/`destroy_twin()`/`destroy_twinv()`: cold_base cleanup now checks `is_cold_twin` (UnmapViewOfFile+CloseHandle vs VirtualFree)
+  - `dt_cold_rebuild_used()` moved before `dt_store_init_cold_twin()` to fix implicit declaration
+  - `4UL * 1024 * 1024 * 1024` overflow on Windows (unsigned long = 32-bit) → simplified to use caller's max_bytes directly
+- **Tests**: 68 → 97 tests, all pass
+- **Docs**: updated `docs/dramtile.md` with cold spill, migrate, eviction, KV compose, 3-tier hierarchy
+
 ### 📁 KV Remap Files (สร้างวันนี้)
 - `runner/kv_remap.h` — Adaptive skeleton+delta (RLE compressed, self-contained)
 - `runner/kv_remap_rail.h` — Rail layer-based segment chunking (per-layer scan/patch)
@@ -95,6 +107,18 @@ Fixed critical bug in `diamond_shell_codec.h`: codec classified non-zero chunks 
 ---
 
 ## Session History (สรุปย่อ)
+
+### June 28 — DRamTile Dual-Region + KV Ephemeral Fixes + Type-Safe Container Test
+- **Bugs fixed in `dramtile_store.h`**:
+  - `dt_store_save_dir()`: was using `store->n_stored` (includes KV entries) as entry count → header had wrong count (e.g. 3 for 1 weight + 2 KV), causing directory corruption on reopen. **Fix**: count non-KV entries separately.
+  - `dt_store_destroy_twin()`/`destroy_twinv()`: missing `kv_base` cleanup (VirtualFree/munmap). **Fix**: added kv_base unmap after file mapping cleanup.
+  - `dt_resolve()`, `dt_getv()`, `dt_view()`: used direct `store->base + offset` (wrong for KV) and exact `dram_addr` comparison (failed for KV entries). **Fix**: use `dt_entry_ptr()` and `(stored & ~DT_KV_FLAG)` mask.
+  - `dt_store_foreach()`: iterated KV entries (count=3 instead of 1). **Fix**: added `DT_KV_FLAG` skip.
+  - `dt_store_total_bytes()`: counted KV bytes. **Fix**: added `DT_KV_FLAG` skip.
+- **New tests** (test_dramtile_twin.c → 49 tests, all pass):
+  - Phase 6: Dual-region — write 1 weight + 2 KV entries, verify KV accessible in-session, NOT persisted on reopen, foreach/total_bytes exclude KV. **✅**
+  - Phase 7: Type-safe container — `dtc_wrap()`, `dtc_f32_2d()` element access, `dtc_slice()`, `dtc_flatten()`, `dtc_ptr()` with float32 data. **✅**
+- **Key design principle**: KV entries use `DT_KV_FLAG` (0x80000000) in `dram_addr` to select `kv_base` vs `base`. All lookup functions must mask the flag. Directory save/foreach/total_bytes explicitly skip KV entries.
 
 ### June 26 — KV Remap System (Adaptive Skeleton+Delta + Rail)
 - **New system**: Adaptive 3-tier KV cache management:
