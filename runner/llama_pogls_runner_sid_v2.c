@@ -48,6 +48,7 @@
 #include <math.h>
 #include <stdbool.h>
 #include "llama.h"
+#include "ggml-backend.h"
 #include "gguf_index.h"
 #include "sid_cache.h"
 #include "sid_loader.h"
@@ -276,6 +277,7 @@ static void* find_layers_ptr(const void *model_alloc) {
 typedef struct {
     void   *ptr;
     void   *orig_data;
+    void   *gpu_data;    /* original tensor->data before any swap (GPU buffer ptr) */
     char    name[64];
     size_t  nbytes;
     int64_t ne[4];
@@ -292,11 +294,16 @@ static int n_found = 0;
 #include "icosa_bridge_loader.h"
 #include "gear_lock.h"
 #include "kv_swap.h"
+#include "vramtile.h"
 
 static IcosaBridge g_ibridge;
 static void *g_ibridge_ctx = NULL;
 static int g_opt_twin_gpu = 0;
 static int g_opt_gear_lock = 0;
+static int g_opt_vram = 0;           /* VRAM size in MB (0=disabled) */
+static VRamTileStore g_vrt;          /* VRamTile instance */
+static uint32_t g_gpu_worlds = 0;    /* completed GPU worlds for gear-aware eviction */
+static int vrt_upload_gpu(void *gpu_dst, const void *cpu_src, size_t sz, void *user);
 static float g_opt_gear_threshold = 0.30f;
 static int g_opt_gear_log = 16;
 
@@ -372,6 +379,26 @@ static uint8_t *g_tmem_buf = NULL;
 static size_t g_tmem_buf_size = 0;
 static TensorMemStore g_tmem_store;
 
+/* ── GPU-aware tensor data update ──────────────────────────────
+ * For non-host backend buffers (GPU-offloaded), use
+ * ggml_backend_tensor_set() to correctly copy data to the GPU
+ * buffer at the right offset. Pointer swap (tensor_set_data)
+ * would break vk_tensor_offset() which computes offset as
+ * tensor->data - vk_ptr_base (0x1000) — a CPU pointer would give
+ * a garbage offset, causing vk::DeviceLost.
+ *
+ * For host (CPU) buffers, fast pointer swap is fine. */
+static inline void tensor_update_data(struct ggml_tensor *t,
+                                       const void *data, size_t sz)
+{
+    if (t->buffer && !ggml_backend_buffer_is_host(t->buffer)) {
+        ggml_backend_tensor_set(t, data, 0, sz);
+    } else {
+        (void)sz;
+        tensor_set_data(t, (void*)data);
+    }
+}
+
 /* Apply SID swaps with gear lock filtering.
  * If mask is non-NULL, only swaps with mask[i] != 0 are applied.
  * Time travel journals only actually-applied swaps. */
@@ -399,7 +426,12 @@ static void sid_swap_apply_ex(const uint8_t *mask) {
         apply_ft_idx, apply_tptr, apply_orig, apply_sid, apply_sz);
 
     for (int i = 0; i < n_apply; i++) {
-        tensor_set_data(found_tensors[apply_ft_idx[i]].ptr, apply_sid[i]);
+        int fi = apply_ft_idx[i];
+        if (g_opt_vram && g_vrt.vram_base) {
+            const char *tname = found_tensors[fi].name;
+            vrt_promote(&g_vrt, tname, NULL, NULL);  /* LRU tracking */
+        }
+        tensor_update_data(found_tensors[fi].ptr, apply_sid[i], apply_sz[i]);
     }
 }
 
@@ -431,21 +463,28 @@ static inline void sid_swap_apply(void) {
 static void sid_swap_restore_ex(const uint8_t *mask) {
     int n_restore = 0;
     int restore_ft_idx[MAX_SID_SWAPS];
+    void *restore_data[MAX_SID_SWAPS];
 
     if (mask) {
         for (int i = 0; i < n_sid_swaps; i++) {
             if (!mask[i]) continue;
-            restore_ft_idx[n_restore++] = delta_ft_idx[i];
+            restore_ft_idx[n_restore] = delta_ft_idx[i];
+            restore_data[n_restore] = delta_orig_data[i];
+            n_restore++;
         }
     } else {
         for (int i = 0; i < n_sid_swaps; i++) {
-            restore_ft_idx[n_restore++] = delta_ft_idx[i];
+            restore_ft_idx[n_restore] = delta_ft_idx[i];
+            restore_data[n_restore] = delta_orig_data[i];
+            n_restore++;
         }
     }
 
     for (int i = 0; i < n_restore; i++) {
-        tensor_set_data(found_tensors[restore_ft_idx[i]].ptr,
-                        found_tensors[restore_ft_idx[i]].orig_data);
+        int fi = restore_ft_idx[i];
+        tensor_update_data(found_tensors[fi].ptr,
+                           restore_data[i],
+                           found_tensors[fi].nbytes);
     }
 
     sid_timetravel_after_decode(&tt);
@@ -470,8 +509,20 @@ static inline uint64_t tensor_data_hash64(const void *data, size_t nbytes) {
 /* Push tensor data through icosa lane with geo_addr + data hash.
  * Feeds routes + events into GearLockState for dynamic SID swap scheduling. */
 static void twin_gpu_gear_push(void) {
-    if (!g_opt_twin_gpu || !g_ibridge_ctx) return;
-    if (n_sid_swaps <= 0) return;
+    int have_bridge = (g_opt_twin_gpu && g_ibridge_ctx);
+    if (!have_bridge && !g_opt_vram) return;
+    if (n_sid_swaps <= 0) {
+        if (g_opt_vram && g_vrt.vram_base)
+            vrt_evict_gear(&g_vrt, &g_gpu_worlds);
+        return;
+    }
+    if (!have_bridge) {
+        if (g_opt_vram && g_vrt.vram_base)
+            vrt_evict_gear(&g_vrt, &g_gpu_worlds);
+        return;
+    }
+
+
 
     uint64_t *addrs = (uint64_t*)malloc((size_t)n_sid_swaps * sizeof(uint64_t));
     uint64_t *vals  = (uint64_t*)malloc((size_t)n_sid_swaps * sizeof(uint64_t));
@@ -498,11 +549,25 @@ static void twin_gpu_gear_push(void) {
             gear_lock_print_summary(&g_gear,
                 (const char *const *)found_tensors, n_found, 5);
         }
+        /* Advance GPU worlds counter (162 ops/world); one dispatch = at least 1 world */
+        if (g_opt_vram && n_sid_swaps > 0)
+            g_gpu_worlds += (n_sid_swaps + 161) / 162;
+        /* Gear-aware VRAM eviction: free entries GPU has finished with */
+        if (g_opt_vram && g_vrt.vram_base)
+            vrt_evict_gear(&g_vrt, &g_gpu_worlds);
     } else {
         fprintf(stderr, "[twin-gpu] dispatch error %d\n", ret);
     }
 
     free(addrs); free(vals); free(routes); free(events);
+}
+
+/* ── VRamTile GPU upload callback (via icosa bridge) ─────── */
+static int vrt_upload_gpu(void *gpu_dst, const void *cpu_src, size_t sz, void *user) {
+    (void)user;
+    if (!g_opt_twin_gpu || !g_ibridge_ctx)
+        return -1;  /* no GPU → caller memcpy fallback */
+    return g_ibridge.memcpy_h2d(g_ibridge_ctx, gpu_dst, cpu_src, sz);
 }
 
 /* ── Tensor memory store: log swapped tensors after decode ── */
@@ -599,6 +664,7 @@ int main(int argc,char**argv){
         else if(!strcmp(argv[i],"--ctx")&&i+1<argc)opt_ctx=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--dramtile"))g_opt_dramtile=1;
         else if(!strcmp(argv[i],"--dramtile-file")&&i+1<argc){g_opt_dramtile=1;g_opt_dramtile_file=argv[++i];}
+        else if(!strcmp(argv[i],"--vram")&&i+1<argc)g_opt_vram=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--simulate"))g_opt_simulate=1;
         else if(!strcmp(argv[i],"--profile-batch")&&i+1<argc)g_opt_profile_batch=argv[++i];
         else if(!strcmp(argv[i],"--semantic-weight")&&i+1<argc)g_opt_sem_weight=(float)atof(argv[++i]);
@@ -657,6 +723,7 @@ int main(int argc,char**argv){
             fprintf(stderr,"  --kv-page-evict N        KV Page Store: evict oldest N pages after init\n");
             fprintf(stderr,"  --remap                  KV remap: adaptive skeleton+delta + rail verify\n");
             fprintf(stderr,"  --shadow                 KV remap shadow zone: delta metadata heartbeat\n");
+            fprintf(stderr,"  --vram MB                 VRamTile: VRAM cache size in MB (requires --dramtile)\n");
             fprintf(stderr,"  --dramtile                Enable DRamTile zero-copy tensor store (anonymous)\n");
             fprintf(stderr,"  --dramtile-file PATH      Enable DRamTile with file-backed twin persistence\n");
             fprintf(stderr,"  --simulate                Simulate session (no model)\n");
@@ -672,6 +739,7 @@ int main(int argc,char**argv){
             fprintf(stderr,"  /ff NAME                  Fast-forward from checkpoint\n");
             fprintf(stderr,"  /branch NAME              Branch from checkpoint\n");
             fprintf(stderr,"  /tt                       Show time travel state\n");
+            fprintf(stderr,"  /vrt                      Show VRamTile status\n");
             fprintf(stderr,"  /clear                    Clear chat history\n");
             fprintf(stderr,"  /exit                     Exit\n");
             return 0;
@@ -747,6 +815,7 @@ int main(int argc,char**argv){
     for (int i = 0; i < n; i++) {
         found_tensors[i].ptr = ptrs[i];
         found_tensors[i].orig_data = tensor_data(ptrs[i]);
+        found_tensors[i].gpu_data = tensor_data(ptrs[i]);  /* preserve for GPU backend updates */
         int64_t ne[4]; memcpy(ne, (const char*)ptrs[i] + 16, sizeof(ne));
         size_t nb[4]; memcpy(nb, (const char*)ptrs[i] + 48, sizeof(nb));
         size_t nb_total = (size_t)ne[0] * nb[0];
@@ -937,36 +1006,75 @@ int main(int argc,char**argv){
         if (dt_ok) {
             if (g_dramtile.n_stored == 0) {
                 int dt_loaded = 0; size_t dt_bytes = 0;
+                /* When --ngl is active, tensor->data may point to GPU device
+                 * memory — read from GGUF file instead. */
+                int dt_use_file = (opt_ngl > 0);
+                FILE *dt_f = dt_use_file ? fopen(gguf_path, "rb") : NULL;
+                uint8_t *dt_buf = dt_f ? (uint8_t*)malloc((size_t)max_sz) : NULL;
+                if (dt_f && !dt_buf) { fclose(dt_f); dt_f = NULL; dt_use_file = 0; }
                 for (int fi = 0; fi < n_found; fi++) {
                     if (sid_loader_is_norm(found_tensors[fi].name)) continue;
-                    uint8_t *src = (uint8_t*)found_tensors[fi].orig_data;
                     size_t src_sz = found_tensors[fi].nbytes;
+                    uint8_t *src = (uint8_t*)found_tensors[fi].orig_data;
+                    if (dt_f) {
+                        for (uint64_t gi = 0; gi < gidx.n_tensors; gi++) {
+                            if (strcmp(gidx.names[gi], found_tensors[fi].name) == 0) {
+                                uint64_t abs_off = gguf_idx_tensor_abs_offset(&gidx, gi);
+                                if (_fseeki64(dt_f, (__int64)abs_off, SEEK_SET) == 0 &&
+                                    fread(dt_buf, 1, src_sz, dt_f) == src_sz)
+                                    src = dt_buf;
+                                break;
+                            }
+                        }
+                    }
                     if (dt_put(&g_dramtile, found_tensors[fi].name, src, src_sz))
                         { dt_loaded++; dt_bytes += src_sz; }
                 }
+                if (dt_buf) free(dt_buf);
+                if (dt_f) fclose(dt_f);
                 fprintf(stderr, "[dramtile] loaded %d tensors (%zu bytes, %.1f%% of pool)\n",
                     dt_loaded, dt_bytes,
                     100.0 * dt_bytes / g_dramtile.capacity);
 
                 /* Redirect found_tensors[].orig_data to DRamTile pointers
                  * so SID restore reads from DRamTile instead of mmap.
-                 * Also save GGUF path for optional fallback. */
+                 * When --ngl is active, keep GGUF pointer — GPU backend uses
+                 * original tensor->data for buffer management; changing it
+                 * to VirtualAlloc causes vk::DeviceLost on next decode. */
                 for (int fi = 0; fi < n_found; fi++) {
                     if (sid_loader_is_norm(found_tensors[fi].name)) continue;
+                    if (opt_ngl > 0) continue; /* keep GGUF pointer for GPU */
                     uint8_t *dt_data = dt_get(&g_dramtile, found_tensors[fi].name);
                     if (dt_data)
                         found_tensors[fi].orig_data = dt_data;
                 }
             } else {
                 int dt_missing = 0; size_t dt_miss_bytes = 0;
+                int dt_use_file2 = (opt_ngl > 0);
+                FILE *dt_f2 = dt_use_file2 ? fopen(gguf_path, "rb") : NULL;
+                uint8_t *dt_buf2 = dt_f2 ? (uint8_t*)malloc((size_t)max_sz) : NULL;
+                if (dt_f2 && !dt_buf2) { fclose(dt_f2); dt_f2 = NULL; dt_use_file2 = 0; }
                 for (int fi = 0; fi < n_found; fi++) {
                     if (sid_loader_is_norm(found_tensors[fi].name)) continue;
                     if (dt_get(&g_dramtile, found_tensors[fi].name) != NULL) continue;
-                    uint8_t *src = (uint8_t*)found_tensors[fi].orig_data;
                     size_t src_sz = found_tensors[fi].nbytes;
+                    uint8_t *src = (uint8_t*)found_tensors[fi].orig_data;
+                    if (dt_f2) {
+                        for (uint64_t gi = 0; gi < gidx.n_tensors; gi++) {
+                            if (strcmp(gidx.names[gi], found_tensors[fi].name) == 0) {
+                                uint64_t abs_off = gguf_idx_tensor_abs_offset(&gidx, gi);
+                                if (_fseeki64(dt_f2, (__int64)abs_off, SEEK_SET) == 0 &&
+                                    fread(dt_buf2, 1, src_sz, dt_f2) == src_sz)
+                                    src = dt_buf2;
+                                break;
+                            }
+                        }
+                    }
                     if (dt_put(&g_dramtile, found_tensors[fi].name, src, src_sz))
                         { dt_missing++; dt_miss_bytes += src_sz; }
                 }
+                if (dt_buf2) free(dt_buf2);
+                if (dt_f2) fclose(dt_f2);
                 fprintf(stderr, "[dramtile] reopened twin file: %u tensors (%zu bytes, %.1f%% of pool)",
                     g_dramtile.n_stored, g_dramtile.used,
                     100.0 * g_dramtile.used / g_dramtile.capacity);
@@ -1197,7 +1305,14 @@ int main(int argc,char**argv){
 
             delta_ft_idx[n_sid_swaps] = i;
             delta_tensor_ptr[n_sid_swaps] = found_tensors[i].ptr;
-            delta_orig_data[n_sid_swaps] = found_tensors[i].orig_data;
+            /* When --ngl is active, orig_data points to GPU device memory.
+             * Use DRamTile's CPU-readable copy for restore instead. */
+            if (opt_ngl > 0 && g_opt_dramtile) {
+                uint8_t *orig = dt_get(&g_dramtile, name);
+                delta_orig_data[n_sid_swaps] = orig ? orig : found_tensors[i].orig_data;
+            } else {
+                delta_orig_data[n_sid_swaps] = found_tensors[i].orig_data;
+            }
             delta_sid_data[n_sid_swaps] = cached;
             delta_size[n_sid_swaps] = cached_sz;
             n_sid_swaps++;
@@ -1237,7 +1352,12 @@ int main(int argc,char**argv){
                     sid_swaps[n_sid_swaps].is_malloc = 0;
                     delta_ft_idx[n_sid_swaps] = t;
                     delta_tensor_ptr[n_sid_swaps] = found_tensors[t].ptr;
-                    delta_orig_data[n_sid_swaps] = found_tensors[t].orig_data;
+                    if (opt_ngl > 0 && g_opt_dramtile) {
+                        uint8_t *orig = dt_get(&g_dramtile, found_tensors[t].name);
+                        delta_orig_data[n_sid_swaps] = orig ? orig : found_tensors[t].orig_data;
+                    } else {
+                        delta_orig_data[n_sid_swaps] = found_tensors[t].orig_data;
+                    }
                     delta_sid_data[n_sid_swaps] = cached;
                     delta_size[n_sid_swaps] = cached_sz;
                     n_sid_swaps++; added++;
@@ -1388,8 +1508,28 @@ int main(int argc,char**argv){
         }
     }
 
-    /* ── Init redirect: set tensor->data to writable SID cache heap BEFORE context creation ── */
-    if (sid_face > 0 && n_sid_swaps > 0) {
+    /* ── VRamTile init (VRAM cache layer over DRamTile) ── */
+    if (g_opt_vram > 0) {
+        if (!g_opt_dramtile || g_dramtile.used == 0) {
+            fprintf(stderr, "[vramtile] ERROR: --vram requires --dramtile with loaded tensors\n");
+            g_opt_vram = 0;
+        } else {
+            size_t vram_bytes = (size_t)g_opt_vram << 20;
+            int is_gpu = (g_opt_twin_gpu && g_ibridge_ctx) ? 1 : 0;
+            if (vrt_init_external(&g_vrt, &g_dramtile, vram_bytes, is_gpu) == 0) {
+                fprintf(stderr, "[vramtile] init: %d MB VRAM (%s), external src: g_dramtile\n",
+                    g_opt_vram, is_gpu ? "GPU upload via icosa bridge" : "memcpy simulation");
+            } else {
+                fprintf(stderr, "[vramtile] VRAM alloc failed — disabled\n");
+                g_opt_vram = 0;
+            }
+        }
+    }
+
+    /* ── Init redirect: set tensor->data to writable SID cache heap BEFORE context creation ──
+     *   When --ngl is active, skip redirect — GPU backend manages its own buffer copies.
+     *   SID swap at decode time will redirect to SID cache data as needed. */
+    if (sid_face > 0 && n_sid_swaps > 0 && !(opt_ngl > 0)) {
         fprintf(stderr, "[init-redirect] %d tensors: tensor->data → heap (SID cache)\n", n_sid_swaps);
         for (int s = 0; s < n_sid_swaps; s++) {
             int fi = sid_swaps[s].ft_idx;
@@ -1761,6 +1901,7 @@ int main(int argc,char**argv){
         goto cleanup;
     }
     free(bond_hotness); free(hybrid_include); free(multi_include);
+    fprintf(stderr, "[dbg] after init block, opt_chat=%d opt_prompt=%s\n", opt_chat, opt_prompt ? opt_prompt : "NULL");
 
     if(!opt_chat&&!opt_prompt&&!opt_dump_logits&&!opt_count_only){opt_chat=1;}
     if(opt_chat){
@@ -1869,6 +2010,13 @@ int main(int argc,char**argv){
                     kv_remap_print_status(&g_remap_ctx);
                     kv_remap_rail_print_status(&g_remap_rail);
                 }else{printf("KV Remap not enabled (--remap)\n");}
+                continue;
+            }
+            if(!strcmp(line,"/vrt")){
+                if(g_opt_vram && g_vrt.vram_base){
+                    vrt_stats(&g_vrt, stdout);
+                    printf("  GPU worlds: %u\n", g_gpu_worlds);
+                }else{printf("VRamTile not enabled (--vram)\n");}
                 continue;
             }
             if(!strcmp(line,"/rscan")){
@@ -2043,10 +2191,13 @@ int main(int argc,char**argv){
         free(p_fmt);
         struct llama_batch pb=llama_batch_init(nt,0,1);pb.n_tokens=nt;
         for(int j=0;j<nt;j++){pb.token[j]=toks[j];pb.pos[j]=j;pb.n_seq_id[j]=1;pb.seq_id[j][0]=0;pb.logits[j]=j==nt-1?1:0;}
+        fprintf(stderr, "[dbg] before first sid_swap_apply (prompt decode)\n");
         sid_swap_apply();
+        fprintf(stderr, "[dbg] before llama_decode (prompt)\n");
         if(llama_decode(lctx,pb)!=0){fprintf(stderr,"[dbg] decode fail\n");llama_batch_free(pb);free(toks);sid_swap_restore();return 1;}
+        fprintf(stderr, "[dbg] after llama_decode (prompt)\n");
         sid_swap_restore(); twin_gpu_gear_push();
-        /* KV Remap: capture skeleton after first prompt decode (rail starts later) */
+        /* KV Remap: capture skeleton after first prompt decode */
         if (g_opt_remap && !g_remap_ctx.skeleton_valid) {
             kv_remap_set_skeleton(&g_remap_ctx);
         }
@@ -2134,6 +2285,12 @@ int main(int argc,char**argv){
         fprintf(stderr, "[twin-gpu] bridge unloaded\n");
     }
 
+    /* ── VRamTile cleanup ── */
+    if (g_opt_vram && g_vrt.vram_base) {
+        vrt_destroy(&g_vrt);
+        fprintf(stderr, "[vramtile] destroyed\n");
+    }
+
     /* ── DRamTile cleanup ──
      *   twin mode → saves hash directory + syncs to file
      *   anonymous → just releases memory
@@ -2150,6 +2307,7 @@ int main(int argc,char**argv){
         if (sid_swaps[i].is_malloc) free(sid_swaps[i].sid_data);
     }
 cleanup:
+    if (g_vrt.vram_base) vrt_destroy(&g_vrt);
     if (g_opt_twin_gpu && g_ibridge_ctx) {
         g_ibridge.destroy(g_ibridge_ctx);
         g_ibridge_ctx = NULL;

@@ -26,7 +26,7 @@
 
 ---
 
-## สถานะระบบปัจจุบัน (June 27, 2026)
+## สถานะระบบปัจจุบัน (June 29, 2026)
 
 ### ✅ Pipeline หลัก — ทั้งหมดผ่าน
 | Component | Status |
@@ -66,6 +66,37 @@
 - `test_kv_remap.exe` — KV Remap test suite (7 tests, all pass)
 - 403 `.ses` profiles ใน `runner/ses_profiles/`
 - 9 `.cpl` cosplay profiles ใน `runner/cpl_profiles/`
+
+### ✨ June 28 — VRamTile Integration + GPU Offload Bugfix
+
+- **VRamTile runner integration** (`vramtile.h` + `llama_pogls_runner_sid_v2.c`):
+  - `vrt_init_external()`: VRamTile reads from existing `g_dramtile` instead of owning its own store (`external_src` field)
+  - `--vram MB` CLI flag, `g_vrt` + `g_gpu_worlds` globals
+  - Upload callback `vrt_upload_gpu()` via `g_ibridge.memcpy_h2d()` for real GPU upload
+  - `sid_swap_apply_ex()` wired with `vrt_promote()` for each SID swap cycle
+  - `twin_gpu_gear_push()` wired with `vrt_evict_gear()` using `g_gpu_worlds` counter
+  - `/vrt` chat command for stats
+  - Builds with 0 errors
+- **Critical bugfix**: DRamTile crashed with `--ngl` (GPU offload) because `tensor->data` points to GPU device memory after `llama_load_model_from_file()`. Fix: when `opt_ngl > 0`, read tensor data from GGUF file directly (using `gidx` offsets) instead of `orig_data` pointer.
+- **Verified**: `--dramtile --ngl 24` exit 0, answer "4". `--dramtile --vram 128 --ngl 24` exit 0, answer "4". VRamTile 9/9 tests pass, DRamTile 166/166 tests pass.
+
+### ✨ June 28 — SID+GPU Bugfix + DRamTile Benchmark
+
+- **SID+GPU DeviceLost fix** (`llama_pogls_runner_sid_v2.c`): `tensor_set_data()` changes `tensor->data` → breaks `vk_tensor_offset()` for GPU tensors. **Fix**: `tensor_update_data()` detects GPU tensor via `t->buffer && !ggml_backend_buffer_is_host(t->buffer)` → uses `ggml_backend_tensor_set()` instead of pointer swap. DeviceLost resolved.
+- **SID restore GPU crash fix**: `sid_swap_restore_ex()` used `found_tensors[fi].orig_data` (GPU device pointer) directly → `ggml_backend_tensor_set` crashed trying to memcpy from GPU address. **Fix**: passes `delta_orig_data[i]` (DRamTile CPU copy) instead.
+- **DRamTile benchmark** (`runner/bench_sid.ps1` — LFM2.5-8B-A1B-Q4_K_M.gguf):
+  | Benchmark | Time | vs Baseline |
+  |---|---|---|
+  | CPU: Baseline (no SID) | 113.64s | — |
+  | CPU: SID | 101.32s | -11% |
+  | **CPU: SID + DRamTile** | **73.03s** | **-36% 🏆** |
+  | GPU: SID | 1.65s | — |
+  | GPU: SID + DRamTile | 2.27s | +38% |
+  | 5-face CPU: SID | 4.30s | — |
+  | **5-face CPU: SID + DRamTile** | **3.32s** | **-23% 🏆** |
+  - **CPU: DRamTile เร็วกว่า** — VirtualAlloc/mmap overhead น้อยกว่า heap allocator สำหรับ tensor 5 GB
+  - **GPU: DRamTile ช้ากว่า** — ต้อง memcpy DRamTile → GPU buffer (extra copy)
+  - **5-face warm cache: DRamTile เร็วกว่า** — cache reuse + allocation efficiency
 
 ### ✨ June 28 — DRamTile Cold Migrate + Eviction + KV Compose
 - **Phase 10**: `dt_migrate_step()` / `dt_migrate_promote_one()` — promote bond entries from cold back to primary (LRU sort by session_tick)
