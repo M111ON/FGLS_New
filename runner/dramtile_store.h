@@ -45,6 +45,7 @@
 #define DT_FILE_HDR_SZ  64        /* file header size */
 #define DT_MAX_NDIM     4         /* max dims stored in file format */
 #define DT_NAME_MAX     256       /* max tensor name length */
+#define DT_HASH_NAME    48        /* compact name stored in hash entry */
 #define DT_DIR_ENTRY_SZ 48        /* bytes per directory entry (V2) */
 #define DT_COLD_DEFAULT (256UL << 20)  /* default cold region: 256 MB */
 
@@ -63,6 +64,7 @@ typedef struct {
     uint32_t dram_addr;   /* 0..DRAM_FULL-1, 0 = unused; bit30=DT_BOND_FLAG */
     size_t   offset;      /* byte offset in mmap_base */
     size_t   size;        /* stored bytes */
+    char     name[DT_HASH_NAME]; /* compact tensor name for evict callback */
     /* bond spill — zeroed for local entries */
     uint32_t cold_offset; /* offset in cold_base (0 = no spill) */
     uint32_t session_tick;/* tick at spill time */
@@ -90,6 +92,10 @@ typedef struct {
     char              cold_filepath[DT_MAX_PATH]; /* cold twin path (empty = anonymous) */
     int               is_cold_twin;     /* 1 if cold is file-backed */
     uint32_t          session_tick;     /* monotonic counter, incremented per put */
+    /* evict invalidation callback — called before removing a hash entry.
+     * name: tensor name being evicted. user: caller-provided context. */
+    void            (*evict_cb)(const char *name, void *user);
+    void             *evict_user;
 #define DT_KV_FLAG    0x80000000u       /* dram_addr bit31: KV region */
 #define DT_BOND_FLAG  0x40000000u       /* dram_addr bit30: spilled to cold */
 #define DT_DELTA_FLAG 0x20000000u       /* dram_addr bit29: delta compose mode
@@ -305,11 +311,24 @@ static inline uint8_t *dt_put(DRamTileStore *store,
     if (store->hash[slot].dram_addr == addr) {
         size_t off = store->hash[slot].offset;
         if (store->hash[slot].size != sz) return NULL;
+        /* Triple-aliasing guard: warn if overwriting slot that may be
+         * an active SID source (orig_data/delta_orig_data alias this mmap). */
+        if (store->hash[slot].session_tick > 0)
+            fprintf(stderr, "[dt_put] WARNING: overwriting slot %u '%s' — "
+                    "ensure no active SID swap reads from this mmap\n",
+                    slot, name);
         memcpy(dt_entry_ptr(store, slot), data, sz);
+        /* update name (in case it changed) */
+        strncpy(store->hash[slot].name, name, DT_HASH_NAME - 1);
+        store->hash[slot].name[DT_HASH_NAME - 1] = '\0';
         return dt_entry_ptr(store, slot);
     }
 
     store->session_tick++;
+
+    /* store compact name in hash entry for evict callback */
+    strncpy(store->hash[slot].name, name, DT_HASH_NAME - 1);
+    store->hash[slot].name[DT_HASH_NAME - 1] = '\0';
 
     size_t off = (store->used + 63) & ~63;
     int local = (off + sz <= store->capacity);
@@ -1029,7 +1048,6 @@ static inline void dt_store_destroy_twin(DRamTileStore *store) {
     dt_store_sync(store, 0);
 
     /* Close handles + kv_base + cold_base */
-    dt_store_sync(store, 0);
 #ifdef _WIN32
     UnmapViewOfFile(store->base);
     if (store->hMapping) CloseHandle(store->hMapping);
@@ -1343,11 +1361,17 @@ static inline int dt_migrate_step(DRamTileStore *store, int max_entries,
     if (!store->cold_base || !store->base || max_entries <= 0) return 0;
     int promoted = 0;
 
+    /* Use a dedicated skip bitmap instead of abusing DT_KV_FLAG.
+     * Prevents accidental deletion of entries with dram_addr=0 + bond flag. */
+    uint8_t skip[DT_HASH_SLOTS];
+    memset(skip, 0, sizeof(skip));
+
     for (int pass = 0; pass < 2 && promoted < max_entries; pass++) {
         int best_slot = -1;
         uint32_t best_tick = promote_newest ? 0 : UINT32_MAX;
 
         for (int i = 0; i < DT_HASH_SLOTS; i++) {
+            if (skip[i]) continue;
             if (!(store->hash[i].dram_addr & DT_BOND_FLAG)) continue;
             if (store->hash[i].dram_addr & DT_KV_FLAG) continue; /* KV not migratable */
             uint32_t t = store->hash[i].session_tick;
@@ -1361,17 +1385,8 @@ static inline int dt_migrate_step(DRamTileStore *store, int max_entries,
         if (dt_migrate_promote_one(store, best_slot, dir_reserve)) {
             promoted++;
         } else {
-            /* Primary full — mark slot so next pass can skip */
-            store->hash[best_slot].dram_addr |= DT_KV_FLAG; /* abuse KV_FLAG as temp */
-        }
-    }
-    /* Restore any temp-flagged entries */
-    for (int i = 0; i < DT_HASH_SLOTS; i++) {
-        if (store->hash[i].dram_addr == (DT_KV_FLAG | DT_BOND_FLAG))
-            store->hash[i].dram_addr = 0; /* clear both */
-        else if (store->hash[i].dram_addr & DT_KV_FLAG) {
-            /* If it was KV + temp abuse, remove temp but keep KV */
-            /* Actually, dt_migrate_step skips KV_FLAG entries, so this shouldn't happen */
+            /* Primary full — skip this slot on next pass */
+            skip[best_slot] = 1;
         }
     }
     return promoted;
@@ -1400,6 +1415,9 @@ static inline int dt_evict_step(DRamTileStore *store, int max_entries) {
             }
         }
         if (worst_slot < 0) break;
+        /* Notify invalidation callback before removing (e.g., GearShift) */
+        if (store->evict_cb)
+            store->evict_cb(store->hash[worst_slot].name, store->evict_user);
         /* Remove from hash */
         store->hash[worst_slot].dram_addr = 0;
         store->n_stored--;

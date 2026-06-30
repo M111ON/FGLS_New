@@ -52,6 +52,7 @@
 #include "gguf_index.h"
 #include "sid_cache.h"
 #include "sid_loader.h"
+#include "sid_page_table.h"
 #include "bond_discovery.h"
 #include "hex_grid.h"
 #include "th_grid.h"
@@ -295,13 +296,15 @@ static int n_found = 0;
 #include "gear_lock.h"
 #include "kv_swap.h"
 #include "vramtile.h"
+#include "gear_shift.h"
 
 static IcosaBridge g_ibridge;
 static void *g_ibridge_ctx = NULL;
 static int g_opt_twin_gpu = 0;
 static int g_opt_gear_lock = 0;
 static int g_opt_vram = 0;           /* VRAM size in MB (0=disabled) */
-static VRamTileStore g_vrt;          /* VRamTile instance */
+static VRamTileStore g_vrt;          /* VRamTile instance (deprecated for GPU) */
+static GearShiftStore g_gs;          /* GearShift: Tier-2 streaming router */
 static uint32_t g_gpu_worlds = 0;    /* completed GPU worlds for gear-aware eviction */
 static int vrt_upload_gpu(void *gpu_dst, const void *cpu_src, size_t sz, void *user);
 static float g_opt_gear_threshold = 0.30f;
@@ -326,6 +329,11 @@ typedef struct {
 static SIDSwapEntry sid_swaps[MAX_SID_SWAPS];
 static int n_sid_swaps = 0;
 
+/* Lazy progressive: expand swap coverage per decode cycle.
+ * Starts at PROGRESS_STEP, grows by PROGRESS_STEP each cycle until n_sid_swaps. */
+#define PROGRESS_STEP 50
+static int g_sid_progress = 0;
+
 /* delta array:  parallel to sid_swaps[], ใช้สำหรับ time travel journal
  * sid_timetravel_before_decode() อ่าน arrays นี้เพื่อ push delta entry
  * → runner ไม่ต้อง recompute pointer ทุกครั้ง */
@@ -349,9 +357,257 @@ static const char *g_opt_experiment = NULL;
 static uint8_t **g_experiment_clean_ptrs = NULL;
 static int g_n_experiment_clean = 0;
 
+/* ── Page table (zero-copy SID indirect) ── */
+static SidPTContext g_sid_pt;
+static SIDLoaderCtx g_sid_loader_pt;   /* GGUF reader for lazy face fill */
+static int g_sid_pt_enabled = 0;
+
+/* Face populate callback: reads tensor data from GGUF file into face buffer */
+static int sid_pt_populate_from_gguf(int addr, uint8_t *buf, size_t sz, void *user) {
+    (void)addr;
+    (void)user;
+    if (!g_sid_loader_pt.gguf_file) return -1;
+    for (int i = 0; i < n_found; i++) {
+        uint32_t ta = dt_name_to_addr(found_tensors[i].name);
+        if ((int)ta == addr) {
+            /* Check if CPU-readable orig_data available */
+            if (found_tensors[i].orig_data) {
+                memcpy(buf, found_tensors[i].orig_data, sz);
+                return 0;
+            }
+            /* Lazy load from GGUF file */
+            int64_t ti = sid_loader_find(&g_sid_loader_pt, found_tensors[i].name);
+            if (ti >= 0 && sid_loader_read(&g_sid_loader_pt, (uint64_t)ti, buf) == 0)
+                return 0;
+            return -1;
+        }
+    }
+    return -1;
+}
+
+/* Get face data pointer for addr, lazy-allocating + populating if needed */
+static uint8_t *sid_pt_face_data(int addr, size_t sz) {
+    /* Ensure face entry exists */
+    int fi = sid_pt_face_ensure(&g_sid_pt, addr, sz);
+    if (fi < 0) return NULL;
+    /* Get or populate face data */
+    return sid_pt_face_get(&g_sid_pt, addr, sid_pt_populate_from_gguf, NULL);
+}
+
+/* Helper: set tensor data to face or orig, GPU-safe (legacy, no twin) */
+static inline void sid_pt_set_tensor_ptr(struct ggml_tensor *t, void *data, size_t nbytes) {
+    if (t && t->buffer && !ggml_backend_buffer_is_host(t->buffer)) {
+        if (data) ggml_backend_tensor_set(t, data, 0, nbytes);
+    } else {
+        tensor_set_data(t, data);
+    }
+}
+
+/* ── GPU twin buffer helpers ── */
+
+/* Find SidFaceEntry for addr. Returns NULL if not found. */
+static inline SidFaceEntry *sid_pt_find_face(int addr) {
+    for (int i = 0; i < g_sid_pt.n_faces; i++)
+        if (g_sid_pt.faces[i].addr == addr)
+            return &g_sid_pt.faces[i];
+    return NULL;
+}
+
+/* Apply face twin to a GPU tensor — zero-copy pointer swap.
+ * tensor->buffer and tensor->data are swapped atomically.
+ * Original buffer/data are saved ONCE during init — apply should never
+ * overwrite them (they're needed for restore). */
+static inline void sid_pt_gpu_swap_to_face(struct ggml_tensor *t, SidFaceEntry *fe) {
+    t->buffer = (struct ggml_backend_buffer*)fe->gpu_twin_buf;
+    t->data = fe->gpu_twin_ptr;
+}
+
+/* Restore original tensor buffer/data from face entry. */
+static inline void sid_pt_gpu_swap_to_orig(struct ggml_tensor *t, SidFaceEntry *fe) {
+    if (fe->gpu_orig_buf) {
+        t->buffer = (struct ggml_backend_buffer*)fe->gpu_orig_buf;
+        t->data = fe->gpu_orig_ptr;
+    }
+}
+
+/* GPU-safe swap to face: uses twin buffer if available, else CPU→GPU copy */
+static inline void sid_pt_apply_face(struct ggml_tensor *t, int addr, size_t sz) {
+    if (!t) return;
+    int is_gpu = t->buffer && !ggml_backend_buffer_is_host(t->buffer);
+    if (!is_gpu) return; /* CPU: handled by page table bit flip alone */
+    SidFaceEntry *fe = sid_pt_find_face(addr);
+    if (fe && fe->gpu_twin_buf) {
+        sid_pt_gpu_swap_to_face(t, fe);
+    } else {
+        uint8_t *face = sid_pt_face_data(addr, sz);
+        if (face) ggml_backend_tensor_set(t, face, 0, sz);
+    }
+}
+
+/* GPU-safe swap to orig: uses twin buffer if available, else CPU→GPU copy */
+static inline void sid_pt_apply_orig(struct ggml_tensor *t, int addr, const void *orig, size_t sz) {
+    if (!t) return;
+    int is_gpu = t->buffer && !ggml_backend_buffer_is_host(t->buffer);
+    if (!is_gpu) { tensor_set_data(t, (void*)orig); return; }
+    SidFaceEntry *fe = sid_pt_find_face(addr);
+    if (fe && fe->gpu_twin_buf) {
+        sid_pt_gpu_swap_to_orig(t, fe);
+    } else {
+        if (orig) ggml_backend_tensor_set(t, orig, 0, sz);
+    }
+}
+
+/* ── GPU twin buffer zero-copy swap ─────────────────────────────
+ *
+ * For GPU-offloaded tensors, creates a pre-uploaded "twin" buffer
+ * containing the face data.  Swap (apply/restore) flips only the
+ * tensor->buffer and tensor->data pointers — zero GPU data copy.
+ *
+ * vk_tensor_offset(tensor) = tensor->data - buffer_get_base(buffer)
+ * → same offset in twin buffer → GPU reads face data transparently.
+ *
+ * Call once after model init, before first decode. */
+
+static void sid_pt_gpu_init_faces(void) {
+    if (!g_sid_pt_enabled) return;
+    int gpu_faces = 0;
+
+    /* Create one temp ggml context for creating face tensor handles */
+    struct ggml_init_params params;
+    memset(&params, 0, sizeof(params));
+    params.mem_size = 1024 * 1024; /* 1 MB: enough for 256 tensor clones */
+    params.mem_buffer = NULL;
+    params.no_alloc = 1; /* don't allocate tensor data — we only need handles */
+    struct ggml_context *tmp_ctx = ggml_init(params);
+    if (!tmp_ctx) {
+        fprintf(stderr, "[sid-pt-gpu] FAIL: cannot create temp ggml context\n");
+        return;
+    }
+
+    for (int s = 0; s < n_sid_swaps; s++) {
+        int fi = sid_swaps[s].ft_idx;
+        struct ggml_tensor *t = found_tensors[fi].ptr;
+
+        int is_gpu = t && t->buffer && !ggml_backend_buffer_is_host(t->buffer);
+        if (!is_gpu) continue;
+
+        const char *tname = found_tensors[fi].name;
+        int addr = (int)dt_name_to_addr(tname);
+        size_t sz = found_tensors[fi].nbytes;
+
+        int fei = sid_pt_face_ensure(&g_sid_pt, addr, sz);
+        if (fei < 0) continue;
+        SidFaceEntry *fe = &g_sid_pt.faces[fei];
+
+        /* Populate face data from GGUF into CPU buffer (one-time) */
+        uint8_t *face_cpu = sid_pt_face_data(addr, sz);
+        if (!face_cpu) continue;
+
+        /* Save original tensor buffer/data for restore */
+        fe->gpu_orig_buf = (void*)t->buffer;
+        fe->gpu_orig_ptr = t->data;
+
+        /* Create twin buffer of the same type, sized for one tensor */
+        ggml_backend_buffer_type_t buft = ggml_backend_buffer_get_type(t->buffer);
+        size_t align = ggml_backend_buft_get_alignment(buft);
+        size_t buf_sz = ((sz + align - 1) / align) * align;
+        if (buf_sz < sz) buf_sz = sz; /* safety */
+
+        ggml_backend_buffer_t face_buf = ggml_backend_buft_alloc_buffer(buft, buf_sz);
+        if (!face_buf) {
+            fprintf(stderr, "[sid-pt-gpu] FAIL: alloc twin buf for %s (%zu bytes)\n", tname, buf_sz);
+            continue;
+        }
+
+        /* Create a temporary tensor clone and allocate it in the twin buffer.
+         * ggml_backend_tensor_alloc sets t->data + t->buffer correctly. */
+        struct ggml_tensor *face_t = ggml_dup_tensor(tmp_ctx, t);
+        if (!face_t) {
+            ggml_backend_buffer_free(face_buf);
+            continue;
+        }
+        ggml_set_name(face_t, "sid_pt_face_twin");
+        void *face_addr = ggml_backend_buffer_get_base(face_buf);
+        ggml_backend_tensor_alloc(face_buf, face_t, face_addr);
+
+        /* Upload face data to the twin buffer (CPU → GPU, one-time cost) */
+        ggml_backend_tensor_set(face_t, face_cpu, 0, sz);
+
+        fe->gpu_twin_buf = (void*)face_buf;
+        fe->gpu_twin_ptr = face_t->data;
+        gpu_faces++;
+        fprintf(stderr, "[sid-pt-gpu] face %d: %s size=%zu twin=%p\n",
+                addr, tname, buf_sz, (void*)face_buf);
+    }
+
+    /* Free temp context (GPU twin buffers survive — they're in device memory) */
+    ggml_free(tmp_ctx);
+    fprintf(stderr, "[sid-pt-gpu] init: %d GPU face twins pre-uploaded\n", gpu_faces);
+}
+
+/* Free all GPU twin buffers */
+static void sid_pt_gpu_free_faces(void) {
+    if (!g_sid_pt_enabled) return;
+    int freed = 0;
+    for (int i = 0; i < g_sid_pt.n_faces; i++) {
+        SidFaceEntry *fe = &g_sid_pt.faces[i];
+        if (fe->gpu_twin_buf) {
+            ggml_backend_buffer_free((ggml_backend_buffer_t)fe->gpu_twin_buf);
+            fe->gpu_twin_buf = NULL;
+            fe->gpu_twin_ptr = NULL;
+            freed++;
+        }
+    }
+    if (freed > 0)
+        fprintf(stderr, "[sid-pt-gpu] freed %d twin buffers\n", freed);
+}
+
+/* Journal undo: restore old bit (rewind) */
+static void sid_pt_undo_set_bit(int addr, uint8_t old_bit, void *user) {
+    (void)user;
+    SidPageTable *pt = &g_sid_pt.pt;
+    if (old_bit)
+        sid_pt_set(pt, addr);
+    else
+        sid_pt_clear(pt, addr);
+    for (int i = 0; i < n_found; i++) {
+        uint32_t ta = dt_name_to_addr(found_tensors[i].name);
+        if ((int)ta == addr) {
+            if (old_bit) {
+                sid_pt_apply_face(found_tensors[i].ptr, addr, found_tensors[i].nbytes);
+            } else {
+                sid_pt_apply_orig(found_tensors[i].ptr, addr, found_tensors[i].orig_data, found_tensors[i].nbytes);
+            }
+            return;
+        }
+    }
+}
+
+/* Journal redo: apply new bit (ffwd) */
+static void sid_pt_redo_set_bit(int addr, uint8_t new_bit, void *user) {
+    (void)user;
+    SidPageTable *pt = &g_sid_pt.pt;
+    if (new_bit)
+        sid_pt_set(pt, addr);
+    else
+        sid_pt_clear(pt, addr);
+    for (int i = 0; i < n_found; i++) {
+        uint32_t ta = dt_name_to_addr(found_tensors[i].name);
+        if ((int)ta == addr) {
+            if (new_bit) {
+                sid_pt_apply_face(found_tensors[i].ptr, addr, found_tensors[i].nbytes);
+            } else {
+                sid_pt_apply_orig(found_tensors[i].ptr, addr, found_tensors[i].orig_data, found_tensors[i].nbytes);
+            }
+            return;
+        }
+    }
+}
+
 /* session profile */
 static SessionProfile g_ses;
 static int g_opt_sid_disable = 0;
+static int g_opt_sid_force = 0;
 static int g_opt_simulate = 0;
 static const char *g_opt_profile_batch = NULL;
 static int g_turn_count = 0;
@@ -399,8 +655,58 @@ static inline void tensor_update_data(struct ggml_tensor *t,
     }
 }
 
+/* ── GearShift: DRamTile source provider ────────────────────── */
+/* Callback for gs_set_src_provider(): reads pointer + size from DRamTile */
+static void *gs_dramtile_src(const char *name, size_t *out_size, void *user) {
+    DRamTileStore *dt = (DRamTileStore *)user;
+    void *ptr = dt_get(dt, name);
+    if (ptr && out_size) *out_size = dt_get_size(dt, name);
+    return ptr;
+}
+
+/* ── GearShift: tensor→GPU stream callback ──────────────────── */
+/* Generic stream callback: streams src data to a ggml tensor (GPU or CPU) */
+typedef struct { struct ggml_tensor *tensor; } GSTensorCtx;
+static int gs_tensor_stream(const void *src_ptr, size_t src_size,
+                              void *dst_ctx, void *user) {
+    (void)user;
+    GSTensorCtx *ctx = (GSTensorCtx *)dst_ctx;
+    if (!ctx || !ctx->tensor) return -1;
+    /* Guard against buffer overflow: compute tensor byte size from strides */
+    size_t tensor_bytes = ctx->tensor->nb[3] * (size_t)ctx->tensor->ne[3];
+    if (src_size > tensor_bytes) return -1;
+    tensor_update_data(ctx->tensor, src_ptr, src_size);
+    return 0;
+}
+
+/* Per-entry tensor contexts (inline, not heap-allocated) */
+static GSTensorCtx g_gs_tensor_ctxs[GS_MAX_ENTRIES];
+
+/* Sync GearLock priorities into GearShift entries.
+ * Called after gear_lock_update() so GearShift streams highest-priority first. */
+static void sync_gearlock_to_gearshift(void) {
+    if (g_gs.n_entries == 0 || n_sid_swaps == 0) return;
+    for (int s = 0; s < n_sid_swaps; s++) {
+        int fi = delta_ft_idx[s];
+        if (fi < 0 || fi >= n_found) continue;
+        const char *tname = found_tensors[fi].name;
+        GSEntry *ge = gs_find(&g_gs, tname);
+        if (ge) {
+            float pri = gear_lock_score(&g_gear, fi);
+            ge->priority = pri;
+        }
+    }
+}
+
+/* DRamTile evict callback: invalidate GearShift entry when DRamTile evicts a tensor */
+static void dt_evict_gearshift_cb(const char *name, void *user) {
+    GearShiftStore *gs = (GearShiftStore *)user;
+    if (name && gs) gs_invalidate(gs, name);
+}
+
 /* Apply SID swaps with gear lock filtering.
  * If mask is non-NULL, only swaps with mask[i] != 0 are applied.
+ * When --sid-pt: uses page table (flip bit, lazy face, journal).
  * Time travel journals only actually-applied swaps. */
 static void sid_swap_apply_ex(const uint8_t *mask) {
     int n_apply = 0;
@@ -412,6 +718,7 @@ static void sid_swap_apply_ex(const uint8_t *mask) {
 
     for (int i = 0; i < n_sid_swaps; i++) {
         if (mask && !mask[i]) continue;
+        if (i >= g_sid_progress) continue;
         apply_ft_idx[n_apply] = delta_ft_idx[i];
         apply_tptr[n_apply] = delta_tensor_ptr[i];
         apply_orig[n_apply] = delta_orig_data[i];
@@ -422,16 +729,49 @@ static void sid_swap_apply_ex(const uint8_t *mask) {
 
     if (n_apply == 0) return;
 
+    /* ── Page table path: flip bits, lazy face populate, journal ──
+     *   CPU: zero-copy pointer swap (orig↔face).  Face buffer is only
+     *   allocated + populated when cosplay perturbation is active;
+     *   otherwise tensor->data stays at orig_data (no-op face↔orig).
+     *   GPU: zero-copy via pre-uploaded twin buffer — swaps tensor->buffer
+     *   and tensor->data pointers.  No data copy during decode. */
+    if (g_sid_pt_enabled) {
+        for (int i = 0; i < n_apply; i++) {
+            int fi = apply_ft_idx[i];
+            const char *tname = found_tensors[fi].name;
+            int addr = (int)dt_name_to_addr(tname);
+            int old = sid_pt_flip(&g_sid_pt.pt, addr);
+            struct ggml_tensor *t = found_tensors[fi].ptr;
+            int is_gpu = t && t->buffer && !ggml_backend_buffer_is_host(t->buffer);
+            if (!old) {
+                /* flipped TO face */
+                sid_pt_apply_face(t, addr, found_tensors[fi].nbytes);
+            } else {
+                /* flipped TO orig */
+                if (is_gpu)
+                    sid_pt_apply_orig(t, addr, found_tensors[fi].orig_data, found_tensors[fi].nbytes);
+                /* CPU: zero-copy — tensor->data already at orig_data */
+            }
+            sid_pt_journal_push(&g_sid_pt.journal, addr, (uint8_t)old, (uint8_t)(!old));
+        }
+        return;
+    }
+
+    /* ── Legacy path: time travel journal + tensor_update_data ── */
     sid_timetravel_before_decode(&tt, n_apply,
         apply_ft_idx, apply_tptr, apply_orig, apply_sid, apply_sz);
 
     for (int i = 0; i < n_apply; i++) {
         int fi = apply_ft_idx[i];
-        if (g_opt_vram && g_vrt.vram_base) {
+        int gs_ok = 0;
+        if (g_gs.n_entries > 0) {
             const char *tname = found_tensors[fi].name;
-            vrt_promote(&g_vrt, tname, NULL, NULL);  /* LRU tracking */
+            GSEntry *ge = gs_find(&g_gs, tname);
+            if (ge && ge->stream_fn)
+                gs_ok = (gs_stream_from(&g_gs, tname, apply_sid[i], apply_sz[i]) == 0);
         }
-        tensor_update_data(found_tensors[fi].ptr, apply_sid[i], apply_sz[i]);
+        if (!gs_ok)
+            tensor_update_data(found_tensors[fi].ptr, apply_sid[i], apply_sz[i]);
     }
 }
 
@@ -459,7 +799,8 @@ static inline void sid_swap_apply(void) {
 }
 
 /* Restore SID swaps with gear lock filtering.
- * Only restores swaps that were actually applied (i.e., pass mask). */
+ * Only restores swaps that were actually applied (i.e., pass mask).
+ * When --sid-pt: flips page table bits back (face→orig). */
 static void sid_swap_restore_ex(const uint8_t *mask) {
     int n_restore = 0;
     int restore_ft_idx[MAX_SID_SWAPS];
@@ -468,26 +809,55 @@ static void sid_swap_restore_ex(const uint8_t *mask) {
     if (mask) {
         for (int i = 0; i < n_sid_swaps; i++) {
             if (!mask[i]) continue;
+            if (i >= g_sid_progress) continue;
             restore_ft_idx[n_restore] = delta_ft_idx[i];
             restore_data[n_restore] = delta_orig_data[i];
             n_restore++;
         }
     } else {
         for (int i = 0; i < n_sid_swaps; i++) {
+            if (i >= g_sid_progress) continue;
             restore_ft_idx[n_restore] = delta_ft_idx[i];
             restore_data[n_restore] = delta_orig_data[i];
             n_restore++;
         }
     }
 
-    for (int i = 0; i < n_restore; i++) {
-        int fi = restore_ft_idx[i];
-        tensor_update_data(found_tensors[fi].ptr,
-                           restore_data[i],
-                           found_tensors[fi].nbytes);
+    /* ── Page table path: flip bits back (face→orig) ──
+     *   CPU: zero-copy — tensor->data already at orig_data (no-op swap).
+     *   GPU: zero-copy — swap tensor->buffer and tensor->data back to orig. */
+    if (g_sid_pt_enabled) {
+        for (int i = 0; i < n_restore; i++) {
+            int fi = restore_ft_idx[i];
+            const char *tname = found_tensors[fi].name;
+            int addr = (int)dt_name_to_addr(tname);
+            int old = sid_pt_flip(&g_sid_pt.pt, addr);
+            struct ggml_tensor *t = found_tensors[fi].ptr;
+            int is_gpu = t && t->buffer && !ggml_backend_buffer_is_host(t->buffer);
+            if (old) {
+                /* was 1 (face), now flipped to 0 (orig) */
+                sid_pt_apply_orig(t, addr, found_tensors[fi].orig_data, found_tensors[fi].nbytes);
+            }
+            /* if flipped from 0→1 (restore→face), just leave orig pointer */
+            sid_pt_journal_push(&g_sid_pt.journal, addr, (uint8_t)old, (uint8_t)(!old));
+        }
+    } else {
+        /* ── Legacy path ── */
+        for (int i = 0; i < n_restore; i++) {
+            int fi = restore_ft_idx[i];
+            tensor_update_data(found_tensors[fi].ptr,
+                               restore_data[i],
+                               found_tensors[fi].nbytes);
+        }
     }
 
-    sid_timetravel_after_decode(&tt);
+    if (g_sid_progress < n_sid_swaps) {
+        g_sid_progress += PROGRESS_STEP;
+        if (g_sid_progress > n_sid_swaps) g_sid_progress = n_sid_swaps;
+    }
+
+    if (!g_sid_pt_enabled)
+        sid_timetravel_after_decode(&tt);
 }
 
 static inline void sid_swap_restore(void) {
@@ -510,15 +880,16 @@ static inline uint64_t tensor_data_hash64(const void *data, size_t nbytes) {
  * Feeds routes + events into GearLockState for dynamic SID swap scheduling. */
 static void twin_gpu_gear_push(void) {
     int have_bridge = (g_opt_twin_gpu && g_ibridge_ctx);
-    if (!have_bridge && !g_opt_vram) return;
+    if (!have_bridge && g_gs.n_entries == 0) return;
     if (n_sid_swaps <= 0) {
-        if (g_opt_vram && g_vrt.vram_base)
-            vrt_evict_gear(&g_vrt, &g_gpu_worlds);
+        /* GearShift: mark all pending for next cycle */
+        if (g_gs.n_entries > 0)
+            gs_reset_done(&g_gs);
         return;
     }
     if (!have_bridge) {
-        if (g_opt_vram && g_vrt.vram_base)
-            vrt_evict_gear(&g_vrt, &g_gpu_worlds);
+        if (g_gs.n_entries > 0)
+            gs_reset_done(&g_gs);
         return;
     }
 
@@ -544,17 +915,20 @@ static void twin_gpu_gear_push(void) {
     if (ret == 0) {
         /* Feed icosa lane output into gear lock state */
         gear_lock_update(&g_gear, routes, events, n_sid_swaps, delta_ft_idx);
+        /* Sync GearLock priorities → GearShift entries */
+        if (g_gs.n_entries > 0)
+            sync_gearlock_to_gearshift();
         /* Periodic log every g_opt_gear_log cycles */
         if (g_opt_gear_lock && g_opt_gear_log > 0 && (g_gear.cycles % g_opt_gear_log) == 0) {
             gear_lock_print_summary(&g_gear,
                 (const char *const *)found_tensors, n_found, 5);
         }
         /* Advance GPU worlds counter (162 ops/world); one dispatch = at least 1 world */
-        if (g_opt_vram && n_sid_swaps > 0)
+        if (g_gs.n_entries > 0 && n_sid_swaps > 0)
             g_gpu_worlds += (n_sid_swaps + 161) / 162;
-        /* Gear-aware VRAM eviction: free entries GPU has finished with */
-        if (g_opt_vram && g_vrt.vram_base)
-            vrt_evict_gear(&g_vrt, &g_gpu_worlds);
+        /* GearShift: mark pending for next upload cycle */
+        if (g_gs.n_entries > 0)
+            gs_reset_done(&g_gs);
     } else {
         fprintf(stderr, "[twin-gpu] dispatch error %d\n", ret);
     }
@@ -601,7 +975,7 @@ static inline void sid_mem_store_log(struct llama_context *lctx, int nv, uint16_
 int main(int argc,char**argv){
     if(argc<2){fprintf(stderr,"Usage: %s model.gguf [--chat] [--ngl N] [--sid-face N] [--sid-spoke N|all] [--sid-slot STR] [--sid-corrupt N] [--sid-checkpoint NAME] [--sid-rewind NAME] [--sid-ff NAME] [--sid-branch NAME] [options]\n",argv[0]);return 1;}
     const char*gguf_path=NULL,*opt_prompt=NULL,*opt_dump_logits=NULL,*opt_capture=NULL,*opt_script=NULL;
-    int opt_ngl=0,opt_max_new=256,opt_chat=0,opt_count_only=0,opt_bond=0,opt_hex=0,opt_trihex=0,opt_goldberg=0,sid_face=0,sid_spoke=-1,sid_corrupt=0,opt_swap_cold=0,sid_corrupt_val=1,opt_hybrid=0,opt_sid_adaptive=0,opt_sid_multi=0,opt_kv_evict=0,opt_kv_page=0,opt_kv_page_evict=0,opt_ctx=2048;
+    int opt_ngl=0,opt_max_new=256,opt_chat=0,opt_count_only=0,opt_bond=0,opt_hex=0,opt_trihex=0,opt_goldberg=0,sid_face=0,sid_spoke=-1,sid_corrupt=0,opt_swap_cold=0,sid_corrupt_val=1,opt_hybrid=0,opt_sid_adaptive=0,opt_sid_multi=0,opt_kv_evict=0,opt_kv_page=0,opt_kv_page_evict=0,opt_ctx=2048,opt_single_gpu=0;
     float opt_goldberg_threshold = 1.2f;
     int opt_sid_geodesic = 0; float opt_sid_geo_radius = 0.5f, opt_hybrid_radius = 0.01f;
     const char*sid_slot="",*sid_pattern=NULL;
@@ -610,6 +984,7 @@ int main(int argc,char**argv){
     sid_timetravel_init(&tt);
     for(int i=1;i<argc;i++){
         if(!strcmp(argv[i],"--ngl")&&i+1<argc)opt_ngl=atoi(argv[++i]);
+        else if(!strcmp(argv[i],"--single-gpu"))opt_single_gpu=1;
         else if(!strcmp(argv[i],"--temp")&&i+1<argc)sp.temp=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--top-p")&&i+1<argc)sp.top_p=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--top-k")&&i+1<argc)sp.top_k=atoi(argv[++i]);
@@ -618,6 +993,7 @@ int main(int argc,char**argv){
         else if(!strcmp(argv[i],"--prompt")&&i+1<argc)opt_prompt=argv[++i];
         else if(!strcmp(argv[i],"--script")&&i+1<argc)opt_script=argv[++i];
         else if(!strcmp(argv[i],"--chat"))opt_chat=1;
+        else if(!strcmp(argv[i],"--sid"))sid_face=1;
         else if(!strcmp(argv[i],"--sid-face")&&i+1<argc)sid_face=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--sid-spoke")&&i+1<argc){const char*v=argv[++i];sid_spoke=!strcmp(v,"all")?-1:atoi(v);}
         else if(!strcmp(argv[i],"--sid-slot")&&i+1<argc)sid_slot=argv[++i];
@@ -654,6 +1030,8 @@ int main(int argc,char**argv){
         else if(!strcmp(argv[i],"--cosplay-compare"))g_opt_cosplay_compare=1;
         else if(!strcmp(argv[i],"--experiment")&&i+1<argc)g_opt_experiment=argv[++i];
         else if(!strcmp(argv[i],"--sid-disable"))g_opt_sid_disable=1;
+        else if(!strcmp(argv[i],"--sid-force"))g_opt_sid_force=1;
+        else if(!strcmp(argv[i],"--sid-pt"))g_sid_pt_enabled=1;
         else if(!strcmp(argv[i],"--kv-swap")&&i+1<argc)g_opt_kv_swap=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--kv-layer")&&i+1<argc)g_opt_kv_layer=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--kv-evict")&&i+1<argc)opt_kv_evict=atoi(argv[++i]);
@@ -675,6 +1053,7 @@ int main(int argc,char**argv){
             fprintf(stderr,"Usage: %s model.gguf [options]\n",argv[0]);
             fprintf(stderr,"  --chat                    Interactive chat mode\n");
             fprintf(stderr,"  --ngl N                   GPU layers (default: 0)\n");
+            fprintf(stderr,"  --single-gpu              Use 1 GPU only (default: use all)\n");
             fprintf(stderr,"  --prompt TEXT             Prompt mode\n");
             fprintf(stderr,"  --script FILE             Chat mode input file\n");
             fprintf(stderr,"  --temp N                  Temperature (default: 0.7)\n");
@@ -715,6 +1094,8 @@ int main(int argc,char**argv){
             fprintf(stderr,"  --cosplay-compare         Compare output with/without cosplay\n");
             fprintf(stderr,"  --experiment DIR          Run multi-condition experiment\n");
             fprintf(stderr,"  --sid-disable             Disable all SID swaps (plain inference)\n");
+            fprintf(stderr,"  --sid-force               Force SID on GPU mode (default: auto-disable with --ngl)\n");
+            fprintf(stderr,"  --sid-pt                  Page-table SID: zero-copy, lazy face, 2592B overhead\n");
             fprintf(stderr,"  --kv-swap N              Perturb N bytes in KV state per decode (0=off)\n");
             fprintf(stderr,"  --kv-layer N             Target specific KV layer (-1=all, 0..N)\n");
             fprintf(stderr,"  --ctx N                  Context size (default: 2048)\n");
@@ -723,7 +1104,7 @@ int main(int argc,char**argv){
             fprintf(stderr,"  --kv-page-evict N        KV Page Store: evict oldest N pages after init\n");
             fprintf(stderr,"  --remap                  KV remap: adaptive skeleton+delta + rail verify\n");
             fprintf(stderr,"  --shadow                 KV remap shadow zone: delta metadata heartbeat\n");
-            fprintf(stderr,"  --vram MB                 VRamTile: VRAM cache size in MB (requires --dramtile)\n");
+            fprintf(stderr,"  --vram MB                 VRamTile: VRAM cache size in MB (deprecated, use GearShift)\n");
             fprintf(stderr,"  --dramtile                Enable DRamTile zero-copy tensor store (anonymous)\n");
             fprintf(stderr,"  --dramtile-file PATH      Enable DRamTile with file-backed twin persistence\n");
             fprintf(stderr,"  --simulate                Simulate session (no model)\n");
@@ -739,7 +1120,8 @@ int main(int argc,char**argv){
             fprintf(stderr,"  /ff NAME                  Fast-forward from checkpoint\n");
             fprintf(stderr,"  /branch NAME              Branch from checkpoint\n");
             fprintf(stderr,"  /tt                       Show time travel state\n");
-            fprintf(stderr,"  /vrt                      Show VRamTile status\n");
+            fprintf(stderr,"  /ptstatus                 Show page table state (--sid-pt)\n");
+            fprintf(stderr,"  /vrt  /gs                 Show GearShift / VRamTile status\n");
             fprintf(stderr,"  /clear                    Clear chat history\n");
             fprintf(stderr,"  /exit                     Exit\n");
             return 0;
@@ -753,20 +1135,25 @@ int main(int argc,char**argv){
         sid_face = 0;
     }
 
+    if (opt_ngl > 0 && !g_opt_sid_force && sid_face > 0) {
+        fprintf(stderr, "[sid] GPU mode (--ngl %d): disabled by default (use --sid-force to enable)\n", opt_ngl);
+        sid_face = 0;
+    }
+
     llama_backend_init();
     ggml_backend_load("ggml-cpu-x64.dll");
     if (opt_ngl > 0) {
-        /* Try loading GPU backends. Vulkan DLL must be in the same dir
-         * or on PATH. With --ngl=0 we skip GPU backends entirely to
-         * avoid the WSL2/DrvFs + Vulkan tensor-load hang. */
-        ggml_backend_load("ggml-vulkan.dll");
+        /* Try loading GPU backends. CUDA preferred over Vulkan on this system
+         * (GTX 1050 Ti has poor Vulkan K-quant support). */
         ggml_backend_load("ggml-cuda.dll");
+        ggml_backend_load("ggml-vulkan.dll");
     }
 
     fprintf(stderr, "\n--- load_from_file ---\n");
 
     struct llama_model_params mp=llama_model_default_params();
     mp.n_gpu_layers=opt_ngl;
+    if(opt_single_gpu){mp.split_mode=LLAMA_SPLIT_MODE_NONE;mp.main_gpu=0;}
     PoglsTime t0,t1;clock_gettime(CLOCK_MONOTONIC,&t0);
     struct llama_model*model=llama_model_load_from_file(gguf_path,mp);
     clock_gettime(CLOCK_MONOTONIC,&t1);
@@ -1004,77 +1391,42 @@ int main(int argc,char**argv){
         }
 
         if (dt_ok) {
-            if (g_dramtile.n_stored == 0) {
+            /* When --ngl is active, GPU already has weights via ggml buffer.
+             * Skip DRamTile weight loading entirely to avoid ~10GB extra I/O
+             * (fseek+fread GGUF + VirtualAlloc commit). */
+            if (opt_ngl > 0) {
+                fprintf(stderr, "[dramtile] --ngl active: skipping weight load (GPU has data)\n");
+            } else if (g_dramtile.n_stored == 0) {
                 int dt_loaded = 0; size_t dt_bytes = 0;
-                /* When --ngl is active, tensor->data may point to GPU device
-                 * memory — read from GGUF file instead. */
-                int dt_use_file = (opt_ngl > 0);
-                FILE *dt_f = dt_use_file ? fopen(gguf_path, "rb") : NULL;
-                uint8_t *dt_buf = dt_f ? (uint8_t*)malloc((size_t)max_sz) : NULL;
-                if (dt_f && !dt_buf) { fclose(dt_f); dt_f = NULL; dt_use_file = 0; }
                 for (int fi = 0; fi < n_found; fi++) {
                     if (sid_loader_is_norm(found_tensors[fi].name)) continue;
                     size_t src_sz = found_tensors[fi].nbytes;
                     uint8_t *src = (uint8_t*)found_tensors[fi].orig_data;
-                    if (dt_f) {
-                        for (uint64_t gi = 0; gi < gidx.n_tensors; gi++) {
-                            if (strcmp(gidx.names[gi], found_tensors[fi].name) == 0) {
-                                uint64_t abs_off = gguf_idx_tensor_abs_offset(&gidx, gi);
-                                if (_fseeki64(dt_f, (__int64)abs_off, SEEK_SET) == 0 &&
-                                    fread(dt_buf, 1, src_sz, dt_f) == src_sz)
-                                    src = dt_buf;
-                                break;
-                            }
-                        }
-                    }
                     if (dt_put(&g_dramtile, found_tensors[fi].name, src, src_sz))
                         { dt_loaded++; dt_bytes += src_sz; }
                 }
-                if (dt_buf) free(dt_buf);
-                if (dt_f) fclose(dt_f);
                 fprintf(stderr, "[dramtile] loaded %d tensors (%zu bytes, %.1f%% of pool)\n",
                     dt_loaded, dt_bytes,
                     100.0 * dt_bytes / g_dramtile.capacity);
 
                 /* Redirect found_tensors[].orig_data to DRamTile pointers
-                 * so SID restore reads from DRamTile instead of mmap.
-                 * When --ngl is active, keep GGUF pointer — GPU backend uses
-                 * original tensor->data for buffer management; changing it
-                 * to VirtualAlloc causes vk::DeviceLost on next decode. */
+                 * so SID restore reads from DRamTile instead of mmap. */
                 for (int fi = 0; fi < n_found; fi++) {
                     if (sid_loader_is_norm(found_tensors[fi].name)) continue;
-                    if (opt_ngl > 0) continue; /* keep GGUF pointer for GPU */
                     uint8_t *dt_data = dt_get(&g_dramtile, found_tensors[fi].name);
                     if (dt_data)
                         found_tensors[fi].orig_data = dt_data;
                 }
             } else {
                 int dt_missing = 0; size_t dt_miss_bytes = 0;
-                int dt_use_file2 = (opt_ngl > 0);
-                FILE *dt_f2 = dt_use_file2 ? fopen(gguf_path, "rb") : NULL;
-                uint8_t *dt_buf2 = dt_f2 ? (uint8_t*)malloc((size_t)max_sz) : NULL;
-                if (dt_f2 && !dt_buf2) { fclose(dt_f2); dt_f2 = NULL; dt_use_file2 = 0; }
                 for (int fi = 0; fi < n_found; fi++) {
                     if (sid_loader_is_norm(found_tensors[fi].name)) continue;
                     if (dt_get(&g_dramtile, found_tensors[fi].name) != NULL) continue;
                     size_t src_sz = found_tensors[fi].nbytes;
                     uint8_t *src = (uint8_t*)found_tensors[fi].orig_data;
-                    if (dt_f2) {
-                        for (uint64_t gi = 0; gi < gidx.n_tensors; gi++) {
-                            if (strcmp(gidx.names[gi], found_tensors[fi].name) == 0) {
-                                uint64_t abs_off = gguf_idx_tensor_abs_offset(&gidx, gi);
-                                if (_fseeki64(dt_f2, (__int64)abs_off, SEEK_SET) == 0 &&
-                                    fread(dt_buf2, 1, src_sz, dt_f2) == src_sz)
-                                    src = dt_buf2;
-                                break;
-                            }
-                        }
-                    }
                     if (dt_put(&g_dramtile, found_tensors[fi].name, src, src_sz))
                         { dt_missing++; dt_miss_bytes += src_sz; }
                 }
-                if (dt_buf2) free(dt_buf2);
-                if (dt_f2) fclose(dt_f2);
                 fprintf(stderr, "[dramtile] reopened twin file: %u tensors (%zu bytes, %.1f%% of pool)",
                     g_dramtile.n_stored, g_dramtile.used,
                     100.0 * g_dramtile.used / g_dramtile.capacity);
@@ -1099,7 +1451,22 @@ int main(int argc,char**argv){
 
     free(read_buf);
 
-    if (sid_face > 0) {
+    /* ── Page-table SID init (zero-copy, lazy face, 2592B overhead) ──
+     *   Replaces sid_cache (5.1GB preload) + DRamTile (5.1GB copy).
+     *   Face buffers allocated lazily — no RAM waste.
+     *   Page table: 2592 bytes.  Equation 128×162=144×144=20736.
+     */
+    if (sid_face > 0 && g_sid_pt_enabled) {
+        fprintf(stderr, "\n--- SID page-table init ---\n");
+        sid_pt_context_init(&g_sid_pt);
+        fprintf(stderr, "[sid-pt] zero-copy: 2592-byte page table, no face preload\n");
+        /* Keep existing swap setup (sid_swaps[], delta arrays) —
+         * but sid_data is unused.  Face data is lazily populated from
+         * found_tensors[].orig_data (mmap) on first GPU write.
+         * CPU mode: zero-copy pointer swap, no face buffers allocated. */
+    }
+
+    if (sid_face > 0 && !g_sid_pt_enabled) {
         fprintf(stderr, "\n--- SID cache init ---\n");
         sid_cache_init(&sid_cache, total_bytes + (1u << 20));
 
@@ -1120,22 +1487,35 @@ int main(int argc,char**argv){
             }
             fprintf(stderr, "[sid] cached %d tensors from DRamTile (raw)\n", n_cached);
         } else {
-            /* Fall back to GGUF file */
-            if (sid_loader_open(&slc, gguf_path, &sid_cache) != 0) {
-                fprintf(stderr, "ERROR: sid_loader_open failed\n");
-                gguf_idx_close(&gidx);
-                llama_model_free(model); llama_backend_free(); return 1;
+            /* Fall back to GGUF file.
+             * Always open the file handle for lazy on-demand loading.
+             * When opt_ngl==0, pre-load all tensors for CPU writability.
+             * When opt_ngl>0, load only on-demand per GPU tensor during swap setup. */
+            int slc_ok = 0;
+            if (sid_loader_open(&slc, gguf_path, &sid_cache) == 0) {
+                slc_ok = 1;
+                read_buf = (uint8_t*)malloc((size_t)max_sz);
+                if (!read_buf) {
+                    fprintf(stderr, "WARNING: OOM (read_buf %llu bytes)\n", (unsigned long long)max_sz);
+                    sid_loader_close(&slc); slc_ok = 0;
+                }
+            } else {
+                fprintf(stderr, "WARNING: sid_loader_open failed — GPU tensors will be skipped\n");
             }
-            read_buf = (uint8_t*)malloc((size_t)max_sz);
-            uint8_t *verify_buf = (uint8_t*)malloc((size_t)max_sz);
-            if (!read_buf || !verify_buf) {
-                fprintf(stderr, "ERROR: OOM\n");
-                free(read_buf); free(verify_buf); sid_loader_close(&slc);
-                gguf_idx_close(&gidx);
-                llama_model_free(model); llama_backend_free(); return 1;
+
+            if (slc_ok && opt_ngl == 0) {
+                int n_loaded = 0;
+                for (int fi = 0; fi < n_found; fi++) {
+                    if (sid_loader_is_norm(found_tensors[fi].name)) continue;
+                    uint8_t *data = NULL; size_t data_sz = 0;
+                    if (sid_loader_load(&slc, found_tensors[fi].name, read_buf, &data, &data_sz) == 0)
+                        n_loaded++;
+                }
+                fprintf(stderr, "[sid] cached %d/%d tensors from GGUF (compressed, full preload)\n",
+                    n_loaded, n_weight_tensors);
+            } else if (slc_ok) {
+                fprintf(stderr, "[sid] GGUF open, lazy load for GPU tensors\n");
             }
-            fprintf(stderr, "[sid] cached tensors: %d (verification skipped for speed)\n", n_weight_tensors);
-            free(verify_buf);
         }
     }
 
@@ -1278,12 +1658,37 @@ int main(int argc,char**argv){
             if (sid_slot[0] != '\0' && strstr(name, sid_slot) == NULL) continue;
 
             uint8_t *cached = NULL; size_t cached_sz = 0;
-            if (g_opt_dramtile) {
-                cached = dt_get(&g_dramtile, name);
-                if (cached) cached_sz = dt_get_size(&g_dramtile, name);
-            }
-            if (!cached) {
-                if (sid_cache_get(&sid_cache, name, &cached, &cached_sz) != 0) continue;
+            if (g_sid_pt_enabled) {
+                /* Page table: no cache/preload needed. Face data populated
+                 * lazily from GGUF on first sid_pt_flip(). sid_data not used
+                 * in apply/restore; only track sizes for metadata. */
+                cached_sz = found_tensors[i].nbytes;
+            } else {
+                if (g_opt_dramtile) {
+                    cached = dt_get(&g_dramtile, name);
+                    if (cached) cached_sz = dt_get_size(&g_dramtile, name);
+                }
+                if (!cached) {
+                    if (sid_cache_get(&sid_cache, name, &cached, &cached_sz) != 0) {
+                        struct ggml_tensor *tgt = found_tensors[i].ptr;
+                        if (tgt && tgt->buffer && !ggml_backend_buffer_is_host(tgt->buffer)) {
+                            if (slc.gguf_file && read_buf) {
+                                uint8_t *loaded = NULL; size_t loaded_sz = 0;
+                                if (sid_loader_load(&slc, name, read_buf, &loaded, &loaded_sz) == 0) {
+                                    if (sid_cache_get(&sid_cache, name, &cached, &cached_sz) != 0) {
+                                        cached = (uint8_t*)malloc(loaded_sz);
+                                        if (cached) { memcpy(cached, loaded, loaded_sz); cached_sz = loaded_sz; }
+                                        else continue;
+                                    }
+                                } else { continue; }
+                            } else { continue; }
+                        } else {
+                            cached = (uint8_t*)found_tensors[i].orig_data;
+                            cached_sz = found_tensors[i].nbytes;
+                        }
+                    }
+                }
+                if (!cached || cached_sz == 0) continue;
             }
 
             /* encode per-tensor sid_mode based on hotness */
@@ -1305,13 +1710,18 @@ int main(int argc,char**argv){
 
             delta_ft_idx[n_sid_swaps] = i;
             delta_tensor_ptr[n_sid_swaps] = found_tensors[i].ptr;
-            /* When --ngl is active, orig_data points to GPU device memory.
-             * Use DRamTile's CPU-readable copy for restore instead. */
-            if (opt_ngl > 0 && g_opt_dramtile) {
+            /* If tensor is on GPU, orig_data is a GPU device pointer.
+             * Use cached/lazy-loaded data (CPU-readable) for restore instead. */
+            { struct ggml_tensor *_t = found_tensors[i].ptr;
+              int _gpu = _t && _t->buffer && !ggml_backend_buffer_is_host(_t->buffer);
+              if (_gpu && g_opt_dramtile) {
                 uint8_t *orig = dt_get(&g_dramtile, name);
-                delta_orig_data[n_sid_swaps] = orig ? orig : found_tensors[i].orig_data;
-            } else {
+                delta_orig_data[n_sid_swaps] = orig ? orig : cached;
+              } else if (_gpu) {
+                delta_orig_data[n_sid_swaps] = cached;
+              } else {
                 delta_orig_data[n_sid_swaps] = found_tensors[i].orig_data;
+              }
             }
             delta_sid_data[n_sid_swaps] = cached;
             delta_size[n_sid_swaps] = cached_sz;
@@ -1340,8 +1750,12 @@ int main(int argc,char**argv){
                     double geo = goldberg_geodesic(sc, gcoords[t]);
                     if (geo > opt_sid_geo_radius) continue;
                     uint8_t *cached = NULL; size_t cached_sz = 0;
-                    if (sid_cache_get(&sid_cache, found_tensors[t].name, &cached, &cached_sz) != 0)
-                        continue;
+                    if (sid_cache_get(&sid_cache, found_tensors[t].name, &cached, &cached_sz) != 0) {
+                        /* Zero-copy fallback: use GGUF mmap data directly */
+                        cached = (uint8_t*)found_tensors[t].orig_data;
+                        cached_sz = found_tensors[t].nbytes;
+                    }
+                    if (!cached || cached_sz == 0) continue;
                     in_swap[t] = 1;
                     /* encode sid_mode for geodesic neighbor (rot:1 — mild) */
                     uint8_t geo_sid_mode = geo_encode_sid(2, 1);
@@ -1367,7 +1781,7 @@ int main(int argc,char**argv){
             free(in_swap); free(gcoords);
         }
         if (n_sid_swaps == 0) {
-            fprintf(stderr, "[sid] WARNING: no tensors matched coordinates. SID disabled.\n");
+            fprintf(stderr, "[sid] WARNING: no tensors matched coordinates. SID disabled. (n_found=%d, sid_face=%d)\n", n_found, sid_face);
         } else {
             if (sid_corrupt) {
                 int v = sid_corrupt_val;
@@ -1459,6 +1873,11 @@ int main(int argc,char**argv){
                         opt_swap_cold ? "hot/warm" : "cold");
             }
             fprintf(stderr, "\n");
+            /* Init lazy progressive: start with PROGRESS_STEP, grow per decode */
+            g_sid_progress = (n_sid_swaps < PROGRESS_STEP) ? n_sid_swaps : PROGRESS_STEP;
+            if (opt_ngl > 0)
+                fprintf(stderr, "[sid] lazy progressive: start %d/%d, +%d per decode\n",
+                    g_sid_progress, n_sid_swaps, PROGRESS_STEP);
         }
     }
     /* ── Gear lock init (after SID swap setup so delta_ft_idx[] is populated) ── */
@@ -1508,17 +1927,41 @@ int main(int argc,char**argv){
         }
     }
 
-    /* ── VRamTile init (VRAM cache layer over DRamTile) ── */
+    /* ── GearShift init (Tier-2 streaming router, replaces VRamTile for GPU) ── */
+    if (g_opt_dramtile && g_dramtile.used > 0) {
+        gs_init(&g_gs);
+        gs_set_src_provider(&g_gs, gs_dramtile_src, &g_dramtile);
+        /* Wire DRamTile evict callback → GearShift invalidation */
+        g_dramtile.evict_cb = dt_evict_gearshift_cb;
+        g_dramtile.evict_user = &g_gs;
+        /* Register all weight tensors + set tensor→GPU stream callback */
+        int gs_registered = 0;
+        for (int fi = 0; fi < n_found; fi++) {
+            if (sid_loader_is_norm(found_tensors[fi].name)) continue;
+            uint16_t layer = (uint16_t)bond_extract_layer(found_tensors[fi].name);
+            if (gs_register(&g_gs, found_tensors[fi].name, layer) == 0) {
+                /* set tensor context for GPU upload */
+                GSEntry *ge = &g_gs.entries[g_gs.n_entries - 1];
+                g_gs_tensor_ctxs[gs_registered].tensor = found_tensors[fi].ptr;
+                ge->stream_fn = gs_tensor_stream;
+                ge->dst_ctx = &g_gs_tensor_ctxs[gs_registered];
+                ge->user_data = NULL;
+                gs_registered++;
+            }
+        }
+        fprintf(stderr, "[gearshift] init: %d tensors registered from DRamTile\n", gs_registered);
+    }
+    /* VRamTile: kept for backward compat, but GPU path uses GearShift */
     if (g_opt_vram > 0) {
         if (!g_opt_dramtile || g_dramtile.used == 0) {
-            fprintf(stderr, "[vramtile] ERROR: --vram requires --dramtile with loaded tensors\n");
+            fprintf(stderr, "[vramtile] WARNING: --vram requires --dramtile (using GearShift instead)\n");
             g_opt_vram = 0;
         } else {
             size_t vram_bytes = (size_t)g_opt_vram << 20;
             int is_gpu = (g_opt_twin_gpu && g_ibridge_ctx) ? 1 : 0;
             if (vrt_init_external(&g_vrt, &g_dramtile, vram_bytes, is_gpu) == 0) {
-                fprintf(stderr, "[vramtile] init: %d MB VRAM (%s), external src: g_dramtile\n",
-                    g_opt_vram, is_gpu ? "GPU upload via icosa bridge" : "memcpy simulation");
+                fprintf(stderr, "[vramtile] init (deprecated): %d MB VRAM — use --gearshift\n",
+                    g_opt_vram);
             } else {
                 fprintf(stderr, "[vramtile] VRAM alloc failed — disabled\n");
                 g_opt_vram = 0;
@@ -1536,6 +1979,10 @@ int main(int argc,char**argv){
             tensor_set_data(found_tensors[fi].ptr, found_tensors[fi].orig_data);
         }
     }
+
+    /* ── GPU twin buffer init: pre-upload face data to GPU buffers ── */
+    if (g_sid_pt_enabled && opt_ngl > 0 && n_sid_swaps > 0)
+        sid_pt_gpu_init_faces();
 
     /* ── Save clean SID data ptrs for cosplay-compare and experiment ── */
     if ((g_opt_cosplay_compare || g_opt_experiment) && sid_face > 0 && n_sid_swaps > 0) {
@@ -1947,6 +2394,15 @@ int main(int argc,char**argv){
                     }
                     kv_sid_print_status(&kv_sid);
                     printf("Evicted %d layers (poisoned original data)\n", _n);
+                    /* Also evict from DRamTile cold storage (+ GearShift invalidation via callback) */
+                    if (g_opt_dramtile && g_dramtile.used > 0) {
+                        int dt_ev = dt_evict_step(&g_dramtile, _n);
+                        if (dt_ev > 0) {
+                            printf("DRamTile: evicted %d cold entries\n", dt_ev);
+                        } else if (dt_ev == 0) {
+                            printf("DRamTile: no cold entries to evict\n");
+                        }
+                    }
                 }else{
                     printf("Usage: /evict N\n");
                 }
@@ -2012,11 +2468,14 @@ int main(int argc,char**argv){
                 }else{printf("KV Remap not enabled (--remap)\n");}
                 continue;
             }
-            if(!strcmp(line,"/vrt")){
-                if(g_opt_vram && g_vrt.vram_base){
+            if(!strcmp(line,"/vrt")||!strcmp(line,"/gs")){
+                if(g_gs.n_entries > 0){
+                    gs_stats(&g_gs, stdout);
+                    printf("  GPU worlds: %u\n", g_gpu_worlds);
+                }else if(g_opt_vram && g_vrt.vram_base){
                     vrt_stats(&g_vrt, stdout);
                     printf("  GPU worlds: %u\n", g_gpu_worlds);
-                }else{printf("VRamTile not enabled (--vram)\n");}
+                }else{printf("GearShift/VRamTile not enabled\n");}
                 continue;
             }
             if(!strcmp(line,"/rscan")){
@@ -2043,26 +2502,52 @@ int main(int argc,char**argv){
                 continue;
             }
 
-            if(strncmp(line,"/checkpoint ",12)==0){int _cp=sid_checkpoint(&tt.ring,line+12);fprintf(stderr,_cp>=0?"[chat] checkpoint '%s' #%d at ring[%u]\n":"[chat] checkpoint failed\n",line+12,_cp,_cp>=0?(unsigned)tt.ring.checkpoints[_cp].ring_index:0);continue;}
-            if(strncmp(line,"/rewind ",8)==0){int _cp=sid_find_checkpoint(&tt.ring,line+8);if(_cp>=0){int _n=sid_rewind_to_checkpoint(&tt.ring,(uint32_t)_cp);fprintf(stderr,"[chat] rewind to '%s': %d entries undone\n",line+8,_n);}else{fprintf(stderr,"[chat] checkpoint '%s' not found\n",line+8);}continue;}
-            if(strncmp(line,"/ff ",4)==0){int _cp=sid_find_checkpoint(&tt.ring,line+4);if(_cp>=0){int _n=sid_ffwd_from_checkpoint(&tt.ring,(uint32_t)_cp);fprintf(stderr,"[chat] fast-forward to '%s': %d entries reapplied\n",line+4,_n);}else{fprintf(stderr,"[chat] checkpoint '%s' not found\n",line+4);}continue;}
-            if(strncmp(line,"/branch ",8)==0){int _cp=sid_checkpoint(&tt.ring,line+8);fprintf(stderr,_cp>=0?"[chat] branch checkpoint '%s' #%d at ring[%u]\n":"[chat] branch checkpoint failed\n",line+8,_cp,_cp>=0?(unsigned)tt.ring.checkpoints[_cp].ring_index:0);continue;}
+            if(strncmp(line,"/checkpoint ",12)==0){
+                if(g_sid_pt_enabled){int _cp=sid_pt_journal_checkpoint(&g_sid_pt.journal,line+12);fprintf(stderr,_cp>=0?"[chat] checkpoint '%s' #%d at journal[%u]\n":"[chat] checkpoint failed\n",line+12,_cp,_cp>=0?(unsigned)g_sid_pt.journal.cp_counts[_cp]:0);}
+                else{int _cp=sid_checkpoint(&tt.ring,line+12);fprintf(stderr,_cp>=0?"[chat] checkpoint '%s' #%d at ring[%u]\n":"[chat] checkpoint failed\n",line+12,_cp,_cp>=0?(unsigned)tt.ring.checkpoints[_cp].ring_index:0);}
+                continue;
+            }
+            if(strncmp(line,"/rewind ",8)==0){
+                if(g_sid_pt_enabled){int _cp=sid_pt_find_checkpoint(&g_sid_pt.journal,line+8);if(_cp>=0){int _n=sid_pt_journal_rewind(&g_sid_pt.journal,(uint32_t)_cp,sid_pt_undo_set_bit,NULL);fprintf(stderr,"[chat] rewind to '%s': %d entries undone\n",line+8,_n);}else{fprintf(stderr,"[chat] checkpoint '%s' not found\n",line+8);}}
+                else{int _cp=sid_find_checkpoint(&tt.ring,line+8);if(_cp>=0){int _n=sid_rewind_to_checkpoint(&tt.ring,(uint32_t)_cp);fprintf(stderr,"[chat] rewind to '%s': %d entries undone\n",line+8,_n);}else{fprintf(stderr,"[chat] checkpoint '%s' not found\n",line+8);}}
+                continue;
+            }
+            if(strncmp(line,"/ff ",4)==0){
+                if(g_sid_pt_enabled){int _cp=sid_pt_find_checkpoint(&g_sid_pt.journal,line+4);if(_cp>=0){int _n=sid_pt_journal_ffwd(&g_sid_pt.journal,(uint32_t)_cp,sid_pt_redo_set_bit,NULL);fprintf(stderr,"[chat] fast-forward to '%s': %d entries reapplied\n",line+4,_n);}else{fprintf(stderr,"[chat] checkpoint '%s' not found\n",line+4);}}
+                else{int _cp=sid_find_checkpoint(&tt.ring,line+4);if(_cp>=0){int _n=sid_ffwd_from_checkpoint(&tt.ring,(uint32_t)_cp);fprintf(stderr,"[chat] fast-forward to '%s': %d entries reapplied\n",line+4,_n);}else{fprintf(stderr,"[chat] checkpoint '%s' not found\n",line+4);}}
+                continue;
+            }
+            if(strncmp(line,"/branch ",8)==0){
+                int _cp=(g_sid_pt_enabled)?sid_pt_journal_checkpoint(&g_sid_pt.journal,line+8):sid_checkpoint(&tt.ring,line+8);
+                fprintf(stderr,_cp>=0?"[chat] branch checkpoint '%s' #%d\n":"[chat] branch checkpoint failed\n",line+8,_cp);
+                continue;
+            }
+            if(!strcmp(line,"/ptstatus")&&g_sid_pt_enabled){sid_pt_print(&g_sid_pt);continue;}
             if(!strcmp(line,"/tt")){
                 printf("\n=== SID State ===\n");
-                printf("  ring: %u entries (head=%u tail=%u)\n", (unsigned)tt.ring.count, (unsigned)tt.ring.head, (unsigned)tt.ring.tail);
-                printf("  pushed=%llu rewound=%llu ffwd=%llu\n",
-                    (unsigned long long)tt.ring.total_pushed,
-                    (unsigned long long)tt.ring.total_rewound,
-                    (unsigned long long)tt.ring.total_ffwd);
-                printf("  checkpoints: %u\n", tt.ring.n_checkpoints);
-                for (uint32_t _i = 0; _i < tt.ring.n_checkpoints; _i++) {
-                    const SidCheckpoint *_cp = &tt.ring.checkpoints[_i];
-                    printf("    cp[%u] '%s' ring[%u] ts=%u\n",
-                        _cp->id, _cp->name, _cp->ring_index, _cp->timestamp);
+                if(g_sid_pt_enabled){
+                    printf("  page-table mode (--sid-pt)\n");
+                    printf("  journal: %u/%d entries, %llu total flips\n",
+                        g_sid_pt.journal.count, SID_PT_JOURNAL_MAX,
+                        (unsigned long long)g_sid_pt.journal.total_flips);
+                    printf("  checkpoints: %u\n", g_sid_pt.journal.n_checkpoints);
+                    for(uint32_t _i=0;_i<g_sid_pt.journal.n_checkpoints;_i++)
+                        printf("    cp[%u] '%s' journal[%u]\n",_i,g_sid_pt.journal.cp_names[_i],(unsigned)g_sid_pt.journal.cp_counts[_i]);
+                }else{
+                    printf("  ring: %u entries (head=%u tail=%u)\n", (unsigned)tt.ring.count, (unsigned)tt.ring.head, (unsigned)tt.ring.tail);
+                    printf("  pushed=%llu rewound=%llu ffwd=%llu\n",
+                        (unsigned long long)tt.ring.total_pushed,
+                        (unsigned long long)tt.ring.total_rewound,
+                        (unsigned long long)tt.ring.total_ffwd);
+                    printf("  checkpoints: %u\n", tt.ring.n_checkpoints);
+                    for(uint32_t _i=0;_i<tt.ring.n_checkpoints;_i++){
+                        const SidCheckpoint *_cp=&tt.ring.checkpoints[_i];
+                        printf("    cp[%u] '%s' ring[%u] ts=%u\n",_cp->id,_cp->name,_cp->ring_index,_cp->timestamp);
+                    }
+                    printf("  pending: checkpoint=%d rewind=%d ffwd=%d branch=%d\n",
+                        tt.pending_checkpoint,tt.pending_rewind,
+                        tt.pending_ffwd,tt.pending_branch_cp);
                 }
-                printf("  pending: checkpoint=%d rewind=%d ffwd=%d branch=%d\n",
-                    tt.pending_checkpoint, tt.pending_rewind,
-                    tt.pending_ffwd, tt.pending_branch_cp);
                 printf("=== End State ===\n");
                 fflush(stdout);
                 continue;
@@ -2191,12 +2676,21 @@ int main(int argc,char**argv){
         free(p_fmt);
         struct llama_batch pb=llama_batch_init(nt,0,1);pb.n_tokens=nt;
         for(int j=0;j<nt;j++){pb.token[j]=toks[j];pb.pos[j]=j;pb.n_seq_id[j]=1;pb.seq_id[j][0]=0;pb.logits[j]=j==nt-1?1:0;}
-        fprintf(stderr, "[dbg] before first sid_swap_apply (prompt decode)\n");
+        PoglsTime _pt0,_pt1;
+        clock_gettime(CLOCK_MONOTONIC,&_pt0);
         sid_swap_apply();
-        fprintf(stderr, "[dbg] before llama_decode (prompt)\n");
+        clock_gettime(CLOCK_MONOTONIC,&_pt1);
+        double _prof_p_apply = (_pt1.tv_sec-_pt0.tv_sec)*1000.0 + (_pt1.tv_nsec-_pt0.tv_nsec)/1e6;
+        clock_gettime(CLOCK_MONOTONIC,&_pt0);
         if(llama_decode(lctx,pb)!=0){fprintf(stderr,"[dbg] decode fail\n");llama_batch_free(pb);free(toks);sid_swap_restore();return 1;}
-        fprintf(stderr, "[dbg] after llama_decode (prompt)\n");
+        clock_gettime(CLOCK_MONOTONIC,&_pt1);
+        double _prof_p_decode = (_pt1.tv_sec-_pt0.tv_sec)*1000.0 + (_pt1.tv_nsec-_pt0.tv_nsec)/1e6;
+        clock_gettime(CLOCK_MONOTONIC,&_pt0);
         sid_swap_restore(); twin_gpu_gear_push();
+        clock_gettime(CLOCK_MONOTONIC,&_pt1);
+        double _prof_p_restore = (_pt1.tv_sec-_pt0.tv_sec)*1000.0 + (_pt1.tv_nsec-_pt0.tv_nsec)/1e6;
+        fprintf(stderr, "\n[profile] prompt(%d tok): apply=%.2fms decode=%.2fms restore=%.2fms\n",
+            nt, _prof_p_apply, _prof_p_decode, _prof_p_restore);
         /* KV Remap: capture skeleton after first prompt decode */
         if (g_opt_remap && !g_remap_ctx.skeleton_valid) {
             kv_remap_set_skeleton(&g_remap_ctx);
@@ -2228,20 +2722,30 @@ int main(int argc,char**argv){
         Sampler gs=sp;gs.count=0;int32_t pos=nt;
         struct llama_batch gb=llama_batch_init(1,0,1);
         gb.n_tokens=1;gb.n_seq_id[0]=1;gb.seq_id[0][0]=0;gb.logits[0]=1;
+        double _prof_g_apply=0,_prof_g_decode=0,_prof_g_restore=0,_prof_g_sample=0,_prof_g_apply2=0;
+        int _prof_g_n=0;
         for(int i=0;i<opt_max_new;i++){
-            sid_swap_apply();
-            int tok=sample_token(llama_get_logits_ith(lctx,-1),nv,&gs);
-            sid_swap_restore(); twin_gpu_gear_push();
+            clock_gettime(CLOCK_MONOTONIC,&_pt0); sid_swap_apply(); clock_gettime(CLOCK_MONOTONIC,&_pt1);
+            _prof_g_apply += (_pt1.tv_sec-_pt0.tv_sec)*1000.0 + (_pt1.tv_nsec-_pt0.tv_nsec)/1e6;
+            clock_gettime(CLOCK_MONOTONIC,&_pt0); int tok=sample_token(llama_get_logits_ith(lctx,-1),nv,&gs); clock_gettime(CLOCK_MONOTONIC,&_pt1);
+            _prof_g_sample += (_pt1.tv_sec-_pt0.tv_sec)*1000.0 + (_pt1.tv_nsec-_pt0.tv_nsec)/1e6;
+            clock_gettime(CLOCK_MONOTONIC,&_pt0); sid_swap_restore(); twin_gpu_gear_push(); clock_gettime(CLOCK_MONOTONIC,&_pt1);
+            _prof_g_restore += (_pt1.tv_sec-_pt0.tv_sec)*1000.0 + (_pt1.tv_nsec-_pt0.tv_nsec)/1e6;
             if(llama_vocab_is_eog(v,tok))break;
             char b[16];int l=llama_token_to_piece(v,tok,b,16,0,false);
             if(l>0){b[l>15?15:l]=0;printf("%s",b);fflush(stdout);}
             gb.token[0]=tok;gb.pos[0]=pos++;
-            sid_swap_apply();
-            if(llama_decode(lctx,gb)!=0){sid_swap_restore();break;}
-            sid_swap_restore(); twin_gpu_gear_push();
-            sid_mem_store_log(lctx, nv, (uint16_t)(pos - 1), sid_face);
+            clock_gettime(CLOCK_MONOTONIC,&_pt0); sid_swap_apply(); clock_gettime(CLOCK_MONOTONIC,&_pt1);
+            _prof_g_apply2 += (_pt1.tv_sec-_pt0.tv_sec)*1000.0 + (_pt1.tv_nsec-_pt0.tv_nsec)/1e6;
+            clock_gettime(CLOCK_MONOTONIC,&_pt0); if(llama_decode(lctx,gb)!=0){sid_swap_restore();break;} clock_gettime(CLOCK_MONOTONIC,&_pt1);
+            _prof_g_decode += (_pt1.tv_sec-_pt0.tv_sec)*1000.0 + (_pt1.tv_nsec-_pt0.tv_nsec)/1e6;
+            clock_gettime(CLOCK_MONOTONIC,&_pt0); sid_swap_restore(); twin_gpu_gear_push(); clock_gettime(CLOCK_MONOTONIC,&_pt1);
+            _prof_g_restore += (_pt1.tv_sec-_pt0.tv_sec)*1000.0 + (_pt1.tv_nsec-_pt0.tv_nsec)/1e6;
+            _prof_g_n++;
         }
         llama_batch_free(gb);printf("\n");free(toks);
+        if(_prof_g_n>0)fprintf(stderr,"[profile] gen(%d tok): apply=%.2fms(avg) decode=%.2fms(avg) restore=%.2fms(avg) sample=%.2fms(avg) apply2=%.2fms(avg)\n",
+            _prof_g_n,_prof_g_apply/_prof_g_n,_prof_g_decode/_prof_g_n,_prof_g_restore/_prof_g_n,_prof_g_sample/_prof_g_n,_prof_g_apply2/_prof_g_n);
         /* KV Remap: scan + cycle after prompt generation */
         if (g_opt_remap && g_remap_ctx.skeleton_valid) {
             kv_remap_rail_start_scan(&g_remap_rail);
@@ -2285,10 +2789,16 @@ int main(int argc,char**argv){
         fprintf(stderr, "[twin-gpu] bridge unloaded\n");
     }
 
-    /* ── VRamTile cleanup ── */
+    /* ── GearShift cleanup ── */
+    if (g_gs.n_entries > 0) {
+        gs_stats(&g_gs, stderr);
+        fprintf(stderr, "[gearshift] stats printed\n");
+    }
+
+    /* ── VRamTile cleanup (deprecated) ── */
     if (g_opt_vram && g_vrt.vram_base) {
         vrt_destroy(&g_vrt);
-        fprintf(stderr, "[vramtile] destroyed\n");
+        fprintf(stderr, "[vramtile] destroyed (deprecated)\n");
     }
 
     /* ── DRamTile cleanup ──
@@ -2302,11 +2812,16 @@ int main(int argc,char**argv){
             dt_store_destroy(&g_dramtile);
     }
 
+    /* ── Page table GPU cleanup ── */
+    sid_pt_gpu_free_faces();
+    sid_pt_context_destroy(&g_sid_pt);
+
     /* ── Cleanup ── */
     for (int i = 0; i < n_sid_swaps; i++) {
         if (sid_swaps[i].is_malloc) free(sid_swaps[i].sid_data);
     }
 cleanup:
+    if (g_gs.n_entries > 0) gs_destroy(&g_gs);
     if (g_vrt.vram_base) vrt_destroy(&g_vrt);
     if (g_opt_twin_gpu && g_ibridge_ctx) {
         g_ibridge.destroy(g_ibridge_ctx);

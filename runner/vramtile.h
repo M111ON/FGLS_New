@@ -104,7 +104,8 @@ static inline uint8_t *vrt_get_vram_ptr(VRamTileStore *vrt, const char *name) {
 }
 
 static inline uint8_t *vrt_get_cpu_ptr(VRamTileStore *vrt, const char *name) {
-    return dt_get(&vrt->store, name);
+    DRamTileStore *src = vrt->external_src ? vrt->external_src : &vrt->store;
+    return dt_get(src, name);
 }
 
 static inline uint8_t *vrt_get_ptr(VRamTileStore *vrt, const char *name) {
@@ -114,7 +115,8 @@ static inline uint8_t *vrt_get_ptr(VRamTileStore *vrt, const char *name) {
 }
 
 static inline size_t vrt_get_size(VRamTileStore *vrt, const char *name) {
-    return dt_get_size(&vrt->store, name);
+    DRamTileStore *src = vrt->external_src ? vrt->external_src : &vrt->store;
+    return dt_get_size(src, name);
 }
 
 /* ── Internal: free-vram-chunk tracking (linked list) ──────
@@ -391,11 +393,12 @@ static inline void vrt_destroy(VRamTileStore *vrt) {
 /* ── Stats ────────────────────────────────────────────────── */
 
 static inline void vrt_stats(const VRamTileStore *vrt, FILE *fp) {
+    const DRamTileStore *src = vrt->external_src ? vrt->external_src : &vrt->store;
     fprintf(fp, "=== VRamTile ===\n");
     fprintf(fp, "  DRamTile: %zu/%zu used (%.1f%%), %u tensors\n",
-            vrt->store.used, vrt->store.capacity,
-            100.0 * vrt->store.used / (vrt->store.capacity ? vrt->store.capacity : 1),
-            vrt->store.n_stored);
+            src->used, src->capacity,
+            100.0 * src->used / (src->capacity ? src->capacity : 1),
+            src->n_stored);
     fprintf(fp, "  External source: %s\n", vrt->external_src ? "yes" : "no");
     fprintf(fp, "  VRAM:     %zu/%zu used (%.1f%%), %u promoted, %u evictions\n",
             vrt->vram_used, vrt->vram_capacity,

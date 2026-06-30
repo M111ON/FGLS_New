@@ -14,6 +14,14 @@
 4. **ใช้วิธีที่ง่ายที่สุด** ที่น่าจะใช้ได้ก่อน — อย่าเพิ่ม abstraction, indirection, หรือ fallback scan ที่ซับซ้อน
 5. **เมื่อไม่แน่ใจ**: ใช้ printf/fprintf debug ทีละชั้นก่อน — อย่าเดา root cause
 
+## 📋 Cross-Session Board (global skill)
+Global skill `cross-session-board` ให้ board + context source tools ทุก workspace:
+- `board_post/board_list/board_update/board_handoff` — track progress
+- `source_register/source_load/source_unload/source_list` — loadable context
+- ข้อมูลแยกตาม workspace อัตโนมัติ — ไม่ปนกัน
+
+เมื่อเริ่ม session ใหม่ ให้ทำตาม **New Session Protocol** (ใน skill) โดยอัตโนมัติ
+
 ## Pre-scan check
 - ก่อนเรียก scan() ให้เรียก get_project_index() เพื่อดูสถานะ cache
 - หาก cache มีข้อมูลล่าสุด ให้ใช้ cached data แทนการสแกนใหม่
@@ -57,8 +65,24 @@
 | **KV Remap Rail (background verify)** | **✅ layer-based segment chunking** |
 | **KV Remap runner integration (`--remap`)** | **✅ integrated into runner + rail freeze/resume** |
 | **KV Remap Shadow Zone (`--shadow`)** | **✅ delta metadata heartbeat via shadow_zone.h** |
+| **SID+GPU DeviceLost fix** | **✅ (tensor_update_data with ggml_backend_tensor_set)** |
+| **SID restore GPU crash fix** | **✅ (delta_orig_data instead of GPU pointer)** |
+| **DRamTile benchmark** | **✅ (CPU: -36%, GPU: +38%, 5-face: -23%)** |
+| **GearShift (Tier-2 streaming router)** | **✅ generic src→dst, no data storage** |
+| **GearLock→GearShift priority sync** | **✅ sync_gearlock_to_gearshift + gs_stream_pending_prioritized** |
 
-### 📁 Key Binaries (ใน `runner/`)
+### ✅ สิ่งที่ทำล่าสุด (June 30 — Page Table SID: Zero-Copy Indirect Layer + GPU Twin Buffer Swap)
+- **Page Table SID** (`runner/sid_page_table.h` + `--sid-pt` flag): 20736-bit indirect layer (2592 bytes) replaces 5.1GB sid_cache + DRamTile preload with zero-copy bit flip
+- **CPU zero-copy verified**: `--sid-pt --sid-face 1` → apply=0.01ms decode=469ms restore=0.02ms (no alloc/copy, just bit flip)
+- **Baseline benchmark**: `--sid-pt` decode 365ms vs baseline 366ms — zero overhead confirmed
+- **GPU twin buffer swap**: pre-uploads 74 face twins (`ggml_backend_buffer` per tensor), atomic pointer swap of `tensor->buffer` + `tensor->data` per decode — no memcpy on hotpath
+- **GPU test**: `--sid-pt --sid-face 1 --sid-force --ngl 8` → 74 twins pre-uploaded, 256 tok decoded at 353ms avg, clean exit
+- **Bugs fixed**: function ordering, `ggml_init_params.no_alloc=1`, `ggml_backend_tensor_alloc` non-NULL addr, stack overflow `-Wl,--stack,16777216`, AV crash (lazy data load skip)
+- **Blocked**: GPU VRAM (GTX 1050 Ti 4GB) — 253 tensors × ~215MB each ≈ 54GB twin VRAM impossible at scale. Needs lighter model or fallback to `ggml_backend_tensor_set` per decode
+- **New file**: `runner/sid_page_table.h` (bitmap + journal + GPU fields)
+- **Inbox MCP server** — เปิดใช้งานผ่าน `opencode.jsonc` แล้ว (31 tools, vault พร้อม)
+
+## 📁 Key Binaries (ใน `runner/`)
 - `llama_pogls_runner_sid_v2.exe` — Main runner (b9528)
 - `llama_b9733.dll` + `ggml*.dll` (b9733) — พร้อมใช้งาน
 - `cosplay_train.exe`, `cosplay_profile_train.exe`
@@ -66,6 +90,15 @@
 - `test_kv_remap.exe` — KV Remap test suite (7 tests, all pass)
 - 403 `.ses` profiles ใน `runner/ses_profiles/`
 - 9 `.cpl` cosplay profiles ใน `runner/cpl_profiles/`
+- `bench_sid.ps1` — SID+DRamTile benchmark script
+
+### 🔑 Key Design: Page Table Indirect (June 30)
+- **Problem**: SID ใช้ RAM ~15GB + memcpy หนัก — ขัดกับ geometry zero-copy design
+- **Root cause**: implementation drift — `sid_cache` + `DRamTile` + `tensor_set_data()` + `ggml_backend_tensor_set()` ทั้งหมด copy data ไม่ใช่ indirect
+- **Solution**: 20736-bit page table (2592 bytes) — `bit[N]=0`→orig, `=1`→face. CPU/GPU indirect เดียวกัน
+- **GPU twin buffer**: pre-upload `ggml_backend_buffer` per tensor (`ggml_dup_tensor` + `ggml_backend_tensor_alloc` + `ggml_backend_tensor_set`), atomic pointer swap of `tensor->buffer` + `tensor->data` per decode — no memcpy on hotpath
+- **สมการแกน**: `128×162 = 144×144 = 20736` — base2×base3 = Fibonacci² — DRamTile/Y-triangle/GPU buffer share address space
+- **Reference**: `docs/sid-page-table-design.md`
 
 ### ✨ June 28 — VRamTile Integration + GPU Offload Bugfix
 
@@ -118,26 +151,79 @@
 
 ---
 
-## Next Scope: POGLS File Management
+## Next Scope: GPU Performance + Twin-GPU + VRamTile
 
-ผู้ใช้จะไปดูว่า POGLS จัดการกับไฟล์ต่างๆ อย่างไรในระบบ — การอ่าน/เขียน/store/versioning ผ่าน pipeline POGLS
+### Short-term Remaining Work
+1. **Wire `--twin-gpu` with real `icosa_bridge.dll`** — verify `cudaMemcpy` H2D path (currently simulation memcpy)
+2. **Fix `-O2` strict aliasing UB in tensor memory scanner** — for consistent optimized builds (currently use `-O0` or `-fno-strict-aliasing`)
+3. **Gear 2: Direct GPU buffer write** — bypass `ggml_backend_tensor_set()` for GPU tensors by using saved Vulkan buffer offset + HOST_VISIBLE mapped address
 
-### ⚠️ Diamond Shell FLAT Fix (June 22)
-Fixed critical bug in `diamond_shell_codec.h`: codec classified non-zero chunks as FLAT (reconstructed as all-zero) when `fibo_intersect == 0`, causing data loss. Fix: only use FLAT when chunk is truly all-zero.
-- Fixed in: `collection/geopixel/hbv_bundle/Diamond_decode_hamburger/diamond_shell_codec.h` 
-- Also fixed in: `collection/dgls/diamond/include/diamond_shell_codec.h` (mirror)
+### Key Files
+- `runner/vramtile.h` — VRamTile GPU cache (deprecated, kept for compat)
+- `runner/gear_shift.h` — Generic streaming router (Tier-2)
+- `runner/gear_lock.h` — GearLock state machine (priority/speed control)
+- `runner/llama_pogls_runner_sid_v2.c` — Main runner with SID+GPU
+- `runner/dramtile_store.h` — DRamTile API (Tier-1 storage)
+- `runner/kv_page_store.h` — KV Page Store (scatter/gather patterns)
+- `runner/kv_page_gearshift.h` — KV + GearShift integration
+- `runner/bench_sid.ps1` — Benchmark script
+- `collection/src/icosa_twin_bridge.h`/`.cu` — GPU memory ops (real upload path)
 
-### Related Files (เบื้องต้น)
-- `collection/geo_vault*.h/c` — GeoVault I/O
-- `collection/geopixel/` — Geopixel encoding pipeline
-- `collection/core/pogls_engine/` — POGLS engine core
-- `collection/python_src/` — Python bridge scripts
-- `runner/capture_pipeline.h` — Capture → store pipeline
-- `collection/src/tensor_memory.h` — TensorMemStore
+### Model
+- `I:\model\LFM2.5-8B-A1B-Q4_K_M.gguf` — 8B Q4 model for testing (5.15 GB)
 
 ---
 
 ## Session History (สรุปย่อ)
+
+### June 29 — `--sid` Flag Fix + GPU Tensor `delta_orig_data` Crash Fix
+
+- **`--sid` flag fix**: Added `sid_face=1` handler for bare `--sid` flag. Previously only `--sid-face N` worked — `--sid` was silently ignored.
+- **GPU tensor crash fix** (`llama_pogls_runner_sid_v2.c:1378`): When `--ngl > 0`, `found_tensors[i].orig_data` points to GPU device memory. `sid_swap_restore_ex()` calls `ggml_backend_tensor_set()` with this pointer via `delta_orig_data` → ACCESS_VIOLATION. **Fix**: detect GPU tensor via `t->buffer && !ggml_backend_buffer_is_host(t->buffer)`, use `cached` (CPU-readable) instead of `orig_data` for restore.
+- **DRamTile + `--ngl`**: DRamTile init fails with `--ngl` (VirtualAlloc 5.1 GB fails after GPU buffer allocation). Pre-existing, not fixed this session. SID falls back to lazy GGUF load — works correctly.
+- **Verified**: `[sid] 251 / 251 tensors will be swapped per decode`, `[sid] lazy progressive: start 50/251, +50 per decode`. No crash, no ACCESS_VIOLATION, no DeviceLost.
+- **Reference doc**: `docs/sid-gpu-integration.md` — detailed root cause, fix logic, DRamTile limitation, and architecture notes for future sessions.
+
+### June 29 — GearLock→GearShift Priority Sync + KV Page GearShift Integration
+
+- **GearLock→GearShift priority wiring** (`gear_shift.h` + `llama_pogls_runner_sid_v2.c`):
+  - `gs_stream_pending_prioritized()`: streams pending entries sorted by priority (highest first), using insertion sort on index array
+  - `sync_gearlock_to_gearshift()`: reads `gear_lock_score()` per tensor and writes to `GSEntry.priority`
+  - Called after `gear_lock_update()` in `twin_gpu_gear_push()` — priorities synced every SID swap cycle
+  - `kv_page_gearshift.h`: KV Page Store + GearShift pipelined scatter/gather (3 lanes × 2 layers)
+- **Verified**: build clean (0 errors), `test_kv_page_gearshift.exe` 64-page benchmark passes
+- **Key insight**: At 64 pages, DRamTile hash lookup is 10x slower than array scan (0.98ms vs 0.10ms). DRamTile wins at scale (1000+ entries), not at small counts.
+
+### June 28 — VRamTile Integration + GPU Offload Bugfix + Benchmark
+
+- **VRamTile runner integration** (`vramtile.h` + `llama_pogls_runner_sid_v2.c`):
+  - `vrt_init_external()`: VRamTile reads from existing `g_dramtile` instead of owning its own store (`external_src` field)
+  - `--vram MB` CLI flag, `g_vrt` + `g_gpu_worlds` globals
+  - Upload callback `vrt_upload_gpu()` via `g_ibridge.memcpy_h2d()` for real GPU upload
+  - `sid_swap_apply_ex()` wired with `vrt_promote()` for each SID swap cycle
+  - `twin_gpu_gear_push()` wired with `vrt_evict_gear()` using `g_gpu_worlds` counter
+  - `/vrt` chat command for stats
+  - Builds with 0 errors
+- **Critical bugfix**: DRamTile crashed with `--ngl` (GPU offload) because `tensor->data` points to GPU device memory after `llama_load_model_from_file()`. Fix: when `opt_ngl > 0`, read tensor data from GGUF file directly (using `gidx` offsets) instead of `orig_data` pointer.
+- **Verified**: `--dramtile --ngl 24` exit 0, answer "4". `--dramtile --vram 128 --ngl 24` exit 0, answer "4". VRamTile 9/9 tests pass, DRamTile 166/166 tests pass.
+
+### June 28 — SID+GPU Bugfix + DRamTile Benchmark
+
+- **SID+GPU DeviceLost fix** (`llama_pogls_runner_sid_v2.c`): `tensor_set_data()` changes `tensor->data` → breaks `vk_tensor_offset()` for GPU tensors. **Fix**: `tensor_update_data()` detects GPU tensor via `t->buffer && !ggml_backend_buffer_is_host(t->buffer)` → uses `ggml_backend_tensor_set()` instead of pointer swap. DeviceLost resolved.
+- **SID restore GPU crash fix**: `sid_swap_restore_ex()` used `found_tensors[fi].orig_data` (GPU device pointer) directly → `ggml_backend_tensor_set` crashed trying to memcpy from GPU address. **Fix**: passes `delta_orig_data[i]` (DRamTile CPU copy) instead.
+- **DRamTile benchmark** (`runner/bench_sid.ps1` — LFM2.5-8B-A1B-Q4_K_M.gguf):
+  | Benchmark | Time | vs Baseline |
+  |---|---|---|
+  | CPU: Baseline (no SID) | 113.64s | — |
+  | CPU: SID | 101.32s | -11% |
+  | **CPU: SID + DRamTile** | **73.03s** | **-36% 🏆** |
+  | GPU: SID | 1.65s | — |
+  | GPU: SID + DRamTile | 2.27s | +38% |
+  | 5-face CPU: SID | 4.30s | — |
+  | **5-face CPU: SID + DRamTile** | **3.32s** | **-23% 🏆** |
+  - **CPU: DRamTile เร็วกว่า** — VirtualAlloc/mmap overhead น้อยกว่า heap allocator สำหรับ tensor 5 GB
+  - **GPU: DRamTile ช้ากว่า** — ต้อง memcpy DRamTile → GPU buffer (extra copy)
+  - **5-face warm cache: DRamTile เร็วกว่า** — cache reuse + allocation efficiency
 
 ### June 28 — DRamTile Dual-Region + KV Ephemeral Fixes + Type-Safe Container Test
 - **Bugs fixed in `dramtile_store.h`**:
