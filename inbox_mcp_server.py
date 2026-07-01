@@ -40,8 +40,19 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 # ── globals ──────────────────────────────────────────────────────────
-WORKSPACE = Path(__file__).parent.resolve()
-_DRIVE_ROOT = Path(Path(__file__).anchor)
+_SCRIPT_DIR = Path(__file__).resolve().parent
+
+# workspace detection: --workspace PATH or auto from CWD
+import argparse as _argparse
+_parser = _argparse.ArgumentParser()
+_parser.add_argument("--workspace", default=None, help="Workspace root path (default: CWD)")
+_args, _ = _parser.parse_known_args()
+if _args.workspace:
+    WORKSPACE = Path(_args.workspace).resolve()
+else:
+    WORKSPACE = Path(os.getcwd()).resolve()
+
+_DRIVE_ROOT = Path(WORKSPACE.anchor)
 _PROJECT_SLUG = WORKSPACE.name
 VAULT_DIR = Path(os.environ.get("INBOX_VAULT_DIR", str(_DRIVE_ROOT / ".vault" / _PROJECT_SLUG))).resolve()
 STATE_FILE = VAULT_DIR / ".inbox_state.json"
@@ -76,7 +87,9 @@ def _load_state() -> dict:
     return {"roots": [], "file_index": {}, "vault": {}, "incoming": [],
             "project_name": WORKSPACE.name,
             "last_scan_ts": 0.0,
-            "folder_groups": {}}
+            "folder_groups": {},
+            "board": [],
+            "sources": {}}
 
 def _save_state(state: dict):
     STATE_FILE.write_text(json.dumps(state, indent=2, default=str), "utf-8")
@@ -642,14 +655,22 @@ def get_context(tier: str = "active") -> str:
         key=lambda x: x[1] + x[2] * 2, reverse=True
     )
 
+    board = state.get("board", [])
+    sources = state.get("sources", {})
+    n_wip = sum(1 for c in board if c["status"] == "in_progress")
+    n_todo = sum(1 for c in board if c["status"] == "todo")
+
     out = f"# INBOX MANAGER CONTEXT ({tier})\n"
     out += f"# {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
-    out += f"# Roots: {', '.join(roots)} | Files: {total} | Vault: {sum(len(v) for v in vault.values())}\n\n"
+    out += f"# Roots: {', '.join(roots)} | Files: {total} | Vault: {sum(len(v) for v in vault.values())}"
+    out += f" | Board: {len(board)} cards ({n_wip} wip, {n_todo} todo) | Sources: {len(sources)}\n\n"
 
     if tier == "skeleton":
         out += f"[ROOTS] {', '.join(roots)}\n"
         out += f"[FILES] {total}\n"
         out += f"[FOLDERS] {len(folders)}\n"
+        out += f"[BOARD] {len(board)} cards ({n_wip} wip, {n_todo} todo)\n"
+        out += f"[SOURCES] {len(sources)}\n"
         out += f"[HUBS] {' '.join(f'{h[0]}({h[2]})' for h in hubs[:5])}\n"
         if missing:
             out += f"[MISSING] {' '.join(missing[:10])}\n"
@@ -670,6 +691,21 @@ def get_context(tier: str = "active") -> str:
     out += "\n## Hubs (most referenced)\n"
     for h in hubs[:10]:
         out += f"  {h[0]}  imports:{h[1]}  imported-by:{h[2]}\n"
+
+    out += "\n## Board\n"
+    if board:
+        wip = [c for c in board if c["status"] == "in_progress"]
+        todo = [c for c in board if c["status"] == "todo"]
+        for label, items in [("In Progress", wip), ("Todo", todo)]:
+            if items:
+                out += f"  {label}:\n"
+                for c in items[:5]:
+                    out += f"    #{c['id']} {c['title']}\n"
+                if len(items) > 5:
+                    out += f"    ... +{len(items)-5} more\n"
+        out += f"  Sources: {len(sources)} registered\n"
+    else:
+        out += "  (empty — use board_post to add cards)\n"
 
     if missing:
         out += f"\n## Missing Dependencies ({len(missing)})\n"
@@ -825,6 +861,199 @@ def incoming_purge_stale() -> str:
     return f"ok  purged {n} stale incoming items"
 
 
+# ── session board ────────────────────────────────────────────
+
+BOARD_STATUSES = ["todo", "in_progress", "done", "blocked", "cancelled"]
+
+@mcp.tool()
+def board_post(title: str, body: str = "", status: str = "todo", tags: str = "") -> str:
+    """Post a card to the session board. status: todo|in_progress|done|blocked|cancelled. tags: comma-separated."""
+    if status not in BOARD_STATUSES:
+        return f"err  invalid status '{status}' — use: {', '.join(BOARD_STATUSES)}"
+    state = _load_state()
+    board = state.setdefault("board", [])
+    ts = datetime.now().isoformat()
+    card_id = (board[-1]["id"] + 1) if board else 1
+    card = {
+        "id": card_id,
+        "title": title,
+        "body": body,
+        "status": status,
+        "tags": [t.strip() for t in tags.split(",") if t.strip()],
+        "created_at": ts,
+        "updated_at": ts,
+    }
+    board.append(card)
+    _save_state(state)
+    return f"ok  card #{card_id}: {title} [{status}]"
+
+
+@mcp.tool()
+def board_list(status: str = "", since: str = "") -> str:
+    """List board cards. Filter by status and/or since ('today' or ISO date)."""
+    state = _load_state()
+    board = state.get("board", [])
+    if not board:
+        return "board is empty"
+    today = datetime.now().strftime("%Y-%m-%d")
+    lines = [f"Board: {len(board)} cards\n"]
+    for c in reversed(board):
+        if status and c["status"] != status:
+            continue
+        if since == "today" and not c["created_at"].startswith(today):
+            continue
+        if since and since != "today" and c["created_at"] < since:
+            continue
+        tags = f" [{','.join(c['tags'])}]" if c.get("tags") else ""
+        created = c["created_at"][:19]
+        lines.append(f"  #{c['id']} [{c['status']:>12}] {c['title']}{tags}")
+        lines.append(f"         {created}")
+        if c.get("body"):
+            body = c["body"][:120].replace("\n", " ")
+            lines.append(f"         {body}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def board_update(card_id: int, status: str = "", detail: str = "") -> str:
+    """Update a card's status and/or append detail."""
+    state = _load_state()
+    board = state.get("board", [])
+    for c in board:
+        if c["id"] == card_id:
+            if status:
+                if status not in BOARD_STATUSES:
+                    return f"err  invalid status '{status}'"
+                c["status"] = status
+            if detail:
+                c["body"] = (c.get("body", "") + "\n" + detail).strip()
+            c["updated_at"] = datetime.now().isoformat()
+            _save_state(state)
+            return f"ok  card #{card_id} updated [{c['status']}]"
+    return f"err  card #{card_id} not found"
+
+
+@mcp.tool()
+def board_handoff() -> str:
+    """Generate cross-session handoff summary from board."""
+    state = _load_state()
+    board = state.get("board", [])
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    if not board:
+        return f"# Session Handoff — {now_str}\n\nNo board activity recorded."
+
+    todo = [c for c in board if c["status"] == "todo"]
+    in_progress = [c for c in board if c["status"] == "in_progress"]
+    done = [c for c in board if c["status"] == "done"]
+    blocked = [c for c in board if c["status"] == "blocked"]
+
+    lines = [
+        f"# Session Handoff — {now_str}",
+        f"",
+        f"## Board Summary ({len(board)} cards)",
+        f"  Todo:        {len(todo)}",
+        f"  In Progress: {len(in_progress)}",
+        f"  Done:        {len(done)}",
+        f"  Blocked:     {len(blocked)}",
+    ]
+
+    if in_progress:
+        lines.append(f"\n### In Progress")
+        for c in in_progress:
+            lines.append(f"  #{c['id']} {c['title']}")
+    if todo:
+        lines.append(f"\n### Todo")
+        for c in todo:
+            lines.append(f"  #{c['id']} {c['title']}")
+    if blocked:
+        lines.append(f"\n### Blocked")
+        for c in blocked:
+            lines.append(f"  #{c['id']} {c['title']}")
+
+    return "\n".join(lines)
+
+
+# ── context sources ─────────────────────────────────────────
+
+@mcp.tool()
+def source_register(name: str, paths: str, description: str = "") -> str:
+    """Register a context source. paths: comma-separated file/glob paths."""
+    state = _load_state()
+    sources = state.setdefault("sources", {})
+    if name in sources:
+        return f"err  source '{name}' already exists"
+    source = {
+        "name": name,
+        "paths": [p.strip() for p in paths.split(",") if p.strip()],
+        "description": description,
+        "created_at": datetime.now().isoformat(),
+    }
+    sources[name] = source
+    _save_state(state)
+    return f"ok  source '{name}' registered ({len(source['paths'])} paths)"
+
+
+@mcp.tool()
+def source_load(name: str) -> str:
+    """Load registered source content into context (returns file summaries + content)."""
+    state = _load_state()
+    sources = state.get("sources", {})
+    if name not in sources:
+        return f"err  source '{name}' not found"
+    src = sources[name]
+    lines = [f"# Source: {name}", f"Description: {src.get('description', '')}", ""]
+    for p in src["paths"]:
+        path = Path(p)
+        if not path.exists():
+            lines.append(f"  ! not found: {p}")
+            continue
+        if path.is_file():
+            try:
+                text = path.read_text("utf-8", errors="replace")
+                lines.append(f"--- {p} ({len(text)} bytes) ---")
+                lines.append(text[:8000])
+                if len(text) > 8000:
+                    lines.append(f"... (truncated, {len(text)} bytes total)")
+            except Exception as e:
+                lines.append(f"  ! error reading {p}: {e}")
+        elif path.is_dir():
+            try:
+                files = list(path.iterdir())
+                lines.append(f"--- {p}/ ({len(files)} entries) ---")
+                for f in sorted(files)[:30]:
+                    lines.append(f"  {'[DIR]' if f.is_dir() else '[FILE]'} {f.name}")
+                if len(files) > 30:
+                    lines.append(f"  ... +{len(files)-30} more")
+            except Exception as e:
+                lines.append(f"  ! error listing {p}: {e}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def source_unload(name: str) -> str:
+    """Unregister a context source."""
+    state = _load_state()
+    sources = state.get("sources", {})
+    if name not in sources:
+        return f"err  source '{name}' not found"
+    del sources[name]
+    _save_state(state)
+    return f"ok  source '{name}' unloaded"
+
+
+@mcp.tool()
+def source_list() -> str:
+    """List registered context sources."""
+    state = _load_state()
+    sources = state.get("sources", {})
+    if not sources:
+        return "no sources registered"
+    lines = [f"Sources ({len(sources)}):"]
+    for name, src in sources.items():
+        lines.append(f"  {name:20s}  {len(src['paths'])} paths  {src.get('description', '')}")
+    return "\n".join(lines)
+
+
 @mcp.tool()
 def get_project_index(detail: str = "skeleton") -> str:
     """Return cached project index without re-scanning.
@@ -847,8 +1076,13 @@ def get_project_index(detail: str = "skeleton") -> str:
     )[:5]
     missing = [n for n, g in dg.items() if n not in ws_names and g.get("imported_by")]
 
+    board = state.get("board", [])
+    sources = state.get("sources", {})
+    n_todo = sum(1 for c in board if c["status"] == "todo")
+    n_wip = sum(1 for c in board if c["status"] == "in_progress")
     lines = [f"# {state.get('project_name', '?')}  (last scan: {when})",
-             f"Roots: {roots}  |  Files: {total}  |  Vault: {vaulted}  |  Dep nodes: {len(dg)}"]
+             f"Roots: {roots}  |  Files: {total}  |  Vault: {vaulted}  |  Dep nodes: {len(dg)}",
+             f"Board: {len(board)} cards ({n_wip} wip, {n_todo} todo)  |  Sources: {len(sources)}"]
     lines.append(f"\n## Folder groups ({len(groups)})")
     for folder, count in list(groups.items())[:30]:
         lines.append(f"  {folder}/  ({count})")
@@ -1042,4 +1276,82 @@ if __name__ == "__main__":
     # auto-load cached index
     if state.get("last_scan_ts", 0) > 0 and state.get("file_index"):
         print(f"[inbox] loaded cached index: {state.get('project_name', '?')} ({len(state['file_index'])} files)", flush=True)
+    # ── web dashboard ────────────────────────────────────────────────
+    _DASHBOARD_PORT = int(os.environ.get("INBOX_DASHBOARD_PORT", "5000"))
+
+    def _start_dashboard(port):
+        """Start web dashboard in background thread (Flask or http.server fallback)."""
+        import threading
+        import http.server
+
+        class _Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                if self.path == '/' or self.path == '/index.html':
+                    html_path = _SCRIPT_DIR / 'inbox_dashboard.html'
+                    if not html_path.exists():
+                        html_path = WORKSPACE / 'inbox_dashboard.html'
+                    if html_path.exists():
+                        self.send_response(200)
+                        self.send_header('Content-Type', 'text/html; charset=utf-8')
+                        self.end_headers()
+                        self.wfile.write(html_path.read_bytes())
+                    else:
+                        self.send_response(404)
+                        self.end_headers()
+                        self.wfile.write(b'Dashboard not found')
+                elif self.path == '/api/state':
+                    state = _load_state()
+                    data = {
+                        'project_name': state.get('project_name', _PROJECT_SLUG),
+                        'file_count': len(state.get('file_index', [])),
+                        'board': state.get('board', []),
+                        'sources': state.get('sources', {}),
+                    }
+                    body = json.dumps(data).encode()
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Access-Control-Allow-Origin', '*')
+                    self.end_headers()
+                    self.wfile.write(body)
+                elif self.path == '/api/handoff':
+                    state = _load_state()
+                    board = state.get('board', [])
+                    lines = [f"# Session Handoff — {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"]
+                    counts = {}
+                    for c in board:
+                        s = c.get('status', 'todo')
+                        counts[s] = counts.get(s, 0) + 1
+                    lines.append(f"## Board Summary ({len(board)} cards)")
+                    for s in ['todo', 'in_progress', 'done', 'blocked', 'cancelled']:
+                        if counts.get(s, 0):
+                            lines.append(f"  {s.replace('_', ' ').title()}: {counts[s]}")
+                    lines.append('')
+                    for s in ['todo', 'in_progress', 'blocked']:
+                        items = [c for c in board if c.get('status') == s]
+                        if items:
+                            lines.append(f"### {s.replace('_', ' ').title()}")
+                            for c in items:
+                                lines.append(f"  #{c.get('id','?')} {c.get('title','')}")
+                            lines.append('')
+                    body = '\n'.join(lines).encode()
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'text/plain; charset=utf-8')
+                    self.send_header('Access-Control-Allow-Origin', '*')
+                    self.end_headers()
+                    self.wfile.write(body)
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+
+        import http.server
+        server = http.server.HTTPServer(('127.0.0.1', port), _Handler)
+        t = threading.Thread(target=server.serve_forever, daemon=True)
+        t.start()
+        print(f"[inbox] dashboard: http://127.0.0.1:{port}", flush=True)
+
+    try:
+        _start_dashboard(_DASHBOARD_PORT)
+    except Exception as e:
+        print(f"[inbox] dashboard failed to start: {e}", flush=True)
+
     mcp.run()

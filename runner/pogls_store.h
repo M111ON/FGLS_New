@@ -6,6 +6,13 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+/* Portable 64-bit file seek */
+#if defined(__MINGW32__)
+  #define pogls_fseek64 fseeko64
+#else
+  #define pogls_fseek64 _fseeki64
+#endif
+
 #define POGLS_MAGIC      0x53474F50
 #define POGLS_VERSION    1
 #define POGLS_MAX_ADDR   20736
@@ -73,7 +80,7 @@ static inline int pogls_store_read_tensor(const char *path, uint32_t addr,
     if (e->nbytes > max_sz) return -1;
     FILE *f = fopen(path, "rb");
     if (!f) return -1;
-    _fseeki64(f, (__int64)e->offset, SEEK_SET);
+    pogls_fseek64(f, (__int64)e->offset, SEEK_SET);
     size_t r = fread(buf, 1, e->nbytes, f);
     fclose(f);
     return (r == e->nbytes) ? (int)e->nbytes : -1;

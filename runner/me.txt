@@ -1,4 +1,0 @@
-llama_model_load_from_file_impl: no backends are loaded. hint: use ggml_backend_load() or ggml_backend_load_all() to load a backend before calling this function
-[minitest] loading model...
-[minitest] model=0000000000000000
-[minitest] done
