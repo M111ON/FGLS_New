@@ -68,6 +68,7 @@
 #include "kv_remap.h"
 #define POGLS_RAIL_USE_POGTIME
 #include "kv_remap_rail.h"
+#include "pogls_store.h"
 
 /* ggml_tensor->data is at offset 248 in the struct (same as SID swap) */
 #define GGML_TENSOR_DATA_OFFSET 248
@@ -352,8 +353,13 @@ static int g_n_experiment_clean = 0;
 
 /* ── Page table (zero-copy SID indirect) ── */
 static SidPTContext g_sid_pt;
-static SIDLoaderCtx g_sid_loader_pt;   /* GGUF reader for lazy face fill */
+static SIDLoaderCtx g_sid_loader_pt;   /* GGUF reader for lazy face fill (unused) */
 static int g_sid_pt_enabled = 0;
+
+/* ── POGLS store (zero-copy tensor data via mmap) ── */
+static uint8_t *g_pogls_map = NULL;
+static PoglsStore *g_pogls_store = NULL;
+static const char *g_opt_pogls_store = NULL;
 
 /* Face populate callback: reads tensor data from GGUF file into face buffer */
 static int sid_pt_populate_from_gguf(int addr, uint8_t *buf, size_t sz, void *user) {
@@ -378,13 +384,26 @@ static int sid_pt_populate_from_gguf(int addr, uint8_t *buf, size_t sz, void *us
     return -1;
 }
 
+/* Populate face from POGLS store: O(1) via dram_addr — no binary search needed */
+static int sid_pt_populate_from_pogls(int addr, uint8_t *buf, size_t sz, void *user) {
+    (void)user;
+    if (!g_pogls_store) return -1;
+    const uint8_t *src = pogls_store_ptr(g_pogls_store, (uint32_t)addr);
+    if (!src) return -1;
+    memcpy(buf, src, sz);
+    return 0;
+}
+
 /* Get face data pointer for addr, lazy-allocating + populating if needed */
 static uint8_t *sid_pt_face_data(int addr, size_t sz) {
     /* Ensure face entry exists */
     int fi = sid_pt_face_ensure(&g_sid_pt, addr, sz);
     if (fi < 0) return NULL;
-    /* Get or populate face data */
-    return sid_pt_face_get(&g_sid_pt, addr, sid_pt_populate_from_gguf, NULL);
+    /* Get or populate face data — prefer POGLS store for O(1) lookup */
+    int (*populate)(int, uint8_t*, size_t, void*) = g_pogls_store
+        ? sid_pt_populate_from_pogls
+        : sid_pt_populate_from_gguf;
+    return sid_pt_face_get(&g_sid_pt, addr, populate, NULL);
 }
 
 /* Helper: set tensor data to face or orig, GPU-safe (legacy, no twin) */
@@ -1037,6 +1056,7 @@ int main(int argc,char**argv){
         else if(!strcmp(argv[i],"--dramtile-file")&&i+1<argc){g_opt_dramtile=1;g_opt_dramtile_file=argv[++i];}
         else if(!strcmp(argv[i],"--vram")&&i+1<argc)g_opt_vram=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--simulate"))g_opt_simulate=1;
+        else if(!strcmp(argv[i],"--pogls-store")&&i+1<argc)g_opt_pogls_store=argv[++i];
         else if(!strcmp(argv[i],"--profile-batch")&&i+1<argc)g_opt_profile_batch=argv[++i];
         else if(!strcmp(argv[i],"--semantic-weight")&&i+1<argc)g_opt_sem_weight=(float)atof(argv[++i]);
         else if(!strcmp(argv[i],"--history-weight")&&i+1<argc)g_opt_hist_weight=(float)atof(argv[++i]);
@@ -1089,6 +1109,7 @@ int main(int argc,char**argv){
             fprintf(stderr,"  --sid-disable             Disable all SID swaps (plain inference)\n");
             fprintf(stderr,"  --sid-force               Force SID on GPU mode (default: auto-disable with --ngl)\n");
             fprintf(stderr,"  --sid-pt                  Page-table SID: zero-copy, lazy face, 2592B overhead\n");
+            fprintf(stderr,"  --pogls-store PATH         POGLS flat-store file (replaces GGUF lazy load for SID faces)\n");
             fprintf(stderr,"  --kv-swap N              Perturb N bytes in KV state per decode (0=off)\n");
             fprintf(stderr,"  --kv-layer N             Target specific KV layer (-1=all, 0..N)\n");
             fprintf(stderr,"  --ctx N                  Context size (default: 2048)\n");
@@ -1159,6 +1180,50 @@ int main(int argc,char**argv){
     if (gguf_idx_open(gguf_path, &gidx) != 0) {
         fprintf(stderr, "ERROR: gguf_idx_open failed\n");
         llama_model_free(model); llama_backend_free(); return 1;
+    }
+
+    /* ── Open POGLS store (if --pogls-store given) ── */
+    if (g_opt_pogls_store) {
+        FILE *pf = fopen(g_opt_pogls_store, "rb");
+        if (!pf) {
+            fprintf(stderr, "WARNING: cannot open pogls-store '%s'\n", g_opt_pogls_store);
+        } else {
+#ifdef _WIN32
+            HANDLE hFile = (HANDLE)_get_osfhandle(_fileno(pf));
+            HANDLE hMap = CreateFileMappingA(hFile, NULL, PAGE_READONLY, 0, 0, NULL);
+            if (hMap) {
+                g_pogls_map = (uint8_t*)MapViewOfFile(hMap, FILE_MAP_READ, 0, 0, 0);
+                CloseHandle(hMap);
+            }
+#else
+            struct stat pst;
+            if (fstat(fileno(pf), &pst) == 0) {
+                g_pogls_map = (uint8_t*)mmap(NULL, (size_t)pst.st_size,
+                                              PROT_READ, MAP_PRIVATE, fileno(pf), 0);
+                if (g_pogls_map == MAP_FAILED) g_pogls_map = NULL;
+            }
+#endif
+            fclose(pf);
+            if (!g_pogls_map) {
+                fprintf(stderr, "WARNING: pogls-store mmap failed — falling back to GGUF\n");
+            } else {
+                g_pogls_store = (PoglsStore*)g_pogls_map;
+                if (g_pogls_store->magic != POGLS_MAGIC) {
+                    fprintf(stderr, "WARNING: pogls-store bad magic 0x%08x — falling back to GGUF\n",
+                            g_pogls_store->magic);
+#ifdef _WIN32
+                    UnmapViewOfFile(g_pogls_map);
+#else
+                    munmap(g_pogls_map, 0);
+#endif
+                    g_pogls_map = NULL;
+                    g_pogls_store = NULL;
+                } else {
+                    fprintf(stderr, "[pogls] opened '%s': %u tensors, magic=0x%08x\n",
+                            g_opt_pogls_store, g_pogls_store->n_tensors, g_pogls_store->magic);
+                }
+            }
+        }
     }
 
     /* ── Scan model memory for tensor pointers ── */
@@ -2832,6 +2897,18 @@ int main(int argc,char**argv){
     /* ── Page table GPU cleanup ── */
     sid_pt_gpu_free_faces();
     sid_pt_context_destroy(&g_sid_pt);
+
+    /* ── POGLS store unmapping ── */
+    if (g_pogls_map && g_pogls_store) {
+#ifdef _WIN32
+        UnmapViewOfFile(g_pogls_map);
+#else
+        munmap(g_pogls_map, 0);
+#endif
+        g_pogls_map = NULL;
+        g_pogls_store = NULL;
+        fprintf(stderr, "[pogls] store unmapped\n");
+    }
 
     /* ── Cleanup ── */
     for (int i = 0; i < n_sid_swaps; i++) {
