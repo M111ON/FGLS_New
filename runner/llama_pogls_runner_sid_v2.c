@@ -129,14 +129,7 @@ static char*chat_format_qwen(const char*roles[],const char*content[],int cc,size
     *out_len=pos;return fmt;
 }
 
-static size_t tok_prefix_len(const int *a, size_t na, const int *b, size_t nb) {
-    size_t n = na < nb ? na : nb;
-    size_t i = 0;
-    for (; i < n; i++) {
-        if (a[i] != b[i]) break;
-    }
-    return i;
-}
+
 
 static int tokbuf_reserve(int **buf, size_t *cap, size_t need) {
     if (need <= *cap) return 0;
@@ -2021,7 +2014,7 @@ int main(int argc,char**argv){
 
     /* ── Create context (once, for the whole session) ── */
     struct llama_context_params cp=llama_context_default_params();
-    cp.n_ctx=opt_ctx;cp.n_threads=4;cp.n_threads_batch=4;cp.n_batch=opt_ctx<512?opt_ctx:512;cp.n_ubatch=64;
+    cp.n_ctx=opt_ctx;cp.n_threads=4;cp.n_threads_batch=4;cp.n_batch=opt_ctx;cp.n_ubatch=64;
     struct llama_context *lctx = llama_init_from_model(model, cp);
     if(!lctx){fprintf(stderr,"ERROR: context\n"); sid_loader_close(&slc); gguf_idx_close(&gidx); llama_model_free(model); llama_backend_free(); return 1;}
     const struct llama_vocab *v = llama_model_get_vocab(model);
@@ -2365,6 +2358,8 @@ int main(int argc,char**argv){
         size_t pending_n = 0;
         size_t pending_cap = 0;
         int pending_ready = 0;
+        char *pending_fmt = NULL;
+        int pending_flen = 0;
         while(1){
             printf(">>> ");fflush(stdout);
             if(!fgets(line,sizeof(line),chat_in))break;
@@ -2372,7 +2367,7 @@ int main(int argc,char**argv){
             if(ll==0)continue;
             if (opt_script) fprintf(stderr, "[chat-script] %s\n", line);
             if(!strcmp(line,"/exit"))break;
-            if(!strcmp(line,"/clear")){for(int _ci=0;_ci<cc;_ci++)free(content[_ci]);cc=0;roles[0]="system";content[0]=strdup("You are a helpful assistant.");cc=1;free(pending_toks);pending_toks=NULL;pending_n=0;pending_cap=0;pending_ready=0;llama_free(lctx);lctx=llama_init_from_model(model,cp);if(!lctx){fprintf(stderr,"ERROR: reinit context\n");break;}v=llama_model_get_vocab(model);nv=llama_vocab_n_tokens(v);if(g_opt_remap){kv_remap_destroy(&g_remap_ctx);kv_remap_rail_destroy(&g_remap_rail);kv_remap_init(&g_remap_ctx, opt_ctx);void *rk[KV_REMAP_MAX_LAYERS],*rv[KV_REMAP_MAX_LAYERS];size_t rks[KV_REMAP_MAX_LAYERS],rvs[KV_REMAP_MAX_LAYERS],rknb[KV_REMAP_MAX_LAYERS],rvnb[KV_REMAP_MAX_LAYERS];int rne[KV_REMAP_MAX_LAYERS],rli[KV_REMAP_MAX_LAYERS];int nnk=kv_get_cache_tensors(lctx,rk,rv,rks,rvs,rne,NULL,rli,KV_REMAP_MAX_LAYERS);if(nnk>0){for(int ii=0;ii<nnk;ii++){rknb[ii]=rks[ii]/opt_ctx;rvnb[ii]=rvs[ii]/opt_ctx;}kv_remap_register(&g_remap_ctx,rk,rv,rknb,rvnb,rks,rvs,rne,rli,nnk);g_remap_ctx.skeleton_valid=0;kv_remap_rail_init(&g_remap_rail,&g_remap_ctx);if(g_opt_shadow)kv_remap_init_shadow(&g_remap_ctx);}}printf("Cleared.\n");continue;}
+            if(!strcmp(line,"/clear")){for(int _ci=0;_ci<cc;_ci++)free(content[_ci]);cc=0;roles[0]="system";content[0]=strdup("You are a helpful assistant.");cc=1;free(pending_toks);pending_toks=NULL;pending_n=0;pending_cap=0;pending_ready=0;free(pending_fmt);pending_fmt=NULL;pending_flen=0;llama_free(lctx);lctx=llama_init_from_model(model,cp);if(!lctx){fprintf(stderr,"ERROR: reinit context\n");break;}v=llama_model_get_vocab(model);nv=llama_vocab_n_tokens(v);if(g_opt_remap){kv_remap_destroy(&g_remap_ctx);kv_remap_rail_destroy(&g_remap_rail);kv_remap_init(&g_remap_ctx, opt_ctx);void *rk[KV_REMAP_MAX_LAYERS],*rv[KV_REMAP_MAX_LAYERS];size_t rks[KV_REMAP_MAX_LAYERS],rvs[KV_REMAP_MAX_LAYERS],rknb[KV_REMAP_MAX_LAYERS],rvnb[KV_REMAP_MAX_LAYERS];int rne[KV_REMAP_MAX_LAYERS],rli[KV_REMAP_MAX_LAYERS];int nnk=kv_get_cache_tensors(lctx,rk,rv,rks,rvs,rne,NULL,rli,KV_REMAP_MAX_LAYERS);if(nnk>0){for(int ii=0;ii<nnk;ii++){rknb[ii]=rks[ii]/opt_ctx;rvnb[ii]=rvs[ii]/opt_ctx;}kv_remap_register(&g_remap_ctx,rk,rv,rknb,rvnb,rks,rvs,rne,rli,nnk);g_remap_ctx.skeleton_valid=0;kv_remap_rail_init(&g_remap_rail,&g_remap_ctx);if(g_opt_shadow)kv_remap_init_shadow(&g_remap_ctx);}}printf("Cleared.\n");continue;}
 #ifdef KV_ARCHIVE
             if(!strncmp(line,"/evict ",7)){
                 int _n=atoi(line+7);
@@ -2562,42 +2557,63 @@ int main(int argc,char**argv){
             char *fmt = (char*)malloc((size_t)flen + 1);
             llama_chat_apply_template(chat_tmpl, msgs, (size_t)cc, true, fmt, flen + 1);
             free(msgs);
-            int na=llama_tokenize(v,fmt,flen,NULL,0,true,false);
-            int nt=na<0?-na:na;
-            if(nt<=0||nt>2048-64){free(fmt);continue;}
-            int*ta=(int*)malloc((size_t)nt*4);
-            llama_tokenize(v,fmt,flen,ta,nt,true,false);
-            free(fmt);
-            size_t prefix = pending_ready ? tok_prefix_len(pending_toks, pending_n, ta, (size_t)nt) : 0;
-            int full_reset = (!pending_ready || prefix != pending_n);
+            /* Text-based prefix matching — compare formatted text strings,
+               not token arrays, to avoid BPE re-tokenization mismatch */
+            int full_reset = 1;
+            size_t text_prefix_len = 0;
+            if (pending_ready && pending_fmt && pending_flen > 0 && pending_flen <= flen) {
+                if (memcmp(pending_fmt, fmt, (size_t)pending_flen) == 0) {
+                    full_reset = 0;
+                    text_prefix_len = (size_t)pending_flen;
+                }
+            }
             if (full_reset) {
                 llama_memory_seq_rm(llama_get_memory(lctx), 0, -1, -1);
-                prefix = 0;
+                pending_n = 0;
             }
-            size_t delta_n = (size_t)nt - prefix;
-            if (delta_n > 0) {
-                struct llama_batch pb=llama_batch_init((int)delta_n,0,1);pb.n_tokens=(int)delta_n;
-                for(size_t j=0;j<delta_n;j++){pb.token[j]=ta[prefix+j];pb.pos[j]=(int32_t)(prefix+j);pb.n_seq_id[j]=1;pb.seq_id[j][0]=0;pb.logits[j]=j==delta_n-1?1:0;}
+            /* Tokenize only the delta text (or all if full_reset) */
+            size_t delta_off = text_prefix_len;
+            size_t delta_text_len = (size_t)flen - delta_off;
+            int nd = llama_tokenize(v, fmt + delta_off, (int)delta_text_len, NULL, 0, true, false);
+            int n_delta = nd < 0 ? -nd : nd;
+            if (n_delta > 0) {
+                int *dt = (int*)malloc((size_t)n_delta * sizeof(int));
+                llama_tokenize(v, fmt + delta_off, (int)delta_text_len, dt, n_delta, true, false);
+                struct llama_batch pb = llama_batch_init(n_delta, 0, 1);
+                pb.n_tokens = n_delta;
+                for (int j = 0; j < n_delta; j++) {
+                    pb.token[j] = dt[j];
+                    pb.pos[j] = (int32_t)(pending_n + j);
+                    pb.n_seq_id[j] = 1;
+                    pb.seq_id[j][0] = 0;
+                    pb.logits[j] = (j == n_delta - 1) ? 1 : 0;
+                }
                 sid_swap_apply();
-                if(llama_decode(lctx,pb)!=0){llama_batch_free(pb);free(ta);sid_swap_restore();free(pending_toks);return 1;}
+                if (llama_decode(lctx, pb) != 0) { llama_batch_free(pb); free(dt); sid_swap_restore(); free(pending_toks); free(pending_fmt); return 1; }
                 sid_swap_restore(); twin_gpu_gear_push();
-                /* KV Remap: capture skeleton after first prompt decode (rail starts later) */
                 if (g_opt_remap && !g_remap_ctx.skeleton_valid) {
                     kv_remap_set_skeleton(&g_remap_ctx);
                 }
 #ifdef KV_ARCHIVE
                 if (kv_sid.enabled) kv_snapshot_all(&kv_sid);
 #endif
-                sid_mem_store_log(lctx, nv, (uint16_t)(nt - 1), sid_face);
+                sid_mem_store_log(lctx, nv, (uint16_t)(pending_n + n_delta - 1), sid_face);
                 llama_batch_free(pb);
-            }
-            if (tokbuf_copy(&pending_toks, &pending_n, &pending_cap, ta, (size_t)nt) != 0) {
-                free(ta);
-                free(pending_toks);
-                fprintf(stderr, "ERROR: pending token buffer alloc failed\n");
-                return 1;
+                /* Update pending_toks position tracker */
+                if (full_reset) {
+                    tokbuf_copy(&pending_toks, &pending_n, &pending_cap, dt, (size_t)n_delta);
+                } else {
+                    for (int i = 0; i < n_delta; i++) {
+                        tokbuf_append(&pending_toks, &pending_n, &pending_cap, &dt[i], 1);
+                    }
+                }
+                free(dt);
             }
             pending_ready = 1;
+            /* Save formatted text for next turn's prefix match (replaces old) */
+            free(pending_fmt);
+            pending_fmt = fmt;  /* fmt will NOT be freed below — we take ownership */
+            pending_flen = flen;
             if (opt_capture) {
                 #ifdef _WIN32
                 _mkdir(opt_capture);
@@ -2614,7 +2630,7 @@ int main(int argc,char**argv){
                 CaptureResult cr;
                 capture_run_full(&cr, opt_capture, ctens, n_found, 12);
             }
-            Sampler gs=sp;gs.count=0;int32_t pos=nt;
+            Sampler gs=sp;gs.count=0;int32_t pos=(int32_t)pending_n;
             struct llama_batch gb=llama_batch_init(1,0,1);
             gb.n_tokens=1;gb.n_seq_id[0]=1;gb.seq_id[0][0]=0;gb.logits[0]=1;
             size_t resp_cap=256,resp_len=0;char*resp_buf=(char*)malloc(resp_cap);resp_buf[0]='\0';
@@ -2639,12 +2655,12 @@ int main(int argc,char**argv){
                     fprintf(stderr, "ERROR: pending token buffer append failed\n");
                     free(resp_buf);
                     llama_batch_free(gb);
-                    free(ta);
                     free(pending_toks);
+                    free(pending_fmt);
                     return 1;
                 }
             }
-            llama_batch_free(gb);printf("\n");free(ta);
+            llama_batch_free(gb);printf("\n");
             /* KV Remap: scan (if needed) + cycle after each chat turn */
             if (g_opt_remap && g_remap_ctx.skeleton_valid) {
                 kv_remap_rail_start_scan(&g_remap_rail);
@@ -2658,6 +2674,7 @@ int main(int argc,char**argv){
         if (chat_in != stdin) fclose(chat_in);
         for(int i=0;i<cc;i++)free(content[i]);
         free(pending_toks);
+        free(pending_fmt);
     }
 
     if(opt_prompt){
