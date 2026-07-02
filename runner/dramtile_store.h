@@ -281,6 +281,52 @@ static inline uint8_t *dt_entry_ptr(DRamTileStore *store, uint32_t slot) {
     return store->base + store->hash[slot].offset;
 }
 
+/* ── Store tensor data at explicit dram_addr (no name hashing) ──
+ *   Like dt_put() but caller provides the address directly.
+ *   Useful when address comes from geometric routing (priority zone).
+ *   Name is set to empty string (for evict compatibility).
+ */
+static inline uint8_t *dt_put_addr(DRamTileStore *store,
+                                    uint32_t dram_addr,
+                                    const uint8_t *data, size_t sz)
+{
+    uint32_t addr = dram_addr & 0x1FFFFFFFu;
+    if (addr >= DRAM_FULL) return NULL;
+    uint32_t slot = addr % DT_HASH_SLOTS;
+
+    /* size>0 guard: dram_addr=0 equals the "unused" sentinel */
+    if (store->hash[slot].dram_addr == addr && store->hash[slot].size > 0) {
+        size_t off = store->hash[slot].offset;
+        if (store->hash[slot].size != sz) return NULL;
+        memcpy(dt_entry_ptr(store, slot), data, sz);
+        return dt_entry_ptr(store, slot);
+    }
+
+    store->session_tick++;
+    store->hash[slot].name[0] = '\0';
+
+    size_t off = (store->used + 63) & ~63;
+    int local = (off + sz <= store->capacity);
+    if (local) {
+        memcpy(store->base + off, data, sz);
+        store->used = off + sz;
+        store->hash[slot].dram_addr = addr;
+        store->hash[slot].offset    = off;
+    } else {
+        uint8_t *cold_ptr = dt_cold_alloc(store, sz);
+        if (!cold_ptr) return NULL;
+        memcpy(cold_ptr, data, sz);
+        store->hash[slot].dram_addr = addr | DT_BOND_FLAG;
+        store->hash[slot].offset    = 0;
+        store->hash[slot].cold_offset = (uint32_t)(cold_ptr - store->cold_base);
+        store->hash[slot].session_tick = store->session_tick;
+        off = 0;
+    }
+    store->hash[slot].size = sz;
+    store->n_stored++;
+    return local ? (store->base + off) : (store->cold_base + store->hash[slot].cold_offset);
+}
+
 /* ── Full-dispatch read pointer: handles base/kv/cold/compose ──
  *   BOND       → cold_base + cold_offset
  *   BOND|KV    → kv_compose (cold ptr or delta compose)

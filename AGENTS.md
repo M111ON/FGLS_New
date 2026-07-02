@@ -71,7 +71,28 @@ Global skill `cross-session-board` ให้ board + context source tools ทุ
 | **GearShift (Tier-2 streaming router)** | **✅ generic src→dst, no data storage** |
 | **GearLock→GearShift priority sync** | **✅ sync_gearlock_to_gearshift + gs_stream_pending_prioritized** |
 
-### ✅ สิ่งที่ทำล่าสุด (June 30 — Page Table SID: Zero-Copy Indirect Layer + GPU Twin Buffer Swap)
+### ✅ July 2 — POGLS v2 Compression Benchmark + gguf_to_pogls Upgrade
+
+- **Compression benchmark** (`test_pogls_compress.c`): 33/33 PASS on 512MB synthetic Q4 + 8MB norms + 512KB biases:
+  - **Q4 quantized weights: 1.00×** — zstd, binary shell (0.91×), diamond shell (0.97×) ALL fail. Q4 residuals look like random noise at byte level → **store raw, skip compression**.
+  - **Dense f32 norms: 1.00×** — uniformly distributed, incompressible.
+  - **Sparse biases: 3.30×** (zstd), **2.30×** (binary shell) — compress well.
+  - **Strategy**: try zstd per tensor, keep if ratio ≥ 1.1, else RAW. Binary shell/diamond shell never outperform zstd — removed from compression path.
+- **`pogls_meta.h` updates**: added `pogls_compress_tensor()` / `pogls_decompress_tensor()` — auto-detect compressibility, zstd or raw. Guarded by `#define POGLS_USE_ZSTD`.
+- **`gguf_to_pogls.c` rewrite**: standalone GGUF reader (no llama DLL), writes v2 `.pogls` with metadata + optional `--compress` flag. Fixed `POGLS_MAX_ADDR` double-define, `data_pos`/`src_pos` separate tracking.
+- **All tests**: 99/99 PASS (42 meta + 33 compress + 20 priority_dram + 4 gguf_to_pogls build).
+
+### ✅ July 2 — Triplet World + Hidden Pocket: Corrected Tables + Icosphere 162v
+
+- **Face tables fixed**: `TRIPLET_FACE_VERTS`, `POCKET_FACE_VERTS` corrected to use actual plane-equation-derived CCW edge-connected vertex sets (not goldberg_sid.h's region-based grouping). Faces 9-12 had z-plane errors (wrong φ sign) — fixed.
+- **POCKET_FACE_CENTERS corrected**: swapped faces 10/11 to match plane equations (z-φx=+φ² at (-1.1708, 0, 0.7236), z-φx=-φ² at (1.1708, 0, -0.7236)).
+- **ADJ table rebuilt**: `pocket_cross_edge()` adjacency completely recomputed for the new face numbering, verified bidirectional (ADJ[f][e] → neighbor AND ADJ[neighbor][entry] → f).
+- **Pentakis triangle table fixed**: `TRIPLET_PENTAKIS_TRI` reordered to match new CCW face orders.
+- **Icosphere f=4 position table**: 162-vertex pre-computed `TRIPLET_ICOSPHERE_POS` table (Python-generated from icosa subdivision, projected to face-center sphere at R≈1.376). Plus `TRIPLET_ICOSA_FACES_TABLE` (20 faces) and `TRIPLET_ICOSA_EDGES` (30 edges) for topology queries. Added `triplet_icosphere_pos()` lookup function.
+- **Tests**: 51/51 PASS (was 42, added 9 new icosphere/icosa table tests).
+- **Philosophical insight**: Triplet world = geometric address space for zero-copy pipeline (disk→RAM→CPU→GPU); Hidden pocket = persistent alternate-dimension storage accessible within the world. Recorded on session board.
+
+### ✅ (June 30 — Page Table SID: Zero-Copy Indirect Layer + GPU Twin Buffer Swap)
 - **Page Table SID** (`runner/sid_page_table.h` + `--sid-pt` flag): 20736-bit indirect layer (2592 bytes) replaces 5.1GB sid_cache + DRamTile preload with zero-copy bit flip
 - **CPU zero-copy verified**: `--sid-pt --sid-face 1` → apply=0.01ms decode=469ms restore=0.02ms (no alloc/copy, just bit flip)
 - **Baseline benchmark**: `--sid-pt` decode 365ms vs baseline 366ms — zero overhead confirmed

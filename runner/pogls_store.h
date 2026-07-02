@@ -13,10 +13,11 @@
   #define pogls_fseek64 _fseeki64
 #endif
 
-#define POGLS_MAGIC      0x53474F50
-#define POGLS_VERSION    1
+#define POGLS_STORE_MAGIC     0x53474F50
+#define POGLS_STORE_VERSION   1
+#ifndef POGLS_MAX_ADDR
 #define POGLS_MAX_ADDR   20736
-#define POGLS_HEADER_SZ  64
+#endif
 
 /*
  * POGLS Flat Tensor Store
@@ -48,8 +49,8 @@ typedef struct {
 
 static inline int pogls_store_init(PoglsStore *s) {
     memset(s, 0, sizeof(*s));
-    s->magic   = POGLS_MAGIC;
-    s->version = POGLS_VERSION;
+    s->magic   = POGLS_STORE_MAGIC;
+    s->version = POGLS_STORE_VERSION;
     return 0;
 }
 
@@ -66,7 +67,7 @@ static inline int pogls_store_read_header(const char *path, PoglsStore *s) {
     if (!f) return -1;
     size_t r = fread(s, sizeof(*s), 1, f);
     fclose(f);
-    if (r != 1 || s->magic != POGLS_MAGIC) return -1;
+    if (r != 1 || s->magic != POGLS_STORE_MAGIC) return -1;
     return 0;
 }
 
