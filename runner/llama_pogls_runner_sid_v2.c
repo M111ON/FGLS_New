@@ -69,6 +69,7 @@
 #define POGLS_RAIL_USE_POGTIME
 #include "kv_remap_rail.h"
 #include "pogls_store.h"
+#include "pogls_meta.h"
 
 /* ggml_tensor->data is at offset 248 in the struct (same as SID swap) */
 #define GGML_TENSOR_DATA_OFFSET 248
@@ -286,12 +287,12 @@ static int n_found = 0;
 #include "tensor_memory.h"
 #include "geo_addr.h"
 #include "dramtile_store.h"
+#include "capo_store.h"
 #include "icosa_bridge_loader.h"
 #include "gear_lock.h"
 #include "kv_swap.h"
 #include "vramtile.h"
 #include "gear_shift.h"
-
 static IcosaBridge g_ibridge;
 static void *g_ibridge_ctx = NULL;
 static int g_opt_twin_gpu = 0;
@@ -301,6 +302,8 @@ static VRamTileStore g_vrt;          /* VRamTile instance (deprecated for GPU) *
 static GearShiftStore g_gs;          /* GearShift: Tier-2 streaming router */
 static uint32_t g_gpu_worlds = 0;    /* completed GPU worlds for gear-aware eviction */
 static int vrt_upload_gpu(void *gpu_dst, const void *cpu_src, size_t sz, void *user);
+static int g_opt_capo = 0;
+static int g_opt_capo_faces = 2;
 static float g_opt_gear_threshold = 0.30f;
 static int g_opt_gear_log = 16;
 
@@ -361,6 +364,16 @@ static uint8_t *g_pogls_map = NULL;
 static PoglsStore *g_pogls_store = NULL;
 static const char *g_opt_pogls_store = NULL;
 
+/* ── POGLS v2 meta lookup (name → data pointer) ── */
+static const PoglsTensorMeta *g_pogls_meta = NULL;
+static uint32_t g_pogls_meta_count = 0;
+static uint8_t *g_pogls_data_base = NULL;
+static uint64_t *g_pogls_data_offsets = NULL;  /* per-entry cumulative offsets */
+
+#include "gear2.h"
+
+static Gear2Ctx g_gear2;
+
 /* Face populate callback: reads tensor data from GGUF file into face buffer */
 static int sid_pt_populate_from_gguf(int addr, uint8_t *buf, size_t sz, void *user) {
     (void)addr;
@@ -384,9 +397,22 @@ static int sid_pt_populate_from_gguf(int addr, uint8_t *buf, size_t sz, void *us
     return -1;
 }
 
-/* Populate face from POGLS store: O(1) via dram_addr — no binary search needed */
+/* Populate face from POGLS: handles both v1 (index-based) and v2 (meta-based) */
 static int sid_pt_populate_from_pogls(int addr, uint8_t *buf, size_t sz, void *user) {
     (void)user;
+    if (!g_pogls_map) return -1;
+    /* v2 with meta: use sequential data layout */
+    if (g_pogls_meta && g_pogls_data_base && g_pogls_data_offsets) {
+        const PoglsTensorMeta *pm = pogls_meta_find(
+            g_pogls_meta, g_pogls_meta_count, (uint32_t)addr);
+        if (!pm) return -1;
+        uint32_t idx = (uint32_t)(pm - g_pogls_meta);
+        const uint8_t *src = g_pogls_data_base + g_pogls_data_offsets[idx];
+        if (sz != pm->nbytes_orig && sz != pm->comp_nbytes) return -1;
+        memcpy(buf, src, sz);
+        return 0;
+    }
+    /* v1: use index-based lookup */
     if (!g_pogls_store) return -1;
     const uint8_t *src = pogls_store_ptr(g_pogls_store, (uint32_t)addr);
     if (!src) return -1;
@@ -720,6 +746,21 @@ static void dt_evict_gearshift_cb(const char *name, void *user) {
  * If mask is non-NULL, only swaps with mask[i] != 0 are applied.
  * When --sid-pt: uses page table (flip bit, lazy face, journal).
  * Time travel journals only actually-applied swaps. */
+/* ── Capo multi-face cycle ──
+ * Advances active_face each apply call so successive decodes use
+ * different face perturbations.  Cycles 1 → 2 → ... → N-1 → 1.
+ */
+static int capo_advance_face(void) {
+    if (!g_opt_capo || !g_capo.is_init || g_capo.n_faces < 2)
+        return 1;
+    if (g_capo.n_faces > 2) {
+        g_capo.active_face++;
+        if (g_capo.active_face < 1 || g_capo.active_face >= g_capo.n_faces)
+            g_capo.active_face = 1;
+    }
+    return g_capo.active_face;
+}
+
 static void sid_swap_apply_ex(const uint8_t *mask) {
     int n_apply = 0;
     int apply_ft_idx[MAX_SID_SWAPS];
@@ -731,10 +772,12 @@ static void sid_swap_apply_ex(const uint8_t *mask) {
     for (int i = 0; i < n_sid_swaps; i++) {
         if (mask && !mask[i]) continue;
         if (i >= g_sid_progress) continue;
-        apply_ft_idx[n_apply] = delta_ft_idx[i];
+        int fi = delta_ft_idx[i];
+        apply_ft_idx[n_apply] = fi;
         apply_tptr[n_apply] = delta_tensor_ptr[i];
-        apply_orig[n_apply] = delta_orig_data[i];
-        apply_sid[n_apply] = delta_sid_data[i];
+        int _capo_f = capo_advance_face();
+        apply_orig[n_apply] = (g_opt_capo && g_capo.is_init) ? capo_get_face(&g_capo, i, 0) : delta_orig_data[i];
+        apply_sid[n_apply] = (g_opt_capo && g_capo.is_init) ? capo_get_face(&g_capo, i, _capo_f) : delta_sid_data[i];
         apply_sz[n_apply] = delta_size[i];
         n_apply++;
     }
@@ -773,17 +816,21 @@ static void sid_swap_apply_ex(const uint8_t *mask) {
     sid_timetravel_before_decode(&tt, n_apply,
         apply_ft_idx, apply_tptr, apply_orig, apply_sid, apply_sz);
 
-    for (int i = 0; i < n_apply; i++) {
-        int fi = apply_ft_idx[i];
-        int gs_ok = 0;
-        if (g_gs.n_entries > 0) {
-            const char *tname = found_tensors[fi].name;
-            GSEntry *ge = gs_find(&g_gs, tname);
-            if (ge && ge->stream_fn)
-                gs_ok = (gs_stream_from(&g_gs, tname, apply_sid[i], apply_sz[i]) == 0);
+    if (g_gear2.enabled) {
+        gear2_apply(&g_gear2, n_apply, apply_ft_idx, apply_sid, apply_sz);
+    } else {
+        for (int i = 0; i < n_apply; i++) {
+            int fi = apply_ft_idx[i];
+            int gs_ok = 0;
+            if (g_gs.n_entries > 0) {
+                const char *tname = found_tensors[fi].name;
+                GSEntry *ge = gs_find(&g_gs, tname);
+                if (ge && ge->stream_fn)
+                    gs_ok = (gs_stream_from(&g_gs, tname, apply_sid[i], apply_sz[i]) == 0);
+            }
+            if (!gs_ok)
+                tensor_update_data(found_tensors[fi].ptr, apply_sid[i], apply_sz[i]);
         }
-        if (!gs_ok)
-            tensor_update_data(found_tensors[fi].ptr, apply_sid[i], apply_sz[i]);
     }
 }
 
@@ -818,19 +865,20 @@ static void sid_swap_restore_ex(const uint8_t *mask) {
     int restore_ft_idx[MAX_SID_SWAPS];
     void *restore_data[MAX_SID_SWAPS];
 
+    int capo_active = (g_opt_capo && g_capo.is_init);
     if (mask) {
         for (int i = 0; i < n_sid_swaps; i++) {
             if (!mask[i]) continue;
             if (i >= g_sid_progress) continue;
             restore_ft_idx[n_restore] = delta_ft_idx[i];
-            restore_data[n_restore] = delta_orig_data[i];
+            restore_data[n_restore] = capo_active ? capo_get_face(&g_capo, i, 0) : delta_orig_data[i];
             n_restore++;
         }
     } else {
         for (int i = 0; i < n_sid_swaps; i++) {
             if (i >= g_sid_progress) continue;
             restore_ft_idx[n_restore] = delta_ft_idx[i];
-            restore_data[n_restore] = delta_orig_data[i];
+            restore_data[n_restore] = capo_active ? capo_get_face(&g_capo, i, 0) : delta_orig_data[i];
             n_restore++;
         }
     }
@@ -855,11 +903,15 @@ static void sid_swap_restore_ex(const uint8_t *mask) {
         }
     } else {
         /* ── Legacy path ── */
-        for (int i = 0; i < n_restore; i++) {
-            int fi = restore_ft_idx[i];
-            tensor_update_data(found_tensors[fi].ptr,
-                               restore_data[i],
-                               found_tensors[fi].nbytes);
+        if (g_gear2.enabled) {
+            gear2_restore(&g_gear2, n_restore, restore_ft_idx, restore_data);
+        } else {
+            for (int i = 0; i < n_restore; i++) {
+                int fi = restore_ft_idx[i];
+                tensor_update_data(found_tensors[fi].ptr,
+                                   restore_data[i],
+                                   found_tensors[fi].nbytes);
+            }
         }
     }
 
@@ -1052,6 +1104,8 @@ int main(int argc,char**argv){
         else if(!strcmp(argv[i],"--remap"))g_opt_remap=1;
         else if(!strcmp(argv[i],"--shadow"))g_opt_shadow=1;
         else if(!strcmp(argv[i],"--ctx")&&i+1<argc)opt_ctx=atoi(argv[++i]);
+        else if(!strcmp(argv[i],"--capo"))g_opt_capo=1;
+        else if(!strcmp(argv[i],"--capo-faces")&&i+1<argc){g_opt_capo=1;g_opt_capo_faces=atoi(argv[++i]);if(g_opt_capo_faces<2)g_opt_capo_faces=2;if(g_opt_capo_faces>CAPO_MAX_FACES)g_opt_capo_faces=CAPO_MAX_FACES;}
         else if(!strcmp(argv[i],"--dramtile"))g_opt_dramtile=1;
         else if(!strcmp(argv[i],"--dramtile-file")&&i+1<argc){g_opt_dramtile=1;g_opt_dramtile_file=argv[++i];}
         else if(!strcmp(argv[i],"--vram")&&i+1<argc)g_opt_vram=atoi(argv[++i]);
@@ -1119,6 +1173,8 @@ int main(int argc,char**argv){
             fprintf(stderr,"  --remap                  KV remap: adaptive skeleton+delta + rail verify\n");
             fprintf(stderr,"  --shadow                 KV remap shadow zone: delta metadata heartbeat\n");
             fprintf(stderr,"  --vram MB                 VRamTile: VRAM cache size in MB (deprecated, use GearShift)\n");
+            fprintf(stderr,"  --capo                    Capo-key face indirection (deterministic face data addressing via geo_capo)\n");
+            fprintf(stderr,"  --capo-faces N           Capo multi-face: N faces per tensor (2..%d, default 2)\n", CAPO_MAX_FACES);
             fprintf(stderr,"  --dramtile                Enable DRamTile zero-copy tensor store (anonymous)\n");
             fprintf(stderr,"  --dramtile-file PATH      Enable DRamTile with file-backed twin persistence\n");
             fprintf(stderr,"  --simulate                Simulate session (no model)\n");
@@ -1208,7 +1264,7 @@ int main(int argc,char**argv){
                 fprintf(stderr, "WARNING: pogls-store mmap failed — falling back to GGUF\n");
             } else {
                 g_pogls_store = (PoglsStore*)g_pogls_map;
-                if (g_pogls_store->magic != POGLS_MAGIC) {
+                if (g_pogls_store->magic != POGLS_STORE_MAGIC) {
                     fprintf(stderr, "WARNING: pogls-store bad magic 0x%08x — falling back to GGUF\n",
                             g_pogls_store->magic);
 #ifdef _WIN32
@@ -1221,6 +1277,36 @@ int main(int argc,char**argv){
                 } else {
                     fprintf(stderr, "[pogls] opened '%s': %u tensors, magic=0x%08x\n",
                             g_opt_pogls_store, g_pogls_store->n_tensors, g_pogls_store->magic);
+
+                    /* Parse v2 header for tensor metadata */
+                    PoglsStoreHeader *v2hdr = (PoglsStoreHeader*)g_pogls_map;
+                    if (v2hdr->version == 2 && (v2hdr->flags & POGLS_FLAG_HAS_TMETA) &&
+                        v2hdr->tensor_meta_off > 0 && v2hdr->tensor_meta_count > 0) {
+                        g_pogls_meta = (const PoglsTensorMeta*)
+                            (g_pogls_map + v2hdr->tensor_meta_off);
+                        g_pogls_meta_count = v2hdr->tensor_meta_count;
+                        uint64_t data_off = pogls_meta_data_off(v2hdr);
+                        g_pogls_data_base = g_pogls_map + data_off;
+
+                        /* Precompute cumulative data offsets per entry */
+                        g_pogls_data_offsets = (uint64_t*)
+                            calloc(g_pogls_meta_count, sizeof(uint64_t));
+                        uint64_t acc = 0;
+                        for (uint32_t i = 0; i < g_pogls_meta_count; i++) {
+                            g_pogls_data_offsets[i] = acc;
+                            uint32_t sz = g_pogls_meta[i].comp_nbytes > 0
+                                        ? g_pogls_meta[i].comp_nbytes
+                                        : g_pogls_meta[i].nbytes_orig;
+                            acc += sz;
+                        }
+
+                        fprintf(stderr, "[pogls] v2 meta: %u entries, data_base=%p (off=%llu)\n",
+                                g_pogls_meta_count, (void*)g_pogls_data_base,
+                                (unsigned long long)data_off);
+                    } else if (v2hdr->version == 2) {
+                        fprintf(stderr, "[pogls] v2 file but no meta section (flags=0x%04x) — skipping redirect\n",
+                                v2hdr->flags);
+                    }
                 }
             }
         }
@@ -1276,6 +1362,33 @@ int main(int argc,char**argv){
     n_found = n;
     fprintf(stderr, "[scan] Total found: %d / %llu GGUF tensors\n", n_found,
         (unsigned long long)gidx.n_tensors);
+
+    /* ── Redirect CPU tensor data to POGLS (replace GGUF mmap pointers) ── */
+    if (g_pogls_meta && g_pogls_data_base && g_pogls_data_offsets) {
+        int n_redirected = 0, n_gpu_skipped = 0, n_not_found = 0;
+        for (int fi = 0; fi < n_found; fi++) {
+            const PoglsTensorMeta *pm = pogls_meta_find_name(
+                g_pogls_meta, g_pogls_meta_count, found_tensors[fi].name);
+            if (!pm) { n_not_found++; continue; }
+
+            /* Compute POGLS data pointer from precomputed offset */
+            uint32_t idx = (uint32_t)(pm - g_pogls_meta);
+            uint8_t *pogls_data = g_pogls_data_base + g_pogls_data_offsets[idx];
+
+            /* Only redirect RAW tensors (compressed data can't be used in-place) */
+            if (pm->comp_type != POGLS_COMP_RAW) continue;
+
+            /* Skip GPU-offloaded tensors — their tensor->data points to device memory */
+            struct ggml_tensor *t = (struct ggml_tensor*)found_tensors[fi].ptr;
+            int is_gpu = (t->buffer && !ggml_backend_buffer_is_host(t->buffer));
+            if (is_gpu) { n_gpu_skipped++; continue; }
+
+            found_tensors[fi].orig_data = pogls_data;
+            n_redirected++;
+        }
+        fprintf(stderr, "[pogls] redirected %d CPU tensors to POGLS data (%d GPU skipped, %d not in meta)\n",
+                n_redirected, n_gpu_skipped, n_not_found);
+    }
 
     /* ── compute n_layers from found tensors ── */
     int n_layers = 0;
@@ -1509,6 +1622,40 @@ int main(int argc,char**argv){
 
     free(read_buf);
 
+    /* ── Direct tensor->data redirect to POGLS/DRamTile source ──
+     * Weight tensors are NEVER written to during inference (llama_decode).
+     * By pointing tensor->data directly to the POGLS mmap (or DRamTile),
+     * we eliminate redundant heap buffers (~5 GB) that llama allocated
+     * during model load (mp.no_alloc=0 default copies GGUF data to heap).
+     *
+     * SID face swap still works: it temporarily changes tensor->data
+     * pointer to face heap data (via tensor_update_data), then restores
+     * back to this redirect source.  The redirect source is never written to. */
+    {
+        int n_redirected = 0, n_skipped_gpu = 0, n_nochange = 0, n_nosrc = 0;
+        for (int fi = 0; fi < n_found; fi++) {
+            struct ggml_tensor *t = (struct ggml_tensor*)found_tensors[fi].ptr;
+
+            /* Skip GPU tensors — their tensor->data is a device memory pointer */
+            if (t->buffer && !ggml_backend_buffer_is_host(t->buffer)) {
+                n_skipped_gpu++;
+                continue;
+            }
+
+            void *src = found_tensors[fi].orig_data;
+            if (!src) { n_nosrc++; continue; }
+
+            void *cur = tensor_data(t);
+            if (src == cur) { n_nochange++; continue; }
+
+            tensor_set_data(t, src);
+            n_redirected++;
+        }
+        if (n_redirected > 0 || n_skipped_gpu > 0)
+            fprintf(stderr, "[direct] tensor->data redirected: %d (GPU: %d, no-change: %d, no-src: %d)\n",
+                    n_redirected, n_skipped_gpu, n_nochange, n_nosrc);
+    }
+
     /* ── Page-table SID init (zero-copy, lazy face, 2592B overhead) ──
      *   Replaces sid_cache (5.1GB preload) + DRamTile (5.1GB copy).
      *   Face buffers allocated lazily — no RAM waste.
@@ -1562,15 +1709,28 @@ int main(int argc,char**argv){
             }
 
             if (slc_ok && opt_ngl == 0) {
-                int n_loaded = 0;
-                for (int fi = 0; fi < n_found; fi++) {
-                    if (sid_loader_is_norm(found_tensors[fi].name)) continue;
-                    uint8_t *data = NULL; size_t data_sz = 0;
-                    if (sid_loader_load(&slc, found_tensors[fi].name, read_buf, &data, &data_sz) == 0)
-                        n_loaded++;
+                /* When POGLS redirect is active, all CPU weight tensors already
+                 * point to POGLS mmap via found_tensors[].orig_data. Skip the
+                 * heap preload to save ~5GB RAM — the swap setup falls back to
+                 * orig_data on cache miss (line 1876). */
+                int pogls_active = (g_pogls_meta && g_pogls_data_base && g_pogls_data_offsets);
+                if (pogls_active) {
+                    /* Close GGUF file handle — all data is via POGLS mmap */
+                    if (slc.gguf_file) { fclose(slc.gguf_file); slc.gguf_file = NULL; }
+                    free(read_buf); read_buf = NULL;
+                    fprintf(stderr, "[sid] POGLS active: skipping heap preload for %d weight tensors (using POGLS mmap)\n",
+                        n_weight_tensors);
+                } else {
+                    int n_loaded = 0;
+                    for (int fi = 0; fi < n_found; fi++) {
+                        if (sid_loader_is_norm(found_tensors[fi].name)) continue;
+                        uint8_t *data = NULL; size_t data_sz = 0;
+                        if (sid_loader_load(&slc, found_tensors[fi].name, read_buf, &data, &data_sz) == 0)
+                            n_loaded++;
+                    }
+                    fprintf(stderr, "[sid] cached %d/%d tensors from GGUF (compressed, full preload)\n",
+                        n_loaded, n_weight_tensors);
                 }
-                fprintf(stderr, "[sid] cached %d/%d tensors from GGUF (compressed, full preload)\n",
-                    n_loaded, n_weight_tensors);
             } else if (slc_ok) {
                 fprintf(stderr, "[sid] GGUF open, lazy load for GPU tensors\n");
             }
@@ -1698,6 +1858,11 @@ int main(int argc,char**argv){
         }
         if (g_opt_gear_lock)
             fprintf(stderr, "[gear] route stability feedback active (threshold=%.2f)\n", g_opt_gear_threshold);
+        if (g_opt_capo) {
+            capo_init(&g_capo, n_found, g_opt_capo_faces);
+            g_capo.active_face = 1;
+            fprintf(stderr, "[capo] initialized: %d tensors, %d faces (active=%d)\n", n_found, g_capo.n_faces, g_capo.active_face);
+        }
         for (int i = 0; i < n_found && n_sid_swaps < MAX_SID_SWAPS; i++) {
             const char *name = found_tensors[i].name;
             /* bond prediction filter */
@@ -1783,6 +1948,14 @@ int main(int argc,char**argv){
             }
             delta_sid_data[n_sid_swaps] = cached;
             delta_size[n_sid_swaps] = cached_sz;
+
+            if (g_opt_capo) {
+                capo_set_face(&g_capo, n_sid_swaps, 0,
+                    (uint8_t*)found_tensors[i].orig_data, found_tensors[i].nbytes);
+                capo_set_face(&g_capo, n_sid_swaps, 1, cached, cached_sz);
+                for (int _f = 2; _f < g_capo.n_faces; _f++)
+                    capo_set_face(&g_capo, n_sid_swaps, _f, cached, cached_sz);
+            }
             n_sid_swaps++;
         }
         /* ── goldberg geodesic expansion ── */
@@ -1832,6 +2005,13 @@ int main(int argc,char**argv){
                     }
                     delta_sid_data[n_sid_swaps] = cached;
                     delta_size[n_sid_swaps] = cached_sz;
+                    if (g_opt_capo) {
+                        capo_set_face(&g_capo, n_sid_swaps, 0,
+                            (uint8_t*)found_tensors[t].orig_data, found_tensors[t].nbytes);
+                        capo_set_face(&g_capo, n_sid_swaps, 1, cached, cached_sz);
+                        for (int _f = 2; _f < g_capo.n_faces; _f++)
+                            capo_set_face(&g_capo, n_sid_swaps, _f, cached, cached_sz);
+                    }
                     n_sid_swaps++; added++;
                 }
             }
@@ -2041,6 +2221,10 @@ int main(int argc,char**argv){
     /* ── GPU twin buffer init: pre-upload face data to GPU buffers ── */
     if (g_sid_pt_enabled && opt_ngl > 0 && n_sid_swaps > 0)
         sid_pt_gpu_init_faces();
+
+    /* ── Gear 2: pinned memory mirror init ── */
+    if (opt_ngl > 0 && n_sid_swaps > 0)
+        gear2_init(&g_gear2);
 
     /* ── Save clean SID data ptrs for cosplay-compare and experiment ── */
     if ((g_opt_cosplay_compare || g_opt_experiment) && sid_face > 0 && n_sid_swaps > 0) {
@@ -2863,6 +3047,9 @@ int main(int argc,char**argv){
         g_tmem_buf = NULL;
     }
 
+    /* ── Gear 2 cleanup (before icosa bridge) ── */
+    gear2_destroy(&g_gear2);
+
     /* ── Icosa bridge stats & cleanup ── */
     if (g_opt_twin_gpu && g_ibridge_ctx) {
         g_ibridge.destroy(g_ibridge_ctx);
@@ -2899,6 +3086,11 @@ int main(int argc,char**argv){
     sid_pt_context_destroy(&g_sid_pt);
 
     /* ── POGLS store unmapping ── */
+    free(g_pogls_data_offsets);
+    g_pogls_data_offsets = NULL;
+    g_pogls_meta = NULL;
+    g_pogls_meta_count = 0;
+    g_pogls_data_base = NULL;
     if (g_pogls_map && g_pogls_store) {
 #ifdef _WIN32
         UnmapViewOfFile(g_pogls_map);
@@ -2911,10 +3103,12 @@ int main(int argc,char**argv){
     }
 
     /* ── Cleanup ── */
+    if (g_opt_capo) capo_destroy(&g_capo);
     for (int i = 0; i < n_sid_swaps; i++) {
         if (sid_swaps[i].is_malloc) free(sid_swaps[i].sid_data);
     }
 cleanup:
+    gear2_destroy(&g_gear2);
     if (g_gs.n_entries > 0) gs_destroy(&g_gs);
     if (g_vrt.vram_base) vrt_destroy(&g_vrt);
     if (g_opt_twin_gpu && g_ibridge_ctx) {
