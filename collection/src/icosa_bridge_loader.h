@@ -16,6 +16,10 @@ typedef struct {
     int     (*free)(void *ctx, void *ptr);
     int     (*memcpy_h2d)(void *ctx, void *dst, const void *src, size_t size);
     int     (*sync)(void *ctx);
+    int     (*batch_memcpy_h2d)(void *ctx, void *const *dst, const void *const *src, const size_t *sizes, int n);
+    int     (*batch_memcpy_d2h)(void *ctx, void *const *dst, const void *const *src, const size_t *sizes, int n);
+    int     (*pin_host)(void *ctx, void **ptr, size_t size);
+    int     (*unpin_host)(void *ctx, void *ptr);
 } IcosaBridge;
 
 static inline int icosa_bridge_load(IcosaBridge *br, const char *dll_path) {
@@ -28,8 +32,12 @@ static inline int icosa_bridge_load(IcosaBridge *br, const char *dll_path) {
     br->dispatch  = (int(*)(void*,const uint64_t*,const uint64_t*,uint32_t,uint64_t,uint32_t,uint64_t,uint64_t*,uint8_t*))GetProcAddress(br->dll, "icosa_gpu_dispatch");
     br->alloc     = (void*(*)(void*,size_t))GetProcAddress(br->dll, "icosa_gpu_alloc");
     br->free      = (int(*)(void*,void*))GetProcAddress(br->dll, "icosa_gpu_free");
-    br->memcpy_h2d= (int(*)(void*,void*,const void*,size_t))GetProcAddress(br->dll, "icosa_gpu_memcpy_h2d");
-    br->sync      = (int(*)(void*))GetProcAddress(br->dll, "icosa_gpu_sync");
+    br->memcpy_h2d    = (int(*)(void*,void*,const void*,size_t))GetProcAddress(br->dll, "icosa_gpu_memcpy_h2d");
+    br->sync          = (int(*)(void*))GetProcAddress(br->dll, "icosa_gpu_sync");
+    br->batch_memcpy_h2d = (int(*)(void*,void*const*,void const*const*,size_t const*,int))GetProcAddress(br->dll, "icosa_gpu_batch_memcpy_h2d");
+    br->batch_memcpy_d2h = (int(*)(void*,void*const*,void const*const*,size_t const*,int))GetProcAddress(br->dll, "icosa_gpu_batch_memcpy_d2h");
+    br->pin_host      = (int(*)(void*,void**,size_t))GetProcAddress(br->dll, "icosa_gpu_pin_host");
+    br->unpin_host    = (int(*)(void*,void*))GetProcAddress(br->dll, "icosa_gpu_unpin_host");
     if (!br->create || !br->destroy || !br->valid || !br->dispatch) {
         FreeLibrary(br->dll);
         memset(br, 0, sizeof(*br));

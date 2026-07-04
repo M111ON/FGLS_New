@@ -433,6 +433,93 @@ ICOSA_API int icosa_gpu_sync(void *gpu_ctx) {
     return (e == cudaSuccess) ? 0 : -3;
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+ * BATCH MEMCPY — N transfers within one context save/restore
+ *
+ * Used by Gear 2 (pinned memory mirror) for batched SID swap upload.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+ICOSA_API int icosa_gpu_batch_memcpy_h2d(void *gpu_ctx,
+    void *const *dst, const void *const *src,
+    const size_t *sizes, int n)
+{
+    if (!gpu_ctx || !dst || !src || n == 0) return -1;
+    IcosaGpuCtx *ctx = (IcosaGpuCtx *)gpu_ctx;
+    if (!ctx->valid) return -2;
+
+    CUcontext prev_ctx = NULL;
+    cuCtxGetCurrent(&prev_ctx);
+    if (prev_ctx != ctx->cu_ctx) cuCtxSetCurrent(ctx->cu_ctx);
+    int restore_ctx = (prev_ctx != ctx->cu_ctx && prev_ctx != NULL);
+
+    cudaError_t e = cudaSuccess;
+    for (int i = 0; i < n; i++) {
+        if (dst[i] && src[i] && sizes[i] > 0) {
+            e = cudaMemcpyAsync(dst[i], src[i], sizes[i],
+                                cudaMemcpyHostToDevice, ctx->stream);
+            if (e != cudaSuccess) break;
+        }
+    }
+    if (e == cudaSuccess)
+        e = cudaStreamSynchronize(ctx->stream);
+
+    if (restore_ctx) cuCtxSetCurrent(prev_ctx);
+    return (e == cudaSuccess) ? 0 : -3;
+}
+
+ICOSA_API int icosa_gpu_batch_memcpy_d2h(void *gpu_ctx,
+    void *const *dst, const void *const *src,
+    const size_t *sizes, int n)
+{
+    if (!gpu_ctx || !dst || !src || n == 0) return -1;
+    IcosaGpuCtx *ctx = (IcosaGpuCtx *)gpu_ctx;
+    if (!ctx->valid) return -2;
+
+    CUcontext prev_ctx = NULL;
+    cuCtxGetCurrent(&prev_ctx);
+    if (prev_ctx != ctx->cu_ctx) cuCtxSetCurrent(ctx->cu_ctx);
+    int restore_ctx = (prev_ctx != ctx->cu_ctx && prev_ctx != NULL);
+
+    cudaError_t e = cudaSuccess;
+    for (int i = 0; i < n; i++) {
+        if (dst[i] && src[i] && sizes[i] > 0) {
+            e = cudaMemcpyAsync(dst[i], src[i], sizes[i],
+                                cudaMemcpyDeviceToHost, ctx->stream);
+            if (e != cudaSuccess) break;
+        }
+    }
+    if (e == cudaSuccess)
+        e = cudaStreamSynchronize(ctx->stream);
+
+    if (restore_ctx) cuCtxSetCurrent(prev_ctx);
+    return (e == cudaSuccess) ? 0 : -3;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * HOST PINNED MEMORY — allocate/free host memory usable by DMA engine
+ *
+ * Pinned memory eliminates the implicit driver staging copy that
+ * happens when cudaMemcpy reads from a regular malloc'd buffer.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+ICOSA_API int icosa_gpu_pin_host(void *gpu_ctx, void **ptr, size_t size) {
+    (void)gpu_ctx;
+    if (!ptr || size == 0) return -1;
+    cudaError_t e = cudaMallocHost(ptr, size);
+    if (e != cudaSuccess) {
+        *ptr = NULL;
+        return -2;
+    }
+    return 0;
+}
+
+ICOSA_API int icosa_gpu_unpin_host(void *gpu_ctx, void *ptr) {
+    (void)gpu_ctx;
+    if (!ptr) return -1;
+    cudaFreeHost(ptr);
+    return 0;
+}
+
 #ifdef __cplusplus
 }
 #endif
