@@ -1344,7 +1344,7 @@ if __name__ == "__main__":
                     self.end_headers()
 
         import http.server
-        server = http.server.HTTPServer(('127.0.0.1', port), _Handler)
+        server = http.server.HTTPServer(('0.0.0.0', port), _Handler)
         t = threading.Thread(target=server.serve_forever, daemon=True)
         t.start()
         print(f"[inbox] dashboard: http://127.0.0.1:{port}", flush=True)

@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2D Canvas — FGLS</title>
+<style>
+:root {
+  --bg: #0f1117; --surface: #1a1d28; --surface2: #242838;
+  --border: #2e3348; --text: #e2e4ed; --text-dim: #888ca6;
+  --accent: #6c8cff; --accent2: #ff6b8a; --accent3: #4ade80;
+  --radius: 8px;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg); color: var(--text);
+  display: flex; height: 100vh; overflow: hidden;
+}
+#sidebar {
+  width: 260px; min-width: 260px;
+  background: var(--surface); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  padding: 12px; gap: 6px; overflow-y: auto;
+  transition: width .25s, min-width .25s, padding .25s;
+}
+#sidebar.collapsed { width: 44px; min-width: 44px; padding: 12px 6px; }
+#sidebar.collapsed > *:not(#sidebar-toggle) { display: none; }
+#sidebar.collapsed #sidebar-toggle { display: block; margin: 0 auto; transform: rotate(180deg); }
+.section-title {
+  font-size: 11px; font-weight: 600; color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: .5px;
+  padding: 5px 0; cursor: pointer; user-select: none;
+  display: flex; justify-content: space-between;
+}
+.section-title:hover { color: var(--text); }
+.section-title .arrow { transition: transform .2s; }
+.section-title.collapsed .arrow { transform: rotate(-90deg); }
+.section-body { padding: 2px 0 6px; }
+.section-body.hidden { display: none; }
+
+.toolbar { display: flex; flex-wrap: wrap; gap: 3px; }
+.tool-btn {
+  padding: 5px 8px; border-radius: 5px; border: 1px solid var(--border);
+  background: transparent; color: var(--text-dim); cursor: pointer;
+  font-size: 11px; transition: all .12s; line-height: 1;
+}
+.tool-btn:hover { background: var(--surface2); color: var(--text); }
+.tool-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.color-row { display: flex; gap: 4px; flex-wrap: wrap; padding: 2px 0; }
+.color-swatch {
+  width: 18px; height: 18px; border-radius: 3px;
+  border: 2px solid transparent; cursor: pointer; transition: all .1s;
+}
+.color-swatch:hover { transform: scale(1.15); }
+.color-swatch.active { border-color: #fff; }
+
+#canvas-wrap { flex: 1; position: relative; overflow: hidden; }
+#canvas-wrap canvas { display: block; width: 100%; height: 100%; }
+
+#info {
+  position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  backdrop-filter: blur(8px); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 5px 14px;
+  font-size: 11px; color: var(--text-dim);
+  display: flex; gap: 14px; pointer-events: none; white-space: nowrap;
+}
+
+.param-group { margin: 3px 0; display: flex; align-items: center; gap: 8px; }
+.param-group label { font-size: 11px; color: var(--text-dim); min-width: 40px; }
+.param-group input[type="range"] { flex: 1; height: 3px; -webkit-appearance: none; background: var(--border); border-radius: 2px; outline: none; }
+.param-group input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); cursor: pointer; }
+.param-group .val { font-size: 11px; color: var(--text-dim); min-width: 24px; text-align: right; }
+
+#status-bar { padding: 5px 8px; background: var(--surface2); border-radius: 5px; font-size: 11px; color: var(--text-dim); font-family: monospace; margin-top: auto; }
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+    <h1 style="margin:0;font-size:13px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;">2D Canvas</h1>
+    <button id="sidebar-toggle" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:14px;padding:2px 4px;">◀</button>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Tool <span class="arrow">▼</span></div>
+    <div class="section-body">
+      <div class="toolbar" id="toolbar">
+        <div class="tool-btn active" data-tool="select">Select</div>
+        <div class="tool-btn" data-tool="pan">Pan</div>
+        <div class="tool-btn" data-tool="pen">Pen</div>
+        <div class="tool-btn" data-tool="line">Line</div>
+        <div class="tool-btn" data-tool="rect">Rect</div>
+        <div class="tool-btn" data-tool="circle">Circle</div>
+        <div class="tool-btn" data-tool="text">Text</div>
+        <div class="tool-btn" data-tool="arrow">Arrow</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Stroke <span class="arrow">▼</span></div>
+    <div class="section-body">
+      <div class="param-group">
+        <label>Size</label>
+        <input type="range" id="stroke-size" min="1" max="12" step="0.5" value="2">
+        <span class="val" id="val-stroke">2</span>
+      </div>
+      <div class="color-row" id="palette">
+        <div class="color-swatch active" style="background:#6c8cff" data-color="#6c8cff"></div>
+        <div class="color-swatch" style="background:#ff6b8a" data-color="#ff6b8a"></div>
+        <div class="color-swatch" style="background:#4ade80" data-color="#4ade80"></div>
+        <div class="color-swatch" style="background:#fbbf24" data-color="#fbbf24"></div>
+        <div class="color-swatch" style="background:#c084fc" data-color="#c084fc"></div>
+        <div class="color-swatch" style="background:#fb923c" data-color="#fb923c"></div>
+        <div class="color-swatch" style="background:#38bdf8" data-color="#38bdf8"></div>
+        <div class="color-swatch" style="background:#ffffff" data-color="#ffffff"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Actions <span class="arrow">▼</span></div>
+    <div class="section-body">
+      <button onclick="clearAll()" style="width:100%;padding:5px;border-radius:5px;border:1px solid var(--border);background:var(--surface2);color:var(--accent2);cursor:pointer;font-size:11px;">Clear All</button>
+      <button onclick="undo()" style="width:100%;padding:5px;border-radius:5px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer;font-size:11px;margin-top:3px;">Undo (Ctrl+Z)</button>
+    </div>
+  </div>
+
+  <div id="status-bar">[Select] Click to select, drag to move</div>
+</div>
+
+<div id="canvas-wrap">
+  <canvas id="canvas"></canvas>
+  <div id="info">
+    <span id="info-mode">🔲 Select</span>
+    <span id="info-pos">0, 0</span>
+  </div>
+</div>
+
+<script>
+// ── 2D Drawing Engine ──
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let W, H;
+
+function resize() {
+  const r = canvas.parentElement.getBoundingClientRect();
+  const dpr = devicePixelRatio || 1;
+  canvas.width = r.width * dpr; canvas.height = r.height * dpr;
+  W = r.width; H = r.height;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+// ── State ──
+const objects = [];   // { type, x, y, w, h, pts, color, size, text, rotation }
+let undoStack = [];
+let currentTool = 'select';
+let selectedIdx = -1;
+let strokeSize = 2;
+let strokeColor = '#6c8cff';
+
+// Viewport
+let viewX = 0, viewY = 0, viewZoom = 1;
+let isDragging = false, lastMouse = {x:0,y:0};
+let dragStartObj = null; // for dragging shapes
+let drawStart = null;    // for drawing shapes
+let tempObj = null;      // in-progress shape
+
+// ── Objects ──
+function addObj(type, opts = {}) {
+  const obj = { type, x: opts.x||0, y: opts.y||0, w: opts.w||0, h: opts.h||0, pts: opts.pts||null, color: opts.color||strokeColor, size: opts.size||strokeSize, text: opts.text||'', rotation: opts.rotation||0, visible: true };
+  objects.push(obj);
+  return obj;
+}
+
+function saveState() { undoStack.push(JSON.stringify(objects.map(o => ({...o})))); if (undoStack.length > 50) undoStack.shift(); }
+function undo() { if (!undoStack.length) return; const prev = JSON.parse(undoStack.pop()); objects.length = 0; for (const o of prev) objects.push(o); render(); }
+
+function clearAll() { saveState(); objects.length = 0; render(); }
+
+// ── Render ──
+function render() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.save();
+  ctx.translate(viewX, viewY);
+  ctx.scale(viewZoom, viewZoom);
+
+  drawGrid();
+  drawObjects();
+
+  // Temp drawing preview
+  if (tempObj) drawObj(tempObj, true);
+
+  ctx.restore();
+  document.getElementById('info-pos').textContent = Math.round(-viewX/viewZoom) + ', ' + Math.round(-viewY/viewZoom);
+
+  // Selection highlight
+  if (selectedIdx >= 0 && selectedIdx < objects.length && currentTool === 'select') {
+    const o = objects[selectedIdx];
+    const b = getBounds(o);
+    if (b) {
+      ctx.save(); ctx.translate(viewX, viewY); ctx.scale(viewZoom, viewZoom);
+      ctx.strokeStyle = strokeColor; ctx.lineWidth = 2/viewZoom; ctx.setLineDash([4/viewZoom,4/viewZoom]);
+      ctx.strokeRect(b.x, b.y, b.w, b.h); ctx.setLineDash([]);
+      ctx.restore();
+    }
+  }
+}
+
+function drawGrid() {
+  const grid = 40;
+  const vw = W / viewZoom, vh = H / viewZoom;
+  const ox = Math.floor(-viewX/viewZoom/grid) * grid;
+  const oy = Math.floor(-viewY/viewZoom/grid) * grid;
+  ctx.strokeStyle = 'rgba(46,51,72,0.3)'; ctx.lineWidth = 1/viewZoom;
+  ctx.beginPath();
+  for (let x = ox; x < ox + vw + grid; x += grid) { ctx.moveTo(x, oy); ctx.lineTo(x, oy + vh); }
+  for (let y = oy; y < oy + vh + grid; y += grid) { ctx.moveTo(ox, y); ctx.lineTo(ox + vw, y); }
+  ctx.stroke();
+}
+
+function drawObjects() {
+  for (const o of objects) if (o.visible) drawObj(o, false);
+}
+
+function drawObj(o, isTemp) {
+  ctx.strokeStyle = o.color; ctx.fillStyle = o.color;
+  ctx.lineWidth = o.size / viewZoom;
+  const alpha = isTemp ? 0.6 : 1;
+  ctx.globalAlpha = alpha;
+
+  switch (o.type) {
+    case 'line':
+      ctx.beginPath(); ctx.moveTo(o.x, o.y); ctx.lineTo(o.w, o.h); ctx.stroke();
+      break;
+    case 'arrow': {
+      const dx = o.w - o.x, dy = o.h - o.y;
+      const len = Math.sqrt(dx*dx+dy*dy);
+      if (len < 1) break;
+      const ux = dx/len, uy = dy/len;
+      ctx.beginPath(); ctx.moveTo(o.x, o.y); ctx.lineTo(o.w, o.h); ctx.stroke();
+      const head = 12 / viewZoom;
+      ctx.beginPath();
+      ctx.moveTo(o.w, o.h);
+      ctx.lineTo(o.w - ux*head + uy*head*0.4, o.h - uy*head - ux*head*0.4);
+      ctx.moveTo(o.w, o.h);
+      ctx.lineTo(o.w - ux*head - uy*head*0.4, o.h - uy*head + ux*head*0.4);
+      ctx.stroke();
+      break;
+    }
+    case 'rect':
+      ctx.strokeRect(o.x, o.y, o.w, o.h);
+      break;
+    case 'fillrect':
+      ctx.fillRect(o.x, o.y, o.w, o.h);
+      break;
+    case 'circle': {
+      const r = Math.sqrt((o.w-o.x)**2 + (o.h-o.y)**2);
+      ctx.beginPath(); ctx.arc(o.x, o.y, r, 0, Math.PI*2); ctx.stroke();
+      break;
+    }
+    case 'text':
+      ctx.font = `${Math.max(12, o.size * 6)}px 'Segoe UI', sans-serif`;
+      ctx.textBaseline = 'top';
+      ctx.fillText(o.text, o.x, o.y);
+      break;
+    case 'pen': {
+      if (!o.pts || o.pts.length < 2) break;
+      ctx.beginPath();
+      ctx.moveTo(o.pts[0][0], o.pts[0][1]);
+      for (let i = 1; i < o.pts.length; i++) ctx.lineTo(o.pts[i][0], o.pts[i][1]);
+      ctx.stroke();
+      break;
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+function getBounds(o) {
+  switch (o.type) {
+    case 'line': case 'arrow': return { x: Math.min(o.x,o.w), y: Math.min(o.y,o.h), w: Math.abs(o.w-o.x), h: Math.abs(o.h-o.y) };
+    case 'rect': case 'fillrect': return { x: o.x, y: o.y, w: o.w, h: o.h };
+    case 'circle': { const r = Math.sqrt((o.w-o.x)**2+(o.h-o.y)**2); return { x: o.x-r, y: o.y-r, w: r*2, h: r*2 }; }
+    case 'text': return { x: o.x-5, y: o.y-5, w: o.text.length * 8 + 10, h: 24 };
+    case 'pen': if (o.pts && o.pts.length) { let minx=Infinity,miny=Infinity,maxx=-Infinity,maxy=-Infinity; for (const p of o.pts) { minx=Math.min(minx,p[0]);maxx=Math.max(maxx,p[0]);miny=Math.min(miny,p[1]);maxy=Math.max(maxy,p[1]); } return {x:minx,y:miny,w:maxx-minx,h:maxy-miny}; }
+  }
+  return null;
+}
+
+function hitTest(mx, my) {
+  for (let i = objects.length-1; i >= 0; i--) {
+    const o = objects[i];
+    const b = getBounds(o);
+    if (!b) continue;
+    // Expand hit area
+    const pad = Math.max(8, o.size * 2) / viewZoom;
+    if (mx >= b.x-pad && mx <= b.x+b.w+pad && my >= b.y-pad && my <= b.y+b.h+pad) return i;
+  }
+  return -1;
+}
+
+// ── Input ──
+canvas.addEventListener('mousedown', e => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = (e.clientX - rect.left - viewX) / viewZoom;
+  const my = (e.clientY - rect.top - viewY) / viewZoom;
+
+  if (currentTool === 'select') {
+    const hit = hitTest(mx, my);
+    selectedIdx = hit;
+    if (hit >= 0) {
+      isDragging = true;
+      const o = objects[hit];
+      dragStartObj = { x: o.x, y: o.y, w: o.w, h: o.h, mx, my };
+      if (o.pts) dragStartObj.pts = o.pts.map(p => [...p]);
+    } else {
+      selectedIdx = -1;
+      isDragging = true;
+      lastMouse = {x: e.clientX, y: e.clientY};
+    }
+    render(); return;
+  }
+
+  if (currentTool === 'pan') {
+    isDragging = true;
+    lastMouse = {x: e.clientX, y: e.clientY};
+    return;
+  }
+
+  // Drawing tools
+  if (['line','arrow','rect','circle'].includes(currentTool)) {
+    drawStart = {x: mx, y: my};
+    isDragging = true;
+    return;
+  }
+  if (currentTool === 'text') {
+    saveState();
+    const text = prompt('Text:', '');
+    if (text) { addObj('text', {x: mx, y: my, text, size: strokeSize}); render(); }
+    return;
+  }
+  if (currentTool === 'pen') {
+    saveState();
+    const penObj = addObj('pen', {x: mx, y: my, pts: [[mx, my]], size: strokeSize, color: strokeColor});
+    isDragging = true;
+    drawStart = {obj: penObj};
+    return;
+  }
+});
+
+window.addEventListener('mousemove', e => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = (e.clientX - rect.left - viewX) / viewZoom;
+  const my = (e.clientY - rect.top - viewY) / viewZoom;
+
+  document.getElementById('info-pos').textContent = Math.round(mx) + ', ' + Math.round(my);
+
+  if (!isDragging) return;
+
+  if (currentTool === 'select' && selectedIdx >= 0 && dragStartObj) {
+    const o = objects[selectedIdx];
+    const dx = mx - dragStartObj.mx, dy = my - dragStartObj.my;
+    o.x = dragStartObj.x + dx; o.y = dragStartObj.y + dy;
+    if (o.w !== undefined && o.pts === null) { o.w = dragStartObj.w; o.h = dragStartObj.h; }
+    else if (o.type === 'line' || o.type === 'arrow' || o.type === 'circle') {
+      o.w = dragStartObj.w + dx; o.h = dragStartObj.h + dy;
+    }
+    if (o.pts && dragStartObj.pts) {
+      o.pts = dragStartObj.pts.map(p => [p[0]+dx, p[1]+dy]);
+    }
+    render(); return;
+  }
+
+  if (currentTool === 'select' && selectedIdx < 0) {
+    viewX += e.clientX - lastMouse.x; viewY += e.clientY - lastMouse.y;
+    lastMouse = {x: e.clientX, y: e.clientY};
+    render(); return;
+  }
+
+  if (currentTool === 'pan') {
+    viewX += e.clientX - lastMouse.x; viewY += e.clientY - lastMouse.y;
+    lastMouse = {x: e.clientX, y: e.clientY};
+    render(); return;
+  }
+
+  if (['line','arrow','rect','circle'].includes(currentTool) && drawStart) {
+    tempObj = { type: currentTool, x: drawStart.x, y: drawStart.y, w: mx, h: my, color: strokeColor, size: strokeSize };
+    render(); return;
+  }
+
+  if (currentTool === 'pen' && drawStart && drawStart.obj) {
+    drawStart.obj.pts.push([mx, my]);
+    render(); return;
+  }
+});
+
+window.addEventListener('mouseup', e => {
+  if (isDragging && currentTool === 'select' && selectedIdx >= 0 && dragStartObj) {
+    saveState();
+  }
+  if (isDragging && ['line','arrow','rect','circle'].includes(currentTool) && drawStart && tempObj) {
+    const rect = canvas.getBoundingClientRect();
+    const mx = (e.clientX - rect.left - viewX) / viewZoom;
+    const my = (e.clientY - rect.top - viewY) / viewZoom;
+    const dist = Math.sqrt((mx-drawStart.x)**2 + (my-drawStart.y)**2);
+    if (dist > 3) {
+      saveState();
+      addObj(currentTool, {x: drawStart.x, y: drawStart.y, w: mx, h: my, size: strokeSize, color: strokeColor});
+    }
+    tempObj = null;
+    drawStart = null;
+    render(); return;
+  }
+  if (currentTool === 'pen' && drawStart && drawStart.obj) {
+    drawStart = null;
+    render(); return;
+  }
+  isDragging = false; dragStartObj = null; tempObj = null;
+});
+
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  const oldZoom = viewZoom;
+  viewZoom *= e.deltaY > 0 ? 0.9 : 1.1;
+  viewZoom = Math.max(0.1, Math.min(20, viewZoom));
+  viewX = mx - (mx - viewX) * (viewZoom / oldZoom);
+  viewY = my - (my - viewY) * (viewZoom / oldZoom);
+  render();
+}, {passive: false});
+
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'z' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); undo(); }
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (selectedIdx >= 0 && selectedIdx < objects.length && currentTool === 'select') {
+      saveState(); objects.splice(selectedIdx, 1); selectedIdx = -1; render();
+    }
+  }
+  const toolKeys = { 'v': 'select', 'h': 'pan', 'p': 'pen', 'l': 'line', 'r': 'rect', 'c': 'circle', 't': 'text', 'a': 'arrow' };
+  if (e.key in toolKeys) { e.preventDefault(); setTool(toolKeys[e.key]); }
+});
+
+// ── Tool System ──
+function setTool(tool) {
+  currentTool = tool;
+  document.querySelectorAll('.tool-btn').forEach(b => b.classList.toggle('active', b.dataset.tool === tool));
+  const status = document.getElementById('status-bar');
+  const infoMode = document.getElementById('info-mode');
+  const hints = {
+    select: '[Select] Click to select, drag to move · Del to delete',
+    pan: '(H) [Pan] Drag to pan · Scroll zoom',
+    pen: '(P) [Pen] Draw freehand lines',
+    line: '(L) [Line] Click-drag to draw a straight line',
+    rect: '(R) [Rect] Click-drag to draw a rectangle',
+    circle: '(C) [Circle] Click-drag to draw a circle',
+    text: '(T) [Text] Click to place text',
+    arrow: '(A) [Arrow] Click-drag for arrow',
+  };
+  status.textContent = hints[tool] || '';
+  infoMode.innerHTML = ['Select:🔲','Pan:✋','Pen:✏️','Line:📏','Rect:▭','Circle:⭕','Text:T','Arrow:➡'][['select','pan','pen','line','rect','circle','text','arrow'].indexOf(tool)] + ' ' + tool.charAt(0).toUpperCase() + tool.slice(1);
+  canvas.style.cursor = tool === 'pen' || tool === 'line' || tool === 'arrow' ? 'crosshair' : tool === 'pan' ? 'move' : tool === 'text' ? 'text' : 'default';
+}
+
+// ── UI ──
+document.querySelectorAll('.tool-btn').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
+document.getElementById('stroke-size').addEventListener('input', e => { strokeSize = +e.target.value; document.getElementById('val-stroke').textContent = strokeSize; });
+document.querySelectorAll('.color-swatch').forEach(el => el.addEventListener('click', () => {
+  document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
+  el.classList.add('active'); strokeColor = el.dataset.color;
+}));
+document.querySelectorAll('.section-title').forEach(el => el.addEventListener('click', () => {
+  el.classList.toggle('collapsed'); el.nextElementSibling.classList.toggle('hidden');
+}));
+document.getElementById('sidebar-toggle').addEventListener('click', () => {
+  document.getElementById('sidebar').classList.toggle('collapsed');
+  setTimeout(resize, 300); setTimeout(render, 300);
+});
+
+// ── Init ──
+resize();
+window.addEventListener('resize', () => { resize(); render(); });
+setTool('select');
+render();
+</script>
+</body>
+</html>

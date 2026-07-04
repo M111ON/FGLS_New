@@ -91,24 +91,10 @@
 </div>
 
 <script>
-async function api(tool, args={}) {
-  const r = await fetch('/api/tool', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({tool, arguments: args})
-  });
+async function loadJSON(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(r.statusText);
   return r.json();
-}
-
-function parseBoard(result) {
-  // result is a list of content blocks; find the text one
-  if (!result || !Array.isArray(result)) return null;
-  for (const block of result) {
-    if (block.type === 'text') {
-      try { return JSON.parse(block.text); } catch(e) { return null; }
-    }
-  }
-  return null;
 }
 
 function renderStats(data) {
@@ -137,11 +123,17 @@ function renderBoard(data) {
       <div class="card-title">${esc(c.title)}</div>
       ${c.body ? `<div class="card-body">${esc(c.body)}</div>` : ''}
       <div class="card-footer">
-        <span class="card-time">${c.created || ''}</span>
-        <div class="card-tags">${(c.tags||'').split(',').filter(Boolean).map(t=>`<span class="tag">${esc(t.trim())}</span>`).join('')}</div>
+        <span class="card-time">${(c.created_at||'').split('T')[0]}</span>
+        <div class="card-tags">${tagsHTML(c.tags)}</div>
       </div>
     </div>
   `).join('');
+}
+
+function tagsHTML(tags) {
+  if (!tags) return '';
+  const arr = Array.isArray(tags) ? tags : tags.split(',').map(t=>t.trim()).filter(Boolean);
+  return arr.map(t => `<span class="tag">${esc(t)}</span>`).join('');
 }
 
 function renderSources(data) {
@@ -167,19 +159,15 @@ function esc(s) { const d = document.createElement('div'); d.textContent = s; re
 
 async function loadAll() {
   try {
-    const [idxRes, handoffRes] = await Promise.all([
-      api('get_project_index', {detail:'full'}),
-      api('board_handoff')
+    const [state, handoff] = await Promise.all([
+      loadJSON('/api/state'),
+      fetch('/api/handoff').then(r => r.text())
     ]);
-    const idx = parseBoard(idxRes);
-    const handoff = parseBoard(handoffRes);
-    if (idx) {
-      document.getElementById('workspace').textContent = `${idx.project_name || '?'} — ${idx.file_count || 0} files`;
-      renderStats(idx);
-      renderBoard(idx);
-      renderSources(idx);
-    }
-    if (handoff) renderHandoff(typeof handoff === 'string' ? handoff : JSON.stringify(handoff, null, 2));
+    document.getElementById('workspace').textContent = `${state.project_name || '?'} — ${state.file_count || 0} files`;
+    renderStats(state);
+    renderBoard(state);
+    renderSources(state);
+    renderHandoff(handoff);
   } catch(e) {
     document.getElementById('workspace').textContent = 'Error: ' + e.message;
   }
