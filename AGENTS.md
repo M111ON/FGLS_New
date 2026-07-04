@@ -32,6 +32,32 @@ Global skill `cross-session-board` ให้ board + context source tools ทุ
 โปรเจ็กต์นี้มีของดีผ่านการทดลองมามาก แต่บางอันถูกทิ้งเพราะมีอะไรดีกว่ามาแทน หรือยังไม่เจอเคสเหมาะ
 **อย่า hardcode/scan ใหม่ ถ้ามีของที่ใช้ได้อยู่แล้ว**
 
+## 🧠 Behavioral Rules
+
+### 1. File Deletion — Strict Scoping
+- **ห้ามลบไฟล์เด็ดขาด** ยกเว้น user สั่งโดยตรงแบบ explicit (written in stone)
+- ถ้าต้องลบ ให้ลบเฉพาะที่ตรงกับ prompt ทุกประการ — ไม่เลยเถิดไปลบไฟล์อื่นแม้จะดู "เกี่ยวข้อง"
+- เมื่อไม่แน่ใจ ให้ถาม user ก่อนทุกครั้ง
+
+### 2. Loop Detection
+- สังเกต pattern การวนซ้ำ: output ต่างกันแค่ space/whitespace, หรือพยายามแก้จุดเดิมซ้ำๆ โดยไม่ progress
+- ถ้าเจอ ให้หยุด ถาม user ว่าควรเปลี่ยนแนวทางหรือไม่ (ต่อจาก Fix→Crash Loop Protocol ด้านบน)
+
+### 3. Open Mind — ไม่ยึดติดโครงสร้างเดิม
+- อย่าเอาแต่ใช้ pattern หรือ architecture เดิมซ้ำโดยไม่คิด
+- มองหาความเป็นไปได้ใหม่ เสนอแนวทางที่แตกต่าง ถ้ามีเหตุผลรองรับ
+- "We've always done it this way" ไม่ใช่เหตุผล
+
+### 4. Deprecate Before Delete
+- ไฟล์ .c / .h / .py ที่ไม่ได้ใช้แล้ว → ย้ายไป `deprecated/` แทนการลบ
+- รักษาโครงสร้างโฟลเดอร์เดิมใน `deprecated/` เพื่อให้ traceability
+- ไฟล์ที่ย้ายแล้วให้ update include/import paths หรือแจ้ง user
+
+### 5. Convert Important Notes to Docs
+- .txt, log notes, หรือข้อความสำคัญ → แปลงเป็น .md เก็บใน `docs/`
+- ตั้งชื่อสื่อความหมาย ไม่ซ้ำซ้อน
+- อย่าทิ้งข้อมูลสำคัญไว้ใน raw text/log โดยไม่มีโครงสร้าง
+
 ---
 
 ## สถานะระบบปัจจุบัน (June 29, 2026)
