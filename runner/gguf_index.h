@@ -126,4 +126,33 @@ static void gguf_idx_close(GGUFTensorIndex *idx) {
     memset(idx,0,sizeof(*idx));
 }
 
+/* ── Metadata blob (self-contained GGUF header + KV + tensor info) ── */
+/* Reads everything before the tensor data section into a malloc'd blob.
+ * Use gguf_init_from_buffer() to reconstruct gguf_context at load time.
+ * Caller must free(*blob_out). */
+static inline int gguf_idx_read_meta_blob(const char *path,
+                                           uint8_t **blob_out,
+                                           uint64_t *size_out) {
+    if (!path || !blob_out || !size_out) return -1;
+
+    /* Use gguf_idx_open to parse KV/tensor sections and get data_sec_off */
+    GGUFTensorIndex idx;
+    memset(&idx, 0, sizeof(idx));
+    if (gguf_idx_open(path, &idx) != 0) return -1;
+
+    uint64_t sz = idx.data_sec_off;
+    uint8_t *buf = (uint8_t*)malloc(sz);
+    if (!buf) { gguf_idx_close(&idx); return -1; }
+
+    FILE *f = fopen(path, "rb");
+    if (!f) { free(buf); gguf_idx_close(&idx); return -1; }
+    if (fread(buf, 1, sz, f) != sz) { free(buf); fclose(f); gguf_idx_close(&idx); return -1; }
+    fclose(f);
+
+    *blob_out = buf;
+    *size_out = sz;
+    gguf_idx_close(&idx);
+    return 0;
+}
+
 #endif

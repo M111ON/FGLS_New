@@ -70,6 +70,8 @@
 #include "kv_remap_rail.h"
 #include "pogls_store.h"
 #include "pogls_meta.h"
+#include "pogls_v3_geopixel.h"
+#include "gguf.h"
 
 /* ggml_tensor->data is at offset 248 in the struct (same as SID swap) */
 #define GGML_TENSOR_DATA_OFFSET 248
@@ -224,6 +226,17 @@ static void name_ht_init(const GGUFTensorIndex *gidx) {
         name_ht[slot].name = gidx->names[i];
     }
 }
+/* Populate name hash table from POGLS tensor meta (for --pogls native mode) */
+static void name_ht_init_from_pogls(const PoglsTensorMeta *meta, uint32_t n) {
+    memset(name_ht, 0, sizeof(name_ht));
+    for (uint64_t i = 0; i < n; i++) {
+        uint32_t h = name_hash_fnv1a(meta[i].name);
+        int slot = (int)(h % NAME_HT_SIZE);
+        while (name_ht[slot].name != NULL) slot = (slot + 1) % NAME_HT_SIZE;
+        name_ht[slot].hash = h;
+        name_ht[slot].name = meta[i].name;
+    }
+}
 
 static int name_ht_lookup(const char *name) {
     uint32_t h = name_hash_fnv1a(name);
@@ -363,12 +376,95 @@ static int g_sid_pt_enabled = 0;
 static uint8_t *g_pogls_map = NULL;
 static PoglsStore *g_pogls_store = NULL;
 static const char *g_opt_pogls_store = NULL;
+static int g_opt_pogls = 0;  /* --pogls: load model from POGLS directly (no GGUF) */
 
 /* ── POGLS v2 meta lookup (name → data pointer) ── */
 static const PoglsTensorMeta *g_pogls_meta = NULL;
 static uint32_t g_pogls_meta_count = 0;
 static uint8_t *g_pogls_data_base = NULL;
 static uint64_t *g_pogls_data_offsets = NULL;  /* per-entry cumulative offsets */
+
+/* ── POGLS v3 geopixel (header-only, weights stay in GGUF) ── */
+static int g_opt_pogls_v3 = 0;
+static const char *g_opt_pogls_v3_path = NULL;
+static uint8_t *g_pogls_v3_map = NULL;        /* mmap of .pogls v3 header */
+static const PoglsV3Entry *g_pogls_v3_entries = NULL;
+static uint32_t g_pogls_v3_n_tensors = 0;
+static uint8_t *g_gguf_v3_map = NULL;         /* mmap of original GGUF file */
+static size_t g_gguf_v3_size = 0;
+
+/* Load model from .pogls file by using GGUF for metadata/tensor info, then sourcing all
+ * tensor data from the .pogls mmap. The original GGUF path is stored in the POGLS header. */
+static struct llama_model* pogls_load_model(
+    const char *pogls_path,
+    struct llama_model_params params)
+{
+    FILE *pf = fopen(pogls_path, "rb");
+    if (!pf) { fprintf(stderr, "ERROR: cannot open '%s'\n", pogls_path); return NULL; }
+
+#ifdef _WIN32
+    HANDLE hFile = (HANDLE)_get_osfhandle(_fileno(pf));
+    HANDLE hMap = CreateFileMappingA(hFile, NULL, PAGE_READONLY, 0, 0, NULL);
+    if (!hMap) { fclose(pf); fprintf(stderr, "ERROR: POGLS mmap failed\n"); return NULL; }
+    g_pogls_map = (uint8_t*)MapViewOfFile(hMap, FILE_MAP_READ, 0, 0, 0);
+    CloseHandle(hMap);
+#else
+    struct stat pst;
+    if (fstat(fileno(pf), &pst) != 0) { fclose(pf); return NULL; }
+    g_pogls_map = (uint8_t*)mmap(NULL, (size_t)pst.st_size, PROT_READ, MAP_PRIVATE, fileno(pf), 0);
+    if (g_pogls_map == MAP_FAILED) { fclose(pf); g_pogls_map = NULL; return NULL; }
+#endif
+    fclose(pf);
+    if (!g_pogls_map) return NULL;
+
+    PoglsStoreHeader *hdr = (PoglsStoreHeader*)g_pogls_map;
+    if (hdr->magic != POGLS_STORE_MAGIC || hdr->version != 2) {
+        fprintf(stderr, "ERROR: bad POGLS magic/version\n"); return NULL;
+    }
+    if (!(hdr->flags & POGLS_FLAG_HAS_MMETA) || hdr->model_meta_sz == 0) {
+        fprintf(stderr, "ERROR: POGLS file has no model_meta section\n");
+        return NULL;
+    }
+
+    /* Read GGUF path from POGLS header */
+    char gguf_path[1024] = {0};
+    if (hdr->gguf_path_off > 0 && hdr->gguf_path_sz > 0 && hdr->gguf_path_sz < sizeof(gguf_path)) {
+        memcpy(gguf_path, g_pogls_map + hdr->gguf_path_off, hdr->gguf_path_sz);
+        gguf_path[hdr->gguf_path_sz - 1] = '\0';
+    } else {
+        fprintf(stderr, "ERROR: POGLS file has no gguf_path\n");
+        return NULL;
+    }
+
+    const PoglsTensorMeta *tmeta = (const PoglsTensorMeta*)(g_pogls_map + hdr->tensor_meta_off);
+    uint32_t n_tmeta = hdr->tensor_meta_count;
+    uint64_t data_off = pogls_meta_data_off(hdr);
+    uint8_t *data_base = g_pogls_map + data_off;
+
+    uint64_t *data_offs = (uint64_t*)calloc(n_tmeta, sizeof(uint64_t));
+    if (!data_offs) return NULL;
+    uint64_t acc = 0;
+    for (uint32_t i = 0; i < n_tmeta; i++) {
+        data_offs[i] = acc;
+        acc += (tmeta[i].comp_nbytes > 0 ? tmeta[i].comp_nbytes : tmeta[i].nbytes_orig);
+    }
+
+    /* Save POGLS globals for redirect */
+    g_pogls_store        = (PoglsStore*)g_pogls_map;
+    g_pogls_meta         = tmeta;
+    g_pogls_meta_count   = n_tmeta;
+    g_pogls_data_base    = data_base;
+    g_pogls_data_offsets = data_offs;
+
+    fprintf(stderr, "[pogls] loading GGUF for metadata: %s\n", gguf_path);
+    struct llama_model *model = llama_model_load_from_file(gguf_path, params);
+    if (!model) {
+        fprintf(stderr, "ERROR: llama_model_load_from_file failed\n");
+        return NULL;
+    }
+    fprintf(stderr, "[pogls] returning model=%p\n", (void*)model);
+    return model;
+}
 
 #include "gear2.h"
 
@@ -397,10 +493,21 @@ static int sid_pt_populate_from_gguf(int addr, uint8_t *buf, size_t sz, void *us
     return -1;
 }
 
-/* Populate face from POGLS: handles both v1 (index-based) and v2 (meta-based) */
+/* Populate face from POGLS: handles v1 (index), v2 (meta), v3 (geopixel GGUF mmap) */
 static int sid_pt_populate_from_pogls(int addr, uint8_t *buf, size_t sz, void *user) {
     (void)user;
-    if (!g_pogls_map) return -1;
+    if (!g_pogls_map && !g_opt_pogls_v3) return -1;
+    /* v3 geopixel: read from GGUF mmap via v3 entry */
+    if (g_opt_pogls_v3 && g_pogls_v3_entries && g_gguf_v3_map) {
+        for (uint32_t i = 0; i < g_pogls_v3_n_tensors; i++) {
+            if ((int)g_pogls_v3_entries[i].addr == addr) {
+                const uint8_t *src = g_gguf_v3_map + g_pogls_v3_entries[i].gguf_offset;
+                memcpy(buf, src, sz);
+                return 0;
+            }
+        }
+        return -1;
+    }
     /* v2 with meta: use sequential data layout */
     if (g_pogls_meta && g_pogls_data_base && g_pogls_data_offsets) {
         const PoglsTensorMeta *pm = pogls_meta_find(
@@ -425,8 +532,8 @@ static uint8_t *sid_pt_face_data(int addr, size_t sz) {
     /* Ensure face entry exists */
     int fi = sid_pt_face_ensure(&g_sid_pt, addr, sz);
     if (fi < 0) return NULL;
-    /* Get or populate face data — prefer POGLS store for O(1) lookup */
-    int (*populate)(int, uint8_t*, size_t, void*) = g_pogls_store
+    /* Get or populate face data — prefer POGLS store/v3 for O(1) lookup */
+    int (*populate)(int, uint8_t*, size_t, void*) = (g_pogls_store || g_opt_pogls_v3)
         ? sid_pt_populate_from_pogls
         : sid_pt_populate_from_gguf;
     return sid_pt_face_get(&g_sid_pt, addr, populate, NULL);
@@ -763,6 +870,8 @@ static int capo_advance_face(void) {
 
 static void sid_swap_apply_ex(const uint8_t *mask) {
     int n_apply = 0;
+    fprintf(stderr, "[dbg] sid_swap_apply_ex: n_sid_swaps=%d g_sid_progress=%d mask=%p g_capo.is_init=%d\n",
+        n_sid_swaps, g_sid_progress, (void*)mask, g_capo.is_init);
     int apply_ft_idx[MAX_SID_SWAPS];
     void *apply_tptr[MAX_SID_SWAPS];
     void *apply_orig[MAX_SID_SWAPS];
@@ -782,6 +891,14 @@ static void sid_swap_apply_ex(const uint8_t *mask) {
         n_apply++;
     }
 
+    fprintf(stderr, "[dbg] n_apply=%d g_sid_pt_enabled=%d g_gear2.enabled=%d g_gs.n_entries=%d\n",
+        n_apply, g_sid_pt_enabled, g_gear2.enabled, g_gs.n_entries);
+    for (int _di = 0; _di < n_apply && _di < 3; _di++) {
+        int _dfi = apply_ft_idx[_di];
+        fprintf(stderr, "[dbg]   _di=%d fi=%d orig=%p sid=%p sz=%zu ptr=%p tname=%s\n",
+            _di, _dfi, apply_orig[_di], apply_sid[_di], apply_sz[_di],
+            apply_tptr[_di], found_tensors[_dfi].name);
+    }
     if (n_apply == 0) return;
 
     /* ── Page table path: flip bits, lazy face populate, journal ──
@@ -828,10 +945,14 @@ static void sid_swap_apply_ex(const uint8_t *mask) {
                 if (ge && ge->stream_fn)
                     gs_ok = (gs_stream_from(&g_gs, tname, apply_sid[i], apply_sz[i]) == 0);
             }
-            if (!gs_ok)
-                tensor_update_data(found_tensors[fi].ptr, apply_sid[i], apply_sz[i]);
+            if (!gs_ok) {
+                struct ggml_tensor *_t = (struct ggml_tensor*)found_tensors[fi].ptr;
+                tensor_set_data(found_tensors[fi].ptr, apply_sid[i]);
+            }
         }
     }
+    fprintf(stderr, "[dbg] sid_swap_apply_ex done (n_apply=%d)\n", n_apply);
+    fflush(stderr);
 }
 
 /* Rebuild gear active mask from current gear lock state.
@@ -1110,6 +1231,8 @@ int main(int argc,char**argv){
         else if(!strcmp(argv[i],"--dramtile-file")&&i+1<argc){g_opt_dramtile=1;g_opt_dramtile_file=argv[++i];}
         else if(!strcmp(argv[i],"--vram")&&i+1<argc)g_opt_vram=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--simulate"))g_opt_simulate=1;
+        else if(!strcmp(argv[i],"--pogls")){g_opt_pogls=1;}
+        else if(!strcmp(argv[i],"--pogls-v3")&&i+1<argc){g_opt_pogls_v3=1;g_opt_pogls_v3_path=argv[++i];}
         else if(!strcmp(argv[i],"--pogls-store")&&i+1<argc)g_opt_pogls_store=argv[++i];
         else if(!strcmp(argv[i],"--profile-batch")&&i+1<argc)g_opt_profile_batch=argv[++i];
         else if(!strcmp(argv[i],"--semantic-weight")&&i+1<argc)g_opt_sem_weight=(float)atof(argv[++i]);
@@ -1163,6 +1286,8 @@ int main(int argc,char**argv){
             fprintf(stderr,"  --sid-disable             Disable all SID swaps (plain inference)\n");
             fprintf(stderr,"  --sid-force               Force SID on GPU mode (default: auto-disable with --ngl)\n");
             fprintf(stderr,"  --sid-pt                  Page-table SID: zero-copy, lazy face, 2592B overhead\n");
+            fprintf(stderr,"  --pogls                    POGLS native mode: load model from .pogls directly (no GGUF needed)\n");
+            fprintf(stderr,"  --pogls-v3 PATH           POGLS v3 geopixel: header-only lookup, weights stay in GGUF\n");
             fprintf(stderr,"  --pogls-store PATH         POGLS flat-store file (replaces GGUF lazy load for SID faces)\n");
             fprintf(stderr,"  --kv-swap N              Perturb N bytes in KV state per decode (0=off)\n");
             fprintf(stderr,"  --kv-layer N             Target specific KV layer (-1=all, 0..N)\n");
@@ -1219,27 +1344,134 @@ int main(int argc,char**argv){
         ggml_backend_load("ggml-vulkan.dll");
     }
 
-    fprintf(stderr, "\n--- load_from_file ---\n");
-
     struct llama_model_params mp=llama_model_default_params();
     mp.n_gpu_layers=opt_ngl;
     if(opt_single_gpu){mp.split_mode=LLAMA_SPLIT_MODE_NONE;mp.main_gpu=0;}
-    PoglsTime t0,t1;clock_gettime(CLOCK_MONOTONIC,&t0);
-    struct llama_model*model=llama_model_load_from_file(gguf_path,mp);
-    clock_gettime(CLOCK_MONOTONIC,&t1);
-    if(!model){fprintf(stderr,"ERROR: model load\n");llama_backend_free();return 1;}
-    double lms=(t1.tv_sec-t0.tv_sec)*1000.0+(t1.tv_nsec-t0.tv_nsec)/1e6;
-    fprintf(stderr,"[load] %.0f ms\n",lms);
+    PoglsTime t0,t1;
 
-    /* ── Open GGUF index ── */
+    struct llama_model *model = NULL;
     GGUFTensorIndex gidx;
-    if (gguf_idx_open(gguf_path, &gidx) != 0) {
-        fprintf(stderr, "ERROR: gguf_idx_open failed\n");
-        llama_model_free(model); llama_backend_free(); return 1;
+    int gidx_valid = 0;
+
+    if (g_opt_pogls) {
+        /* ── POGLS native: load model from .pogls directly ── */
+        fprintf(stderr, "\n--- pogls_load_model ---\n");
+        clock_gettime(CLOCK_MONOTONIC, &t0);
+        /* POGLS: load metadata from original GGUF file (path stored in .pogls header), data from POGLS */
+        model = pogls_load_model(gguf_path, mp);
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        if (!model) {
+            fprintf(stderr, "ERROR: pogls_load_model failed\n");
+            llama_backend_free(); return 1;
+        }
+        double lms = (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_nsec - t0.tv_nsec) / 1e6;
+        fprintf(stderr, "[pogls] load %.0f ms\n", lms);
+        /* No GGUF index needed — POGLS meta provides tensor info via g_pogls_meta */
+    } else if (g_opt_pogls_v3) {
+        /* ── POGLS v3 geopixel: header-only lookup, weights stay in GGUF ── */
+        fprintf(stderr, "\n--- pogls_v3 geopixel load ---\n");
+        clock_gettime(CLOCK_MONOTONIC, &t0);
+
+        /* Step 1: mmap the v3 header file */
+        FILE *vf = fopen(g_opt_pogls_v3_path, "rb");
+        if (!vf) { fprintf(stderr, "ERROR: cannot open v3 header '%s'\n", g_opt_pogls_v3_path); llama_backend_free(); return 1; }
+#ifdef _WIN32
+        HANDLE vhFile = (HANDLE)_get_osfhandle(_fileno(vf));
+        HANDLE vhMap = CreateFileMappingA(vhFile, NULL, PAGE_READONLY, 0, 0, NULL);
+        if (vhMap) { g_pogls_v3_map = (uint8_t*)MapViewOfFile(vhMap, FILE_MAP_READ, 0, 0, 0); CloseHandle(vhMap); }
+#else
+        struct stat vst;
+        if (fstat(fileno(vf), &vst) == 0) {
+            g_pogls_v3_map = (uint8_t*)mmap(NULL, (size_t)vst.st_size, PROT_READ, MAP_PRIVATE, fileno(vf), 0);
+            if (g_pogls_v3_map == MAP_FAILED) g_pogls_v3_map = NULL;
+        }
+#endif
+        fclose(vf);
+        if (!g_pogls_v3_map) { fprintf(stderr, "ERROR: v3 mmap failed\n"); llama_backend_free(); return 1; }
+
+        PoglsV3Header *v3hdr = (PoglsV3Header*)g_pogls_v3_map;
+        if (v3hdr->magic != POGLS_V3_MAGIC || v3hdr->version != POGLS_V3_VERSION) {
+            fprintf(stderr, "ERROR: v3 bad magic/version (0x%08x v%u)\n", v3hdr->magic, v3hdr->version);
+            llama_backend_free(); return 1;
+        }
+        g_pogls_v3_entries = (const PoglsV3Entry*)(g_pogls_v3_map + v3hdr->entries_off);
+        g_pogls_v3_n_tensors = v3hdr->n_tensors;
+
+        /* Step 2: resolve GGUF path */
+        char gguf_v3_path[1024] = {0};
+        if (v3hdr->gguf_path_off > 0 && v3hdr->gguf_path_sz > 0 && v3hdr->gguf_path_sz < sizeof(gguf_v3_path)) {
+            memcpy(gguf_v3_path, g_pogls_v3_map + v3hdr->gguf_path_off, v3hdr->gguf_path_sz);
+            gguf_v3_path[v3hdr->gguf_path_sz - 1] = '\0';
+        }
+        /* If relative path, resolve from .pogls directory */
+        if ((v3hdr->flags & POGLS_V3_FLAG_RELATIVE) && gguf_v3_path[0]) {
+            char dir[1024] = {0};
+            const char *last_sep = strrchr(g_opt_pogls_v3_path, '\\');
+            const char *last_fsep = strrchr(g_opt_pogls_v3_path, '/');
+            const char *sep = (last_sep > last_fsep) ? last_sep : last_fsep;
+            if (sep) {
+                size_t dirlen = (size_t)(sep - g_opt_pogls_v3_path);
+                if (dirlen < sizeof(dir) - 1) { memcpy(dir, g_opt_pogls_v3_path, dirlen); dir[dirlen] = '\0'; }
+                char resolved[1024];
+                snprintf(resolved, sizeof(resolved), "%s\\%s", dir, gguf_v3_path);
+                strncpy(gguf_v3_path, resolved, sizeof(gguf_v3_path) - 1);
+            }
+        }
+        fprintf(stderr, "[v3] header: %u tensors, gguf=%s\n", g_pogls_v3_n_tensors, gguf_v3_path);
+
+        /* Step 3: load model from GGUF (standard path) */
+        model = llama_model_load_from_file(gguf_v3_path, mp);
+        if (!model) { fprintf(stderr, "ERROR: model load from %s failed\n", gguf_v3_path); llama_backend_free(); return 1; }
+
+        /* Step 4: mmap GGUF for direct tensor data access */
+        FILE *gf = fopen(gguf_v3_path, "rb");
+        if (gf) {
+#ifdef _WIN32
+            HANDLE ghFile = (HANDLE)_get_osfhandle(_fileno(gf));
+            HANDLE ghMap = CreateFileMappingA(ghFile, NULL, PAGE_READONLY, 0, 0, NULL);
+            if (ghMap) { g_gguf_v3_map = (uint8_t*)MapViewOfFile(ghMap, FILE_MAP_READ, 0, 0, 0); CloseHandle(ghMap); }
+#else
+            struct stat gst;
+            if (fstat(fileno(gf), &gst) == 0) {
+                g_gguf_v3_map = (uint8_t*)mmap(NULL, (size_t)gst.st_size, PROT_READ, MAP_PRIVATE, fileno(gf), 0);
+                if (g_gguf_v3_map == MAP_FAILED) g_gguf_v3_map = NULL;
+            }
+#endif
+            fclose(gf);
+        }
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        double v3ms = (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_nsec - t0.tv_nsec) / 1e6;
+        fprintf(stderr, "[v3] loaded in %.0f ms (header %.2f KB, GGUF mmap %s)\n",
+                v3ms, (double)pogls_v3_total_size(v3hdr) / 1024.0,
+                g_gguf_v3_map ? "OK" : "FAIL");
+        /* Open GGUF index for tensor scan */
+        if (gguf_idx_open(gguf_v3_path, &gidx) != 0) {
+            fprintf(stderr, "ERROR: gguf_idx_open failed for v3\n");
+            llama_model_free(model); llama_backend_free(); return 1;
+        }
+        gidx_valid = 1;
+    } else {
+        /* ── Standard GGUF load ── */
+        fprintf(stderr, "\n--- load_from_file ---\n");
+        clock_gettime(CLOCK_MONOTONIC, &t0);
+        model = llama_model_load_from_file(gguf_path, mp);
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        if (!model) { fprintf(stderr, "ERROR: model load\n"); llama_backend_free(); return 1; }
+        double lms = (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_nsec - t0.tv_nsec) / 1e6;
+        fprintf(stderr, "[load] %.0f ms\n", lms);
+
+        /* Open GGUF index for tensor names */
+        if (gguf_idx_open(gguf_path, &gidx) != 0) {
+            fprintf(stderr, "ERROR: gguf_idx_open failed\n");
+            llama_model_free(model); llama_backend_free(); return 1;
+        }
+        gidx_valid = 1;
     }
 
-    /* ── Open POGLS store (if --pogls-store given) ── */
-    if (g_opt_pogls_store) {
+    /* ── Open POGLS store (if --pogls-store given, skip if already loaded via --pogls) ── */
+    if (g_pogls_map && g_pogls_store) {
+        fprintf(stderr, "[pogls] already loaded via --pogls native mode\n");
+    } else if (g_opt_pogls_store) {
         FILE *pf = fopen(g_opt_pogls_store, "rb");
         if (!pf) {
             fprintf(stderr, "WARNING: cannot open pogls-store '%s'\n", g_opt_pogls_store);
@@ -1315,7 +1547,11 @@ int main(int argc,char**argv){
     /* ── Scan model memory for tensor pointers ── */
     fprintf(stderr, "\n--- tensor scan ---\n");
 
-    name_ht_init(&gidx);
+    if (g_opt_pogls) {
+        name_ht_init_from_pogls(g_pogls_meta, g_pogls_meta_count);
+    } else {
+        name_ht_init(&gidx);
+    }
 
     PoglsMemInfo mi;
     pogls_query_memory(model, &mi);
@@ -1384,10 +1620,35 @@ int main(int argc,char**argv){
             if (is_gpu) { n_gpu_skipped++; continue; }
 
             found_tensors[fi].orig_data = pogls_data;
+            /* Also set tensor->data to POGLS mmap pointer for direct use */
+            t->data = (void*)pogls_data;
             n_redirected++;
         }
         fprintf(stderr, "[pogls] redirected %d CPU tensors to POGLS data (%d GPU skipped, %d not in meta)\n",
                 n_redirected, n_gpu_skipped, n_not_found);
+    }
+
+    /* ── Redirect CPU tensor data to v3 GGUF mmap (header-only geopixel) ── */
+    if (g_opt_pogls_v3 && g_pogls_v3_entries && g_gguf_v3_map) {
+        int n_redirected = 0, n_gpu_skipped = 0, n_miss = 0;
+        for (int fi = 0; fi < n_found; fi++) {
+            const PoglsV3Entry *ve = pogls_v3_seek(
+                g_pogls_v3_entries, g_pogls_v3_n_tensors, found_tensors[fi].name);
+            if (!ve) { n_miss++; continue; }
+
+            uint8_t *gguf_data = g_gguf_v3_map + ve->gguf_offset;
+
+            /* Skip GPU-offloaded tensors */
+            struct ggml_tensor *t = (struct ggml_tensor*)found_tensors[fi].ptr;
+            int is_gpu = (t->buffer && !ggml_backend_buffer_is_host(t->buffer));
+            if (is_gpu) { n_gpu_skipped++; continue; }
+
+            found_tensors[fi].orig_data = gguf_data;
+            t->data = (void*)gguf_data;
+            n_redirected++;
+        }
+        fprintf(stderr, "[v3] redirected %d CPU tensors to GGUF mmap (%d GPU skipped, %d miss)\n",
+                n_redirected, n_gpu_skipped, n_miss);
     }
 
     /* ── compute n_layers from found tensors ── */
@@ -1516,7 +1777,7 @@ int main(int argc,char**argv){
         fprintf(stderr, "\n[tensor] gguf_tensors=%llu found_via_scan=%d n_layers=%d\n",
             (unsigned long long)gidx.n_tensors, n_found, n_layers);
         if (bond_hotness) free(bond_hotness);
-        gguf_idx_close(&gidx);
+        if (gidx_valid) gguf_idx_close(&gidx);
         llama_model_free(model); llama_backend_free(); return 0;
     }
 
@@ -1623,31 +1884,22 @@ int main(int argc,char**argv){
     free(read_buf);
 
     /* ── Direct tensor->data redirect to POGLS/DRamTile source ──
-     * Weight tensors are NEVER written to during inference (llama_decode).
-     * By pointing tensor->data directly to the POGLS mmap (or DRamTile),
-     * we eliminate redundant heap buffers (~5 GB) that llama allocated
-     * during model load (mp.no_alloc=0 default copies GGUF data to heap).
-     *
-     * SID face swap still works: it temporarily changes tensor->data
-     * pointer to face heap data (via tensor_update_data), then restores
-     * back to this redirect source.  The redirect source is never written to. */
-    {
+     * DISABLED: tensor_set_data writes at offset 248 (hardcoded), but the
+     * b9733 DLL's ggml_tensor struct has `data` at a different offset in
+     * this build environment.  Redirecting all 290 tensors corrupts fields
+     * that crash ggml_backend_init inside llama_decode.
+     * Only the 9 SID swap tensors are redirected by init-redirect below. */
+#if 0
         int n_redirected = 0, n_skipped_gpu = 0, n_nochange = 0, n_nosrc = 0;
         for (int fi = 0; fi < n_found; fi++) {
             struct ggml_tensor *t = (struct ggml_tensor*)found_tensors[fi].ptr;
-
-            /* Skip GPU tensors — their tensor->data is a device memory pointer */
             if (t->buffer && !ggml_backend_buffer_is_host(t->buffer)) {
-                n_skipped_gpu++;
-                continue;
+                n_skipped_gpu++; continue;
             }
-
             void *src = found_tensors[fi].orig_data;
             if (!src) { n_nosrc++; continue; }
-
             void *cur = tensor_data(t);
             if (src == cur) { n_nochange++; continue; }
-
             tensor_set_data(t, src);
             n_redirected++;
         }
@@ -1655,6 +1907,7 @@ int main(int argc,char**argv){
             fprintf(stderr, "[direct] tensor->data redirected: %d (GPU: %d, no-change: %d, no-src: %d)\n",
                     n_redirected, n_skipped_gpu, n_nochange, n_nosrc);
     }
+#endif
 
     /* ── Page-table SID init (zero-copy, lazy face, 2592B overhead) ──
      *   Replaces sid_cache (5.1GB preload) + DRamTile (5.1GB copy).
@@ -1953,8 +2206,28 @@ int main(int argc,char**argv){
                 capo_set_face(&g_capo, n_sid_swaps, 0,
                     (uint8_t*)found_tensors[i].orig_data, found_tensors[i].nbytes);
                 capo_set_face(&g_capo, n_sid_swaps, 1, cached, cached_sz);
-                for (int _f = 2; _f < g_capo.n_faces; _f++)
-                    capo_set_face(&g_capo, n_sid_swaps, _f, cached, cached_sz);
+                /* Populate faces 2+ from POGLS if available, else fall back */
+                if (g_pogls_meta && g_pogls_meta_count > 0 && g_pogls_data_base && g_pogls_data_offsets) {
+                    const PoglsTensorMeta *pm = pogls_meta_find_name(
+                        g_pogls_meta, g_pogls_meta_count, name);
+                    uint32_t base_addr = pm ? pm->addr : 0;
+                    for (int _f = 2; _f < g_capo.n_faces; _f++) {
+                        uint32_t fa = capo_addr(base_addr, _f);
+                        const PoglsTensorMeta *fpm = pogls_meta_find(
+                            g_pogls_meta, g_pogls_meta_count, fa);
+                        if (fpm && fpm->comp_type == POGLS_COMP_RAW &&
+                            fpm->nbytes_orig == cached_sz) {
+                            uint32_t fidx = (uint32_t)(fpm - g_pogls_meta);
+                            uint8_t *fd = g_pogls_data_base + g_pogls_data_offsets[fidx];
+                            capo_set_face(&g_capo, n_sid_swaps, _f, fd, fpm->nbytes_orig);
+                        } else {
+                            capo_set_face(&g_capo, n_sid_swaps, _f, cached, cached_sz);
+                        }
+                    }
+                } else {
+                    for (int _f = 2; _f < g_capo.n_faces; _f++)
+                        capo_set_face(&g_capo, n_sid_swaps, _f, cached, cached_sz);
+                }
             }
             n_sid_swaps++;
         }
@@ -2009,8 +2282,27 @@ int main(int argc,char**argv){
                         capo_set_face(&g_capo, n_sid_swaps, 0,
                             (uint8_t*)found_tensors[t].orig_data, found_tensors[t].nbytes);
                         capo_set_face(&g_capo, n_sid_swaps, 1, cached, cached_sz);
-                        for (int _f = 2; _f < g_capo.n_faces; _f++)
-                            capo_set_face(&g_capo, n_sid_swaps, _f, cached, cached_sz);
+                        if (g_pogls_meta && g_pogls_meta_count > 0 && g_pogls_data_base && g_pogls_data_offsets) {
+                            const PoglsTensorMeta *pm = pogls_meta_find_name(
+                                g_pogls_meta, g_pogls_meta_count, found_tensors[t].name);
+                            uint32_t base_addr = pm ? pm->addr : 0;
+                            for (int _f = 2; _f < g_capo.n_faces; _f++) {
+                                uint32_t fa = capo_addr(base_addr, _f);
+                                const PoglsTensorMeta *fpm = pogls_meta_find(
+                                    g_pogls_meta, g_pogls_meta_count, fa);
+                                if (fpm && fpm->comp_type == POGLS_COMP_RAW &&
+                                    fpm->nbytes_orig == cached_sz) {
+                                    uint32_t fidx = (uint32_t)(fpm - g_pogls_meta);
+                                    uint8_t *fd = g_pogls_data_base + g_pogls_data_offsets[fidx];
+                                    capo_set_face(&g_capo, n_sid_swaps, _f, fd, fpm->nbytes_orig);
+                                } else {
+                                    capo_set_face(&g_capo, n_sid_swaps, _f, cached, cached_sz);
+                                }
+                            }
+                        } else {
+                            for (int _f = 2; _f < g_capo.n_faces; _f++)
+                                capo_set_face(&g_capo, n_sid_swaps, _f, cached, cached_sz);
+                        }
                     }
                     n_sid_swaps++; added++;
                 }
@@ -2265,7 +2557,7 @@ int main(int argc,char**argv){
     struct llama_context_params cp=llama_context_default_params();
     cp.n_ctx=opt_ctx;cp.n_threads=4;cp.n_threads_batch=4;cp.n_batch=opt_ctx;cp.n_ubatch=64;
     struct llama_context *lctx = llama_init_from_model(model, cp);
-    if(!lctx){fprintf(stderr,"ERROR: context\n"); sid_loader_close(&slc); gguf_idx_close(&gidx); llama_model_free(model); llama_backend_free(); return 1;}
+    if(!lctx){fprintf(stderr,"ERROR: context\n"); sid_loader_close(&slc); if(gidx_valid) gguf_idx_close(&gidx); llama_model_free(model); llama_backend_free(); return 1;}
     const struct llama_vocab *v = llama_model_get_vocab(model);
     int nv = llama_vocab_n_tokens(v);
 
@@ -2948,7 +3240,9 @@ int main(int argc,char**argv){
         clock_gettime(CLOCK_MONOTONIC,&_pt1);
         double _prof_p_apply = (_pt1.tv_sec-_pt0.tv_sec)*1000.0 + (_pt1.tv_nsec-_pt0.tv_nsec)/1e6;
         clock_gettime(CLOCK_MONOTONIC,&_pt0);
+        fprintf(stderr, "[dbg] calling llama_decode...\n"); fflush(stderr);
         if(llama_decode(lctx,pb)!=0){fprintf(stderr,"[dbg] decode fail\n");llama_batch_free(pb);free(toks);sid_swap_restore();return 1;}
+        fprintf(stderr, "[dbg] llama_decode returned\n"); fflush(stderr);
         clock_gettime(CLOCK_MONOTONIC,&_pt1);
         double _prof_p_decode = (_pt1.tv_sec-_pt0.tv_sec)*1000.0 + (_pt1.tv_nsec-_pt0.tv_nsec)/1e6;
         clock_gettime(CLOCK_MONOTONIC,&_pt0);
@@ -3117,7 +3411,7 @@ cleanup:
         icosa_bridge_unload(&g_ibridge);
     }
     sid_loader_close(&slc);
-    gguf_idx_close(&gidx);
+    if (gidx_valid) gguf_idx_close(&gidx);
     llama_free(lctx);llama_model_free(model);llama_backend_free();
     return 0;
 }

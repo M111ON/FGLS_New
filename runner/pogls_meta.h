@@ -39,13 +39,14 @@
 #endif
 #define POGLS_HEADER_SZ      128u
 #define POGLS_INDEX_SZ       ((uint64_t)POGLS_MAX_ADDR * 16u)  /* 331776 */
-#define POGLS_META_ENTRY_SZ  64u            /* DiamondBlock aligned */
+/* POGLS_META_ENTRY_SZ defined after PoglsTensorMeta struct below */
 
 /* Compression flags (per-tensor) */
 #define POGLS_COMP_RAW       0u
 #define POGLS_COMP_ZSTD      1u
 #define POGLS_COMP_SHELL     2u
 #define POGLS_COMP_DELTA     3u
+#define POGLS_COMP_GEOPIXEL  4u
 
 /* Header flags */
 #define POGLS_FLAG_HAS_TMETA 0x0001u   /* tensor_meta section present */
@@ -53,12 +54,12 @@
 #define POGLS_FLAG_MCOMPRESS 0x0004u   /* model-level compression (all tensors) */
 
 /* ═══════════════════════════════════════════════════════════════════
-   Per-Tensor Metadata Entry (64B DiamondBlock aligned)
+   Per-Tensor Metadata Entry
    ═══════════════════════════════════════════════════════════════════
  * One entry per tensor, NOT per address — stored as a flat array.
  * addr field maps back to the 0..20735 index slot.
- * name is human-readable (not truncated — use full pascal-style if >16).
  */
+#define POGLS_NAME_LEN 64
 typedef struct {
     uint32_t addr;              /* address in 0..20735 */
     uint32_t dtype;             /* ggml_dtype: 0=F32, 1=F16, 8=Q8_0, etc */
@@ -67,9 +68,11 @@ typedef struct {
     uint32_t comp_type;         /* POGLS_COMP_RAW/ZSTD/SHELL/DELTA */
     uint32_t comp_nbytes;       /* stored size if compressed, 0 if raw */
     uint32_t dims[4];           /* dimensions (ne[0..3]) */
-    char     name[16];          /* truncated tensor name */
-    uint32_t _pad0[2];          /* pad to 64B */
-} PoglsTensorMeta;              /* 64B */
+    char     name[POGLS_NAME_LEN];
+} PoglsTensorMeta;
+
+/* Entry size derived from struct — both writer and reader must match */
+#define POGLS_META_ENTRY_SZ  ((uint32_t)sizeof(PoglsTensorMeta))
 
 /* ═══════════════════════════════════════════════════════════════════
    Model-Level Metadata
@@ -110,7 +113,11 @@ typedef struct {
     uint64_t model_meta_off;    /* file offset to PoglsModelMeta */
     uint32_t model_meta_sz;     /* bytes of model meta (0 if absent) */
 
-    uint8_t  _pad[84];          /* pad to 128B */
+    /* GGUF path (original GGUF file for loading metadata) */
+    uint64_t gguf_path_off;     /* file offset to null-terminated path string */
+    uint32_t gguf_path_sz;      /* bytes of path (including null) */
+
+    uint8_t  _pad[72];          /* pad to 128B */
 } PoglsStoreHeader;             /* 128B */
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -134,6 +141,10 @@ static inline uint64_t pogls_meta_data_off(const PoglsStoreHeader *hdr) {
     if (hdr->model_meta_off > 0) {
         uint64_t mend = hdr->model_meta_off + hdr->model_meta_sz;
         if (mend > off) off = mend;
+    }
+    if (hdr->gguf_path_off > 0) {
+        uint64_t pend = hdr->gguf_path_off + hdr->gguf_path_sz;
+        if (pend > off) off = pend;
     }
     return off;
 }
@@ -289,7 +300,7 @@ static inline const PoglsTensorMeta *pogls_meta_find_name(
     const PoglsTensorMeta *meta, uint32_t count, const char *name)
 {
     for (uint32_t i = 0; i < count; i++)
-        if (strncmp(meta[i].name, name, 16) == 0)
+        if (strcmp(meta[i].name, name) == 0)
             return &meta[i];
     return NULL;
 }

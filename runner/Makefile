@@ -20,7 +20,7 @@ RUNNER_DLLS = ./libllama.dll ./ggml.dll ./ggml-base.dll ./ggml-cpu-x64.dll ./ggm
 
 .PHONY: all clean run
 
-all: test_swap_all.exe llama_pogls_runner_sid_v2.exe
+all: test_swap_all.exe llama_pogls_runner_sid_v2.exe gguf_to_pogls.exe
 
 test_swap_all.exe: test_swap_all.c gguf_index.h
 	$(CC) $(CFLAGS) -o $@ $< $(DLLS) $(LDLIBS) $(ZSTDLIB)
@@ -32,10 +32,14 @@ llama_pogls_runner_sid.exe: llama_pogls_runner_sid.c gguf_index.h sid_loader.h s
 	$(CC) $(CFLAGS) -o $@ $< $(DLLS) $(LDLIBS) $(ZSTDLIB)
 
 llama_pogls_runner_sid_v2.exe: llama_pogls_runner_sid_v2.o geo_jump.o kv_tensor_access.o
-	$(CC) -m64 -O2 -o $@ $^ -L. -llibllama -lggml -lggml-base -lggml-cpu-x64 -lggml-vulkan -lstdc++ -lm $(ZSTDLIB)
+	$(CC) -m64 -O2 -Wl,--stack,16777216 -o $@ $^ -L. -llibllama -lggml -lggml-base -lggml-cpu-x64 -lggml-vulkan -lstdc++ -lm $(ZSTDLIB)
 
-llama_pogls_runner_sid_v2.o: llama_pogls_runner_sid_v2.c gguf_index.h sid_loader.h sid_cache.h bond_discovery.h hex_grid.h th_grid.h goldberg_sid.h sid_delta_ring.h sid_timetravel.h geo_addr.h dramtile_store.h kv_page_store.h kv_sid_evict.h kv_remap.h kv_remap_rail.h ../collection/geo_dram_tile.h pogls_store.h
+llama_pogls_runner_sid_v2.o: llama_pogls_runner_sid_v2.c gguf_index.h sid_loader.h sid_cache.h bond_discovery.h hex_grid.h th_grid.h goldberg_sid.h sid_delta_ring.h sid_timetravel.h geo_addr.h dramtile_store.h kv_page_store.h kv_sid_evict.h kv_remap.h kv_remap_rail.h ../collection/geo_dram_tile.h pogls_store.h pogls_meta.h capo_store.h addr_space.h
 	$(CC) $(CFLAGS) -c -o $@ $<
+
+gguf_to_pogls.exe: gguf_to_pogls.c pogls_store.h pogls_meta.h gguf_index.h addr_space.h capo_store.h
+	$(CC) $(CFLAGS) -o $@ $< $(ZSTDLIB) -lm
+	$(CC) $(CFLAGS) -DPOGLS_USE_ZSTD -Wl,--stack,16777216 -o $@ $< $(ZSTDLIB) -lm
 
 geo_jump.o: ../collection/geo_jump_module/src/geo_jump.c
 	$(CC) $(CFLAGS) -c -o $@ $<
