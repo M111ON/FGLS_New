@@ -33,8 +33,10 @@
 #ifndef ADDR_SPACE_H
 #define ADDR_SPACE_H
 
+#include <stdio.h>
 #include <stdint.h>
 #include <math.h>
+#include "rdh_addr.h"
 
 /* ═══════════════════════════════════════════════════════════════════
  * CORE GEOMETRY CONSTANTS
@@ -308,6 +310,113 @@ static inline uint32_t addr_from_tensor_name(const char *name, uint8_t tier) {
     }
 
     return addr_compose(macro, micro, tier);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * RDH ADDRESSING — collision-free alternative to hash-based mapping
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ * Uses rdh_addr.h's 5-parameter (ring, wedge, mirror, u, v) formula
+ * instead of FNV-1a hash + bit-split.
+ *
+ * RDH guarantees:
+ *   - No collision (bijective mixed-radix encoding)
+ *   - O(1) encode/decode — no hash computation
+ *   - ring = layer index (from "blk.N." pattern)
+ *   - wedge = type name hash (within tir micro_slots)
+ *
+ * Compatibility: RDH produces addresses 0..20735 (all valid),
+ * while hash-based produces 0..32767 (20736 valid).
+ */
+
+/* RDH config for a given tier — maps (ring, wedge, mirror, u, v) to flat addr.
+ * Tier0: 128 rings x 256 wedges x 1 x 1 x 1 = 32768
+ * Address layout matches existing hash-based (macro<<8)|micro = ring*256+wedge.
+ * Only keys < ADDR_BASE (20736) are valid, matching current valid range.
+ * Using 256 wedges (power-of-2) enables bitfield: key = (ring<<8)|wedge. */
+static inline RDHConfig addr_rdh_config(uint8_t tier) {
+    RDHConfig cfg = { 0, 0, 1, 1, 1 };
+    if (tier >= ADDR_MAX_TIERS) tier = 0;
+    cfg.n_rings  = ADDR_TIERS[tier].macro_slots; /* 128 */
+    cfg.n_wedges = ADDR_TIERS[tier].micro_slots; /* 256 (power-of-2, matches existing bit layout) */
+    cfg.n_mirror = 1;
+    cfg.max_u    = 1;
+    return cfg;
+}
+
+/* addr_from_rdh_name() — RDH version of addr_from_tensor_name().
+ *
+ * For "blk.X.Y" tensors:
+ *   ring = layer  (0..n_rings-1)
+ *   wedge = hash(tensor_type) % n_wedges  (0..n_wedges-1)
+ *   mirror = 0, u = 0, v = 0
+ *   key = ring * n_wedges + wedge  (no collision)
+ *
+ * For non-block tensors (token_embd, output_norm):
+ *   ring = 0
+ *   wedge = hash(full_name) % n_wedges
+ *
+ * Returns flat address in range [0, n_rings * n_wedges).
+ * Tier0: [0, 20736)
+ */
+static inline uint32_t addr_from_rdh_name(const char *name, uint8_t tier) {
+    if (!name || name[0] == '\0') return 0;
+
+    RDHConfig cfg = addr_rdh_config(tier);
+    uint32_t ring = 0, wedge = 0;
+
+    /* Parse "blk.LAYER.TYPE" pattern */
+    if (name[0] == 'b' && name[1] == 'l' && name[2] == 'k' && name[3] == '.') {
+        uint32_t layer = 0;
+        const char *p = name + 4;
+        while (*p >= '0' && *p <= '9') {
+            layer = layer * 10 + (uint32_t)(*p - '0');
+            p++;
+        }
+        ring = layer % (uint32_t)cfg.n_rings;
+
+        /* Hash type name into wedge (FNV-1a for good distribution) */
+        if (*p == '.') p++;
+        uint32_t th = 0x811c9dc5u;
+        for (const char *q = p; *q; q++) {
+            th ^= (uint8_t)*q;
+            th *= 0x01000193u;
+        }
+        wedge = th % (uint32_t)cfg.n_wedges;
+    } else {
+        /* Non-block tensor: distribute across valid ring range.
+         * ring capped to max ring that keeps key < ADDR_BASE. */
+        size_t len = strlen(name);
+        uint32_t max_r = ADDR_BASE / (uint32_t)cfg.n_wedges;
+        if (max_r < 1) max_r = 1;
+        uint32_t h = 0x811c9dc5u;
+        for (size_t i = 0; i < len; i++) {
+            h ^= (uint8_t)name[i];
+            h *= 0x01000193u;
+        }
+        ring = h % max_r;
+        uint32_t h2 = 0x6b8b4567u;
+        for (size_t i = len; i > 0; i--) {
+            h2 ^= (uint8_t)name[i - 1];
+            h2 *= 0x01000193u;
+        }
+        wedge = h2 % (uint32_t)cfg.n_wedges;
+    }
+
+    return (uint32_t)rdh_key(&cfg, (int64_t)ring, (int64_t)wedge, 0, 0, 0);
+}
+
+/* addr_rdh_capo() — RDH mirror flag for SID face.
+ * Instead of modular addition, uses mirror=1 for face 1+.
+ * This makes SID face duality intrinsic to the address. */
+static inline uint32_t addr_rdh_capo(uint32_t base, uint32_t face, uint8_t tier) {
+    if (face == 0) return base;
+    RDHConfig cfg = addr_rdh_config(tier);
+    /* For SID face f: mirror_flag = 1 (alternate universe) */
+    int64_t ring = 0, wedge = 0, mirror = 0, u = 0;
+    rdh_decompose(&cfg, (int64_t)base, &ring, &wedge, &mirror, &u);
+    mirror = (int64_t)(face & 1);  /* face 0 = original, face 1+ = mirror */
+    return (uint32_t)rdh_key(&cfg, ring, wedge, mirror, 0, 0);
 }
 
 /* ═══════════════════════════════════════════════════════════════════

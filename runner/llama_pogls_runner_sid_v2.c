@@ -317,6 +317,7 @@ static uint32_t g_gpu_worlds = 0;    /* completed GPU worlds for gear-aware evic
 static int vrt_upload_gpu(void *gpu_dst, const void *cpu_src, size_t sz, void *user);
 static int g_opt_capo = 0;
 static int g_opt_capo_faces = 2;
+static int g_opt_rdh = 0;                /* --rdh: use RDH collision-free addressing */
 static float g_opt_gear_threshold = 0.30f;
 static int g_opt_gear_log = 16;
 
@@ -470,13 +471,18 @@ static struct llama_model* pogls_load_model(
 
 static Gear2Ctx g_gear2;
 
+/* Address helper: dispatch to hash or RDH based on g_opt_rdh flag */
+static inline uint32_t tensor_addr(const char *name) {
+    return g_opt_rdh ? dt_name_to_rdh(name) : dt_name_to_addr(name);
+}
+
 /* Face populate callback: reads tensor data from GGUF file into face buffer */
 static int sid_pt_populate_from_gguf(int addr, uint8_t *buf, size_t sz, void *user) {
     (void)addr;
     (void)user;
     if (!g_sid_loader_pt.gguf_file) return -1;
     for (int i = 0; i < n_found; i++) {
-        uint32_t ta = dt_name_to_addr(found_tensors[i].name);
+        uint32_t ta = tensor_addr(found_tensors[i].name);
         if ((int)ta == addr) {
             /* Check if CPU-readable orig_data available */
             if (found_tensors[i].orig_data) {
@@ -637,7 +643,7 @@ static void sid_pt_gpu_init_faces(void) {
         if (!is_gpu) continue;
 
         const char *tname = found_tensors[fi].name;
-        int addr = (int)dt_name_to_addr(tname);
+        int addr = (int)tensor_addr(tname);
         size_t sz = found_tensors[fi].nbytes;
 
         int fei = sid_pt_face_ensure(&g_sid_pt, addr, sz);
@@ -716,7 +722,7 @@ static void sid_pt_undo_set_bit(int addr, uint8_t old_bit, void *user) {
     else
         sid_pt_clear(pt, addr);
     for (int i = 0; i < n_found; i++) {
-        uint32_t ta = dt_name_to_addr(found_tensors[i].name);
+        uint32_t ta = tensor_addr(found_tensors[i].name);
         if ((int)ta == addr) {
             if (old_bit) {
                 sid_pt_apply_face(found_tensors[i].ptr, addr, found_tensors[i].nbytes);
@@ -737,7 +743,7 @@ static void sid_pt_redo_set_bit(int addr, uint8_t new_bit, void *user) {
     else
         sid_pt_clear(pt, addr);
     for (int i = 0; i < n_found; i++) {
-        uint32_t ta = dt_name_to_addr(found_tensors[i].name);
+        uint32_t ta = tensor_addr(found_tensors[i].name);
         if ((int)ta == addr) {
             if (new_bit) {
                 sid_pt_apply_face(found_tensors[i].ptr, addr, found_tensors[i].nbytes);
@@ -762,6 +768,7 @@ static double g_opt_sem_weight = 0.8, g_opt_hist_weight = 0.2, g_opt_rnd_weight 
 static DRamTileStore g_dramtile;
 static int g_opt_dramtile = 0;
 static const char *g_opt_dramtile_file = NULL;
+
 
 /* KV swap */
 static int g_opt_kv_swap = 0;       /* bytes to perturb (0=disabled) */
@@ -911,7 +918,7 @@ static void sid_swap_apply_ex(const uint8_t *mask) {
         for (int i = 0; i < n_apply; i++) {
             int fi = apply_ft_idx[i];
             const char *tname = found_tensors[fi].name;
-            int addr = (int)dt_name_to_addr(tname);
+            int addr = (int)tensor_addr(tname);
             int old = sid_pt_flip(&g_sid_pt.pt, addr);
             struct ggml_tensor *t = found_tensors[fi].ptr;
             int is_gpu = t && t->buffer && !ggml_backend_buffer_is_host(t->buffer);
@@ -1011,7 +1018,7 @@ static void sid_swap_restore_ex(const uint8_t *mask) {
         for (int i = 0; i < n_restore; i++) {
             int fi = restore_ft_idx[i];
             const char *tname = found_tensors[fi].name;
-            int addr = (int)dt_name_to_addr(tname);
+            int addr = (int)tensor_addr(tname);
             int old = sid_pt_flip(&g_sid_pt.pt, addr);
             struct ggml_tensor *t = found_tensors[fi].ptr;
             int is_gpu = t && t->buffer && !ggml_backend_buffer_is_host(t->buffer);
@@ -1229,6 +1236,7 @@ int main(int argc,char**argv){
         else if(!strcmp(argv[i],"--capo-faces")&&i+1<argc){g_opt_capo=1;g_opt_capo_faces=atoi(argv[++i]);if(g_opt_capo_faces<2)g_opt_capo_faces=2;if(g_opt_capo_faces>CAPO_MAX_FACES)g_opt_capo_faces=CAPO_MAX_FACES;}
         else if(!strcmp(argv[i],"--dramtile"))g_opt_dramtile=1;
         else if(!strcmp(argv[i],"--dramtile-file")&&i+1<argc){g_opt_dramtile=1;g_opt_dramtile_file=argv[++i];}
+        else if(!strcmp(argv[i],"--rdh"))g_opt_rdh=1;
         else if(!strcmp(argv[i],"--vram")&&i+1<argc)g_opt_vram=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--simulate"))g_opt_simulate=1;
         else if(!strcmp(argv[i],"--pogls")){g_opt_pogls=1;}
@@ -1302,6 +1310,7 @@ int main(int argc,char**argv){
             fprintf(stderr,"  --capo-faces N           Capo multi-face: N faces per tensor (2..%d, default 2)\n", CAPO_MAX_FACES);
             fprintf(stderr,"  --dramtile                Enable DRamTile zero-copy tensor store (anonymous)\n");
             fprintf(stderr,"  --dramtile-file PATH      Enable DRamTile with file-backed twin persistence\n");
+            fprintf(stderr,"  --rdh                     Use RDH collision-free addressing (instead of FNV-1a hash)\n");
             fprintf(stderr,"  --simulate                Simulate session (no model)\n");
             fprintf(stderr,"  --profile-batch FILE      Batch generate session profiles\n");
             fprintf(stderr,"  --semantic-weight N       Semantic hash weight (default: 0.8)\n");

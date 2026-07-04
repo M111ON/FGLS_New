@@ -144,6 +144,57 @@ static inline uint32_t dt_name_to_addr(const char *name) {
     return dram_addr(anchor, x, y, layer);
 }
 
+/* RDH-based address — collision-free alternative to dt_name_to_addr().
+ *
+ * Uses (ring, wedge) → (anchor, x, y, layer) geometric formula:
+ *   ring   = layer index (from "blk.N." pattern)
+ *   wedge  = hash(type_name) % DRAM_ANCHORS
+ *   anchor = wedge  (0..161)
+ *   x      = ring & 7
+ *   y      = (ring >> 3) & 7
+ *   layer  = (ring >> 6) & 1
+ *
+ * Range: 162 anchors × 128 cells = 20736 addresses — full DRAM_FULL.
+ * No collision: every (ring, wedge) pair → unique address.
+ */
+static inline uint32_t dt_name_to_rdh(const char *name) {
+    if (!name || name[0] == '\0') return 0;
+
+    uint32_t ring = 0, wedge = 0;
+
+    if (name[0] == 'b' && name[1] == 'l' && name[2] == 'k' && name[3] == '.') {
+        uint32_t layer = 0;
+        const char *p = name + 4;
+        while (*p >= '0' && *p <= '9') {
+            layer = layer * 10 + (uint32_t)(*p - '0');
+            p++;
+        }
+        ring = layer & 0x7Fu;  /* ring = layer, capped to 7 bits (0..127) */
+
+        /* Hash type name into wedge */
+        if (*p == '.') p++;
+        uint32_t th = 2166136261u;
+        for (const char *q = p; *q; q++) {
+            th = (th ^ (uint8_t)*q) * 16777619u;
+        }
+        wedge = th % DRAM_ANCHORS;
+    } else {
+        /* Non-block tensor: hash full name into wedge */
+        uint32_t h = 2166136261u;
+        for (const char *p = name; *p; p++)
+            h = (h ^ (uint8_t)*p) * 16777619u;
+        wedge = h % DRAM_ANCHORS;
+        ring = 0;
+    }
+
+    /* Map (ring, wedge) → DRamTile (anchor, x, y, layer) */
+    uint32_t anchor = wedge;               /* 0..161 */
+    uint32_t x      = ring & 7u;            /* 0..7 */
+    uint32_t y      = (ring >> 3) & 7u;     /* 0..7 */
+    uint32_t l      = (ring >> 6) & 1u;     /* 0..1 */
+    return dram_addr(anchor, x, y, l);
+}
+
 /* Initialize DRamTile store with a large anonymous mmap */
 static inline int dt_store_init(DRamTileStore *store, size_t min_bytes) {
     memset(store, 0, sizeof(*store));

@@ -52,6 +52,7 @@ static void sid_perturb(uint8_t *data, size_t nbytes, const char *name, int face
 int main(int argc, char **argv) {
     int use_compress = 0;
     int opt_sid_faces = 0;
+    int opt_rdh = 0;
     const char *model_path = NULL, *out_path = NULL;
 
     for (int i = 1; i < argc; i++) {
@@ -59,11 +60,13 @@ int main(int argc, char **argv) {
             use_compress = 1;
         else if (strcmp(argv[i], "--sid-faces") == 0 && i + 1 < argc)
             opt_sid_faces = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--rdh") == 0)
+            opt_rdh = 1;
         else if (!model_path) model_path = argv[i];
         else if (!out_path) out_path = argv[i];
     }
     if (!model_path || !out_path) {
-        fprintf(stderr, "Usage: gguf_to_pogls.exe model.gguf output.pogls [--compress] [--sid-faces N]\n");
+        fprintf(stderr, "Usage: gguf_to_pogls.exe model.gguf output.pogls [--compress] [--sid-faces N] [--rdh]\n");
         return 1;
     }
     if (opt_sid_faces < 0) opt_sid_faces = 0;
@@ -96,7 +99,7 @@ int main(int argc, char **argv) {
     /* First pass: count valid tensors (including SID face variants) */
     uint32_t total_valid = 0;
     for (uint64_t i = 0; i < idx.n_tensors; i++) {
-        uint32_t addr = addr_from_tensor_name(idx.names[i], 0);
+        uint32_t addr = opt_rdh ? addr_from_rdh_name(idx.names[i], 0) : addr_from_tensor_name(idx.names[i], 0);
         if (addr < ADDR_BASE) total_valid++;
     }
     uint32_t n_meta = total_valid;
@@ -171,12 +174,12 @@ int main(int argc, char **argv) {
     fseek(out, (long)data_start, SEEK_SET);
 
     for (uint64_t gi = 0; gi < idx.n_tensors; gi++) {
-        uint32_t addr = addr_from_tensor_name(idx.names[gi], 0);
+        uint32_t addr = opt_rdh ? addr_from_rdh_name(idx.names[gi], 0) : addr_from_tensor_name(idx.names[gi], 0);
         if (addr >= ADDR_BASE) continue;
 
         size_t sz = idx.sizes[gi];
         uint64_t abs_off = gguf_idx_tensor_abs_offset(&idx, gi);
-        fseek(f, (long)abs_off, SEEK_SET);
+        fseeko(f, (off_t)abs_off, SEEK_SET);
         if (fread(tbuf, sz, 1, f) != 1) continue;
 
         PoglsTensorMeta *m = &meta_arr[mi];
@@ -202,7 +205,7 @@ int main(int argc, char **argv) {
 
         /* ── Write SID face variants (faces 1..opt_sid_faces-1) ── */
         for (int f = 1; f < opt_sid_faces; f++) {
-            uint32_t face_addr = addr_capo(addr, (uint32_t)f, 0);
+            uint32_t face_addr = opt_rdh ? addr_rdh_capo(addr, (uint32_t)f, 0) : addr_capo(addr, (uint32_t)f, 0);
             if (face_addr >= ADDR_BASE) continue;
 
             /* Copy original data to cbuf workspace, then perturb in-place */
