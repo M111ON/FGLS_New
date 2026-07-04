@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>collab-proof · 2026-07-02 13:52</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#0d1117; color:#e6edf3; font-family:'Courier New',monospace; padding:24px; }
+  .header { max-width:960px; margin:0 auto 24px; }
+  .header-top { display:flex; justify-content:space-between; align-items:center; }
+  .project-name { font-size:20px; font-weight:700; }
+  .badge { background:#1f2937; color:#58a6ff; padding:4px 12px; border-radius:12px; font-size:12px; font-weight:600; text-transform:uppercase; }
+  .meta-row { color:#8b949e; font-size:12px; margin-top:8px; }
+  .signal-container { margin-top:12px; background:#161b22; border-radius:8px; padding:4px; }
+  .signal-label { font-size:11px; color:#8b949e; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px; }
+  .signal-track { background:#1f2937; border-radius:4px; height:20px; overflow:hidden; }
+  .signal-fill { height:100%; background:#3fb950; width:100%; border-radius:4px; }
+
+  .section { max-width:960px; margin:0 auto 24px; }
+  .section-title { font-size:13px; color:#8b949e; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:12px; }
+  .section-title .count { color:#8b949e; font-size:11px; font-weight:400; }
+
+  .frames-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; }
+  .frame-card { background:#161b22; border:1px solid #30363d; border-radius:8px; padding:16px; }
+  .frame-card.pruned { opacity:0.5; }
+  .frame-label { font-size:10px; color:#8b949e; text-transform:uppercase; }
+  .frame-name { font-size:13px; font-weight:600; margin:4px 0; }
+  .frame-score { font-size:28px; font-weight:700; }
+  .frame-score.high { color:#3fb950; }
+  .frame-score.low { color:#f85149; }
+  .frame-score.pruned { color:#8b949e; }
+
+  .decision-card { background:#161b22; border:1px solid #30363d; border-radius:8px; padding:16px; margin-bottom:8px; }
+  .decision-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+  .decision-title { font-size:14px; font-weight:600; }
+  .decision-date { color:#8b949e; font-size:11px; }
+  .field-row { margin-bottom:8px; }
+  .field-label { font-size:10px; color:#8b949e; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px; }
+  .field-value { font-size:12px; line-height:1.5; }
+  .ai-line { font-size:12px; margin-bottom:4px; padding:4px 8px; border-radius:4px; }
+  .ai-line .tag { font-size:10px; font-weight:600; margin-right:8px; }
+  .ai-identified { border-left:3px solid #a371f7; }
+  .ai-identified .tag { color:#a371f7; }
+  .ai-suggested { border-left:3px solid #d29922; }
+  .ai-suggested .tag { color:#d29922; }
+  .ai-developer { border-left:3px solid #3fb950; }
+  .ai-developer .tag { color:#3fb950; }
+  .outcome-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; }
+  .outcome-implemented { background:#0d2818; color:#3fb950; }
+  .outcome-pending { background:#2d1f00; color:#d29922; }
+  .outcome-reversed { background:#2d0f0f; color:#f85149; }
+
+  .narrative-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; }
+  .narrative-card { background:#161b22; border:1px solid #30363d; border-radius:8px; padding:16px; grid-column:span 2; }
+  .narrative-card.half { grid-column:span 1; }
+  .narrative-card h3 { font-size:13px; font-weight:600; margin-bottom:8px; color:#58a6ff; }
+  .narrative-card ul { list-style:none; font-size:12px; line-height:1.8; }
+  .narrative-card ul li::before { content:"› "; color:#8b949e; }
+
+  .worklog-entry { background:#161b22; border:1px solid #30363d; border-radius:6px; padding:8px 12px; margin-bottom:4px; font-size:12px; font-family:'Courier New',monospace; }
+
+  .footer { max-width:960px; margin:24px auto 0; padding-top:12px; border-top:1px solid #30363d; font-size:11px; color:#8b949e; display:flex; justify-content:space-between; }
+
+  @media (max-width:600px) { .frames-grid, .narrative-grid { grid-template-columns:1fr; } .narrative-card.half { grid-column:span 1; } }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-top">
+    <div class="project-name">FGLS_new</div>
+    <span class="badge">FEATURE_BUILDING</span>
+  </div>
+  <div class="meta-row">2026-07-02 13:52 · branch: sid-runner · HIGH signal</div>
+  <div class="signal-container">
+    <div class="signal-label">Signal</div>
+    <div class="signal-track">
+      <div class="signal-fill" style="width:100%"></div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">Frames <span class="count">Layer 02 · ADHD tree-of-thought</span></div>
+  <div class="frames-grid">
+    <div class="frame-card">
+      <div class="frame-label">Frame A</div>
+      <div class="frame-name">Technical</div>
+      <div class="frame-score high">0.8</div>
+    </div>
+    <div class="frame-card">
+      <div class="frame-label">Frame B</div>
+      <div class="frame-name">Uncertainty</div>
+      <div class="frame-score high">0.5</div>
+    </div>
+    <div class="frame-card">
+      <div class="frame-label">Frame C</div>
+      <div class="frame-name">Fork</div>
+      <div class="frame-score high">0.6</div>
+    </div>
+    <div class="frame-card">
+      <div class="frame-label">Frame D</div>
+      <div class="frame-name">AI Contribution</div>
+      <div class="frame-score high">0.8</div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">Decisions <span class="count">2 recorded</span></div>
+
+  <div class="decision-card">
+    <div class="decision-header">
+      <div class="decision-title">Inbox Dashboard — Web dashboard for board visibility</div>
+      <div class="decision-date">2026-07-02</div>
+    </div>
+    <div class="decision-fields">
+      <div class="field-row">
+        <div class="field-label">Context</div>
+        <div class="field-value">User wanted interactive board view. Three options discussed: AI-formatted display, terminal UI, web dashboard. Requirement: "any interface is fine."</div>
+      </div>
+      <div class="field-row">
+        <div class="field-label">Decision</div>
+        <div class="field-value">Built web dashboard using Python http.server (zero dependencies), HTML with auto-refresh, JSON API endpoints.</div>
+      </div>
+      <div class="field-row">
+        <div class="field-label">Alternatives considered</div>
+        <div class="field-value">AI chat command (no persistent view), terminal UI (less accessible), MCP resource (too coupled to protocol).</div>
+      </div>
+      <div class="field-row">
+        <div class="field-label">Reasoning</div>
+        <div class="field-value">Web dashboard is zero-dependency, accessible from any browser, auto-refreshes every 10s, most visual at a glance.</div>
+      </div>
+      <div class="field-row">
+        <div class="field-label">AI contribution</div>
+        <div class="field-value">
+          <div class="ai-line ai-identified"><span class="tag">IDENTIFIED</span>Dashboard JS called /api/tool (POST) but server had GET endpoints — root cause diagnosed and fixed.</div>
+          <div class="ai-line ai-suggested"><span class="tag">SUGGESTED</span>Used http.server over Flask to avoid external dependency failure mode.</div>
+          <div class="ai-line ai-developer"><span class="tag">DEV-DRIVEN</span>Chose web interface over terminal/MCP approaches.</div>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field-label">Outcome</div>
+        <div class="field-value"><span class="outcome-badge outcome-implemented">IMPLEMENTED</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="decision-card">
+    <div class="decision-header">
+      <div class="decision-title">Cross-Session Board — Global skill + MCP integration</div>
+      <div class="decision-date">2026-07-02</div>
+    </div>
+    <div class="decision-fields">
+      <div class="field-row">
+        <div class="field-label">Context</div>
+        <div class="field-value">Need persistent board across sessions, per-workspace, with automatic context loading on session start.</div>
+      </div>
+      <div class="field-row">
+        <div class="field-label">Decision</div>
+        <div class="field-value">Extended existing inbox_mcp_server.py with board + source tools, CWD-based workspace detection, global skill with New Session Protocol.</div>
+      </div>
+      <div class="field-row">
+        <div class="field-label">Alternatives considered</div>
+        <div class="field-value">Separate board-only MCP server (more config entries), git-based storage (too heavy), symlinks for dedup (used hardlinks instead).</div>
+      </div>
+      <div class="field-row">
+        <div class="field-label">Reasoning</div>
+        <div class="field-value">Single MCP server = simpler config. CWD-based detection = zero config. Per-project vault = no data mixing.</div>
+      </div>
+      <div class="field-row">
+        <div class="field-label">AI contribution</div>
+        <div class="field-value">
+          <div class="ai-line ai-identified"><span class="tag">IDENTIFIED</span>Hardlink dedup opportunity: 3 identical engine_dashboard.py → 1 canonical + 2 hardlinks.</div>
+          <div class="ai-line ai-suggested"><span class="tag">SUGGESTED</span>All board + source tool implementations, global skill structure with New Session Protocol.</div>
+          <div class="ai-line ai-developer"><span class="tag">DEV-DRIVEN</span>CWD vs --workspace arg approach for workspace detection.</div>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field-label">Outcome</div>
+        <div class="field-value"><span class="outcome-badge outcome-implemented">IMPLEMENTED</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">Session narrative</div>
+  <div class="narrative-grid">
+    <div class="narrative-card half">
+      <h3>What shipped</h3>
+      <ul>
+        <li>Inbox MCP server: workspace auto-detect + web dashboard (3 endpoints)</li>
+        <li>Inbox dashboard HTML: auto-refreshing UI with stats/board/sources/handoff</li>
+        <li>Global install: tools/ dir, opencode.jsonc, skill with SKILL.md + CLAUDE.md</li>
+        <li>AGENTS.md: cross-session board section added</li>
+        <li>Hardlink dedup: engine_dashboard.py consolidated</li>
+      </ul>
+    </div>
+    <div class="narrative-card half">
+      <h3>What was figured out</h3>
+      <ul>
+        <li>MCP server can't serve web data via MCP protocol → separate HTTP server needed</li>
+        <li>Dashboard JS called wrong endpoint (POST /api/tool) → fixed to GET /api/state</li>
+        <li>Global config inheritance: project-level override without inbox-manager falls back to global</li>
+      </ul>
+    </div>
+    <div class="narrative-card half">
+      <h3>Where it got hard</h3>
+      <ul>
+        <li>Dashboard API mismatch: JS expected /api/tool POST, server only had GET /api/state</li>
+        <li>Workspace detection at module level: had to work during import before __main__</li>
+        <li>Hardlink dedup: files had different hashes (line endings) though content identical</li>
+      </ul>
+    </div>
+    <div class="narrative-card half">
+      <h3>Next steps inferred</h3>
+      <ul>
+        <li>Consider WebSocket for live update vs polling</li>
+        <li>Add incoming file browser / vault history to dashboard</li>
+        <li>Verify cross-session-board skill works in a fresh session</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">AI contribution summary</div>
+  <div class="narrative-card">
+    Claude proposed and implemented the web dashboard approach end-to-end: designed the HTML/CSS/JS template, built the HTTP server with three API endpoints, identified and fixed the JS endpoint mismatch bug, and implemented workspace auto-detection. For the cross-session board system, Claude suggested board + source tools, designed the global skill architecture with New Session Protocol, and identified the hardlink dedup opportunity. The user provided directional requirements ("click to see details," "any interface") and confirmed the global skill approach.
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">Token usage</div>
+  <div class="narrative-card">
+    Cache hit: n/a · Total tokens: n/a (opencode token logging path not available)
+    <div style="margin-top:8px;font-size:11px;color:#8b949e;">
+      Session spanned 12 exchanges covering requirement gathering, implementation, debugging, and global deployment.
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">Worklog <span class="count">last 1 entry</span></div>
+  <div class="worklog-entry">2026-07-02 13:52 | FEATURE_BUILDING | HIGH | D:0.8 | cache:n/a | tok:n/a | Added cross-session board: MCP server dashboard + global skill + workspace auto-detect</div>
+</div>
+
+<div class="footer">
+  <span>f4d815d</span>
+  <span>Generated by collab-proof · 2026-07-02 13:52</span>
+</div>
+
+</body>
+</html>

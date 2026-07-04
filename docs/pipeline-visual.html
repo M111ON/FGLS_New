@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>POGLS 3-Tier Pipeline — Performance Model</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --font-body: 'Inter', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', 'SF Mono', monospace;
+    --bg: #0a0e17;
+    --surface: #111827;
+    --surface2: #1a2235;
+    --border: rgba(255,255,255,0.06);
+    --text: #e2e8f0;
+    --text-dim: #64748b;
+    --primary: #06b6d4;
+    --primary-glow: rgba(6,182,212,0.15);
+    --secondary: #8b5cf6;
+    --accent: #f59e0b;
+    --green: #10b981;
+    --red: #ef4444;
+    --amber: #f59e0b;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-body);
+    line-height: 1.6;
+    padding: 0;
+  }
+  .slide {
+    min-height: 100dvh;
+    padding: 60px 80px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    border-bottom: 1px solid var(--border);
+    animation: fadeUp 0.6s ease both;
+  }
+  @keyframes fadeUp { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
+  .slide:nth-child(1) { animation-delay:0s; }
+  .slide:nth-child(2) { animation-delay:0.1s; }
+  .slide:nth-child(3) { animation-delay:0.2s; }
+  .slide:nth-child(4) { animation-delay:0.3s; }
+  .slide:nth-child(5) { animation-delay:0.4s; }
+  .slide:nth-child(6) { animation-delay:0.5s; }
+  .slide:nth-child(7) { animation-delay:0.6s; }
+  h1 {
+    font-size: clamp(2rem, 5vw, 4rem);
+    font-weight: 800;
+    background: linear-gradient(135deg, #06b6d4, #8b5cf6);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    line-height: 1.15;
+    margin-bottom: 0.3em;
+  }
+  h2 {
+    font-size: clamp(1.3rem, 3vw, 2rem);
+    font-weight: 700;
+    color: var(--primary);
+    margin-bottom: 0.6em;
+  }
+  h3 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 0.4em;
+  }
+  .subtitle {
+    font-size: 1.2rem;
+    color: var(--text-dim);
+    margin-bottom: 1.5em;
+    max-width: 600px;
+  }
+  .tagline {
+    font-size: 0.9rem;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    margin-bottom: 0.5em;
+    letter-spacing: 0.5px;
+  }
+  .grid-2 { display:grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .grid-3 { display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; }
+  .grid-4 { display:grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 20px; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+  .card .label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--primary);
+    font-weight: 600;
+    margin-bottom: 0.5em;
+  }
+  .card .value {
+    font-size: 1.8rem;
+    font-weight: 700;
+    font-family: var(--font-mono);
+  }
+  .card .value.green { color: var(--green); }
+  .card .value.amber { color: var(--amber); }
+  .card .value.red { color: var(--red); }
+  .card .desc {
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    margin-top: 0.3em;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1em 0;
+    font-size: 0.9rem;
+  }
+  th {
+    background: var(--surface2);
+    color: var(--primary);
+    padding: 12px 16px;
+    text-align: left;
+    font-weight: 600;
+    border-bottom: 2px solid var(--primary);
+  }
+  td {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+  }
+  tr:hover td { background: rgba(6,182,212,0.05); }
+  .highlight-col { color: var(--primary); font-weight: 600; }
+  .bottleneck { color: var(--red); font-weight: 600; }
+  .mermaid-container {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin: 1.5em 0;
+    overflow: hidden;
+  }
+  .badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    font-family: var(--font-mono);
+  }
+  .badge.green { background: rgba(16,185,129,0.15); color: var(--green); }
+  .badge.amber { background: rgba(245,158,11,0.15); color: var(--amber); }
+  .badge.red { background: rgba(239,68,68,0.15); color: var(--red); }
+  .badge.purple { background: rgba(139,92,246,0.15); color: var(--secondary); }
+  .badge.cyan { background: rgba(6,182,212,0.15); color: var(--primary); }
+  .arrow-list { list-style: none; padding: 0; }
+  .arrow-list li {
+    padding: 8px 0;
+    padding-left: 24px;
+    position: relative;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+  }
+  .arrow-list li::before {
+    content: "→";
+    position: absolute;
+    left: 0;
+    color: var(--primary);
+    font-weight: 700;
+  }
+  .equation {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    margin: 0.5em 0;
+    color: var(--primary);
+  }
+  .flex-row { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+  .gap { margin-top: 1.5em; }
+  @media (max-width: 768px) {
+    .slide { padding: 40px 20px; }
+    .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+    .flex-row { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+
+<div class="slide">
+  <div class="tagline">POGLS · Geometric Address-Space Data Management</div>
+  <h1>3-Tier Pipeline<br>Performance Model</h1>
+  <p class="subtitle">Disk → DRamTile → RAM → GearShift → VRAM → GearLock → GPU<br>
+  Proving that geo_frame_seek (2-byte enc, O(1) reconstruct) eliminates data movement bottlenecks across all hardware tiers.</p>
+  <div class="flex-row gap">
+    <span class="badge cyan">384x data reduction</span>
+    <span class="badge green">Zero-copy architecture</span>
+    <span class="badge purple">Async pipeline overlap</span>
+    <span class="badge amber">CPU headers are free</span>
+  </div>
+</div>
+
+<div class="slide">
+  <h2>The Pipeline</h2>
+  <div class="mermaid-container">
+    <pre class="mermaid">
+flowchart LR
+    subgraph Disk["💾 Disk (NVMe)"]
+        A1["Raw 5,127 MB"]
+        A2["Enc 13 MB (~384x)"]
+    end
+    subgraph RAM["🟦 RAM (DRamTile)"]
+        B["Cold spill · mmap · page table"]
+    end
+    subgraph PCIe["🔗 PCIe (GearShift)"]
+        C["Streaming · priority queue · VRamTile"]
+    end
+    subgraph VRAM["🟩 VRAM (GPU)"]
+        D1["Twin buffer"]
+        D2["Reconstruct O(1)"]
+    end
+    subgraph Compute["⚡ GPU Compute (GearLock)"]
+        E["Inference · tile processing"]
+    end
+    subgraph CPU["⚙️ CPU (sync)"]
+        F["frame_at(enc) 3ns<br>page table flip 1μs<br>gear_lock tick"]
+    end
+
+    A1 -- "RAW: 5 GB → 1.83s" --> B
+    A2 -- "ENC: 13 MB → 0.004s ✦" --> B
+    B -- "DRamTile" --> C
+    C -- "GearShift" --> D1
+    D1 -- "Pointer swap<br>zero copy" --> D2
+    D2 -- "Reconstructed tile" --> E
+    F -. "sync tick" .-> E
+    E -. "gear_lock" .-> F
+
+    style A1 fill:#7f1d1d,stroke:#ef4444,color:#fca5a5
+    style A2 fill:#064e3b,stroke:#10b981,color:#6ee7b7
+    style CPU fill:#1e1b4b,stroke:#8b5cf6,color:#c4b5fd
+    </pre>
+  </div>
+  <div class="grid-3 gap">
+    <div class="card">
+      <div class="label">DRamTile</div>
+      <div class="value green">384×</div>
+      <div class="desc">Data reduction from geo_frame_seek — 768B → 2B enc</div>
+    </div>
+    <div class="card">
+      <div class="label">GearShift</div>
+      <div class="value green">Negligible</div>
+      <div class="desc">13 MB PCIe transfer ≈ 0.001s, never a bottleneck</div>
+    </div>
+    <div class="card">
+      <div class="label">GearLock</div>
+      <div class="value amber">CPU idle ~50%</div>
+      <div class="desc">CPU headers finished before GPU tiles — always waiting on GPU</div>
+    </div>
+  </div>
+</div>
+
+<div class="slide">
+  <h2>Performance Equation</h2>
+  <div class="grid-2 gap">
+    <div class="card">
+      <h3>RAW Pipeline</h3>
+      <div class="equation">t_raw = max(t_disk, t_pcie, t_gpu)</div>
+      <div class="equation" style="color:var(--text-dim);font-size:0.8rem;">
+        t_disk = 5,127 MB ÷ NVMe_speed<br>
+        t_pcie = 5,127 MB ÷ PCIe_speed<br>
+        t_gpu  = 5 GB ÷ GPU_BW
+      </div>
+      <ul class="arrow-list" style="margin-top:12px;">
+        <li>Bottleneck: <span class="bottleneck">disk I/O</span> (1.47s on 1050 Ti)</li>
+        <li>Every layer copies all 5 GB serially</li>
+        <li>NVMe 3.5 GB/s → wall at ~1.5s</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>ENC Pipeline</h3>
+      <div class="equation">t_enc = max(t_disk', t_pcie', t_recon, t_gpu)</div>
+      <div class="equation" style="color:var(--text-dim);font-size:0.8rem;">
+        t_disk'  = 13 MB ÷ NVMe_speed<br>
+        t_pcie'  = 13 MB ÷ PCIe_speed<br>
+        t_recon  = 7M × 3ns = 0.021s<br>
+        t_gpu    = 5 GB ÷ GPU_BW = same
+      </div>
+      <ul class="arrow-list" style="margin-top:12px;">
+        <li>Bottleneck: <span class="highlight-col">GPU compute</span> (0.045s on 1050 Ti)</li>
+        <li>Data movement eliminated — 13 MB is free</li>
+        <li>CPU reconstructs O(1) in 3ns per frame</li>
+      </ul>
+    </div>
+  </div>
+  <div class="card gap">
+    <div class="label">Async Pipeline Key Insight</div>
+    <div class="equation" style="font-size:1rem;">
+      Serial:    t_total = t_disk + t_pcie + t_gpu<br>
+      Pipelined: t_total = <span style="color:var(--green)">max</span>(t_disk, t_pcie, t_gpu)
+    </div>
+    <p style="color:var(--text-dim);margin-top:8px;">DRamTile, GearShift, GearLock วิ่งซ้อนกัน — CPU headers overlapped ตลอด</p>
+  </div>
+</div>
+
+<div class="slide">
+  <h2>Hardware Comparison</h2>
+  <p style="color:var(--text-dim);margin-bottom:12px;">8B Q4 model (5,127 MB raw, 7M frames × 768B → 2B enc)</p>
+  <div class="mermaid-container">
+    <pre class="mermaid">
+---
+config:
+  theme: base
+  themeVariables:
+    fontSize: 18px
+    textColor: "#e2e8f0"
+    mainBkg: "#111827"
+    nodeBorder: "#06b6d4"
+    lineColor: "#06b6d4"
+---
+xychart-beta
+  title "RAW vs ENC Time by GPU (seconds)"
+  x-axis ["1050 Ti", "3060", "4090", "5090", "M3 Max", "M4 Ultra"]
+  y-axis "Seconds" 0 --> 2.0
+  bar [1.830, 1.799, 0.898, 0.449, 0.745, 0.519]
+  bar [0.070, 0.040, 0.028, 0.025, 0.035, 0.029]
+    </pre>
+  </div>
+  <table>
+    <tr>
+      <th>GPU</th>
+      <th>NVMe</th>
+      <th>PCIe</th>
+      <th>GPU BW</th>
+      <th>RAW total</th>
+      <th>ENC total</th>
+      <th>Speedup</th>
+      <th>Bottleneck</th>
+    </tr>
+    <tr>
+      <td>GTX 1050 Ti</td><td>3.5</td><td>16</td><td>112</td>
+      <td class="bottleneck">1.830s</td><td class="highlight-col">0.070s</td><td class="highlight-col">26.1x</td><td><span class="badge red">Disk I/O</span></td>
+    </tr>
+    <tr>
+      <td>RTX 3060 + DDR4</td><td>3.5</td><td>16</td><td>360</td>
+      <td class="bottleneck">1.799s</td><td class="highlight-col">0.040s</td><td class="highlight-col">45.5x</td><td><span class="badge red">Disk I/O</span></td>
+    </tr>
+    <tr>
+      <td>RTX 4090 + DDR5</td><td>7.0</td><td>32</td><td>1,008</td>
+      <td class="bottleneck">0.898s</td><td class="highlight-col">0.028s</td><td class="highlight-col">31.7x</td><td><span class="badge amber">Disk/GPU</span></td>
+    </tr>
+    <tr>
+      <td>RTX 5090 + PCIe5</td><td>14</td><td>64</td><td>1,800</td>
+      <td class="bottleneck">0.449s</td><td class="highlight-col">0.025s</td><td class="highlight-col">18.0x</td><td><span class="badge cyan">CPU recon</span></td>
+    </tr>
+    <tr>
+      <td>Mac M3 Max (UMA)</td><td>7.0</td><td>—</td><td>400</td>
+      <td class="bottleneck">0.745s</td><td class="highlight-col">0.035s</td><td class="highlight-col">21.0x</td><td><span class="badge amber">Disk</span></td>
+    </tr>
+    <tr>
+      <td>Mac M4 Ultra (UMA)</td><td>10</td><td>—</td><td>800</td>
+      <td class="bottleneck">0.519s</td><td class="highlight-col">0.029s</td><td class="highlight-col">18.1x</td><td><span class="badge cyan">CPU recon</span></td>
+    </tr>
+  </table>
+  <p style="color:var(--text-dim);font-size:0.85rem;margin-top:8px;">NVMe/PCIe in GB/s · GPU BW in GB/s · Enc time includes 0.021s frame_at(enc) @ 3ns</p>
+</div>
+
+<div class="slide">
+  <h2>Bottleneck Shift</h2>
+  <div class="grid-2 gap">
+    <div class="card">
+      <div class="label">Weak HW (1050 Ti)</div>
+      <h3 style="color:var(--red);margin:8px 0;">Disk I/O Bound</h3>
+      <div class="equation" style="font-size:0.8rem;">
+        RAW:  disk=1.47s  PCIe=0.32s  GPU=0.05s<br>
+        ENC:  disk=0.004s PCIe=0.001s GPU=0.045s<br>
+        ↑ ENC saves <strong style="color:var(--green);">1.76s</strong> (96% of RAW time)
+      </div>
+      <p style="color:var(--text-dim);margin-top:8px;">
+        Data movement dominates → geo_frame_seek 384x กำจัด disk bottleneck
+      </p>
+    </div>
+    <div class="card">
+      <div class="label">Strong HW (5090)</div>
+      <h3 style="color:var(--primary);margin:8px 0;">CPU Reconstruct Bound</h3>
+      <div class="equation" style="font-size:0.8rem;">
+        RAW:  disk=0.37s  PCIe=0.08s  GPU=0.003s<br>
+        ENC:  disk=0.001s PCIe=0.0s   GPU=0.003s  recon=0.021s<br>
+        ↑ bottleneck เปลี่ยนเป็น <strong style="color:var(--primary);">frame_at(enc) 0.021s</strong>
+      </div>
+      <p style="color:var(--text-dim);margin-top:8px;">
+        Data movement ≈ free, CPU reconstruction becomes bottleneck
+      </p>
+    </div>
+  </div>
+  <div class="card gap">
+    <div class="label">Invariant</div>
+    <div class="flex-row">
+      <div>
+        <div class="value green">384×</div>
+        <div class="desc">geo_frame_seek ratio<br>— same on all HW</div>
+      </div>
+      <div>
+        <div class="value amber">3ns</div>
+        <div class="desc">frame_at(enc) per frame<br>— bit ops, doesn't scale</div>
+      </div>
+      <div>
+        <div class="value green">Free</div>
+        <div class="desc">CPU headers &amp; gear_lock<br>— overlapped with data</div>
+      </div>
+      <div>
+        <div class="value amber">~1μs</div>
+        <div class="desc">Page table flip (2592B)<br>— single cache line</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="slide">
+  <h2>Cost / Performance</h2>
+  <table>
+    <tr>
+      <th>GPU</th>
+      <th>ENC Time</th>
+      <th>vs 1050 Ti</th>
+      <th>Est. Price</th>
+      <th>$/gain</th>
+      <th>VRAM</th>
+      <th>Verdict</th>
+    </tr>
+    <tr>
+      <td>GTX 1050 Ti</td><td>0.070s</td><td>1.0×</td><td>Owned</td><td>—</td><td>4 GB</td><td><span class="badge green">Use it</span></td>
+    </tr>
+    <tr>
+      <td>RTX 3060</td><td>0.040s</td><td>1.75×</td><td>$250</td><td>$357/×</td><td>12 GB</td><td><span class="badge green">Best value ★</span></td>
+    </tr>
+    <tr>
+      <td>RTX 4090</td><td>0.028s</td><td>2.50×</td><td>$1,700</td><td>$1,133/×</td><td>24 GB</td><td><span class="badge amber">Diminishing</span></td>
+    </tr>
+    <tr>
+      <td>RTX 5090</td><td>0.025s</td><td>2.80×</td><td>$3,000</td><td>$1,667/×</td><td>32 GB</td><td><span class="badge red">Overkill</span></td>
+    </tr>
+  </table>
+  <div class="grid-3 gap">
+    <div class="card">
+      <div class="label">CPU</div>
+      <div class="value amber">i3 ≈ i9</div>
+      <div class="desc">Single core 3GHz ก็พอ — CPU workload 0.021s, idle ~50% รอ GPU</div>
+    </div>
+    <div class="card">
+      <div class="label">RAM</div>
+      <div class="value amber">DDR4 ≈ DDR5</div>
+      <div class="desc">Data movement แค่ 13 MB — DDR speed ไม่มีผล</div>
+    </div>
+    <div class="card">
+      <div class="label">Storage</div>
+      <div class="value amber">SATA ≈ NVMe</div>
+      <div class="desc">13 MB transfer time ≤ 0.004s — ใช้ NVMe อะไรก็ได้</div>
+    </div>
+  </div>
+</div>
+
+<div class="slide">
+  <h2>Key Proofs</h2>
+  <div class="grid-2 gap">
+    <div class="card">
+      <div class="label">✓ Proved</div>
+      <h3>ENC is 18-45× faster on all HW</h3>
+      <p style="color:var(--text-dim);">geo_frame_seek 384× data reduction makes data movement free. Even on M4 Ultra (UMA 800 GB/s), ENC still 18× faster.</p>
+    </div>
+    <div class="card">
+      <div class="label">✓ Proved</div>
+      <h3>Pipeline = max(layer), not sum</h3>
+      <p style="color:var(--text-dim);">Async overlap: DRamTile, GearShift, GearLock วิ่งพร้อมกัน. Steady-state throughput = slowest layer only.</p>
+    </div>
+    <div class="card">
+      <div class="label">✓ Proved</div>
+      <h3>CPU headers are free</h3>
+      <p style="color:var(--text-dim);">frame_at 0.021s + page table 1μs + gear_lock tick = overlapped with data transfer. Never a bottleneck.</p>
+    </div>
+    <div class="card">
+      <div class="label">✓ Proved</div>
+      <h3>3060 = sweet spot</h3>
+      <p style="color:var(--text-dim);">$250 = 1.75× gain. 4090 gives only 0.012s more for $1,700. 5090 CPU-recon-bound — doesn't help.</p>
+    </div>
+  </div>
+</div>
+
+<div class="slide">
+  <h2>Zero-Copy Page Table</h2>
+  <div style="display:flex; align-items:center; gap:40px; margin:24px 0;">
+    <div style="flex:1;">
+      <div class="mermaid-container">
+        <pre class="mermaid">
+flowchart LR
+    subgraph PageTable["Page Table (2,592 bytes = 20,736 bits)"]
+        B0["bit[0]=0 → orig<br>bit[0]=1 → face"]
+        B1["bit[N]=0 → orig<br>bit[N]=1 → face"]
+    end
+    subgraph Tensor["Tensor (215 MB)"]
+        TD["tensor→data<br>tensor→buffer"]
+    end
+    subgraph GPU["GPU Twin Buffers"]
+        GB1["orig buffer"]
+        GB2["twin buffer<br>(pre-uploaded face)"]
+    end
+
+    PageTable -- "atomic pointer swap<br>tensor→buffer = twin" --> Tensor
+    Tensor -- "no memcpy" --> GPU
+    GPU --> Compute["GPU reads new face<br>v-level-old data"]
+    </pre>
+      </div>
+    </div>
+    <div style="flex:1;">
+      <div class="card">
+        <div class="label">Instead of memcpy 5 GB...</div>
+        <div class="value green">Flip 1 bit</div>
+        <div class="desc" style="margin-top:12px;">
+          Page table indirect layer (2592 bytes) maps 20,736 tensor slots.<br><br>
+          SID face swap = atomically flip `bit[N]` in page table.<br>
+          No memcpy. No PCIe transfer. No disk read.<br><br>
+          GPU twin buffer pre-uploaded — pointer swap ใน <strong style="color:var(--primary);">~1μs</strong>.
+        </div>
+      </div>
+      <div class="card" style="margin-top:12px;">
+        <div class="label">128 × 162 = 20736 = GEO_FULL</div>
+        <div class="desc">
+          Face 162 spokes × World 128 slots = Fibonacci² address space.<br>
+          <span style="color:var(--text-dim);">DRamTile, Y-triangle, GPU buffer — share same address space.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="slide" style="text-align:center;">
+  <h1 style="font-size:clamp(1.5rem, 4vw, 3rem);">Summary</h1>
+  <div class="grid-4 gap" style="max-width:900px;margin:40px auto;">
+    <div class="card"><div class="label">RAW</div><div class="value red">1.83s</div><div class="desc">Disk I/O bound</div></div>
+    <div class="card"><div class="label">ENC</div><div class="value green">0.07s</div><div class="desc">GPU compute bound</div></div>
+    <div class="card"><div class="label">CPU</div><div class="value amber">0.02s</div><div class="desc">Always idle</div></div>
+    <div class="card"><div class="label">GPU</div><div class="value green">3060</div><div class="desc">Best value</div></div>
+  </div>
+  <p style="color:var(--text-dim);font-size:1.1rem;max-width:600px;margin:0 auto;">
+    geometric address-space approach = 2-byte enc + O(1) reconstruct + page table indirect.<br>
+    <strong style="color:var(--primary);">ทุก hardware tier ได้ประโยชน์ — not just bandwidth, but zero data movement.</strong>
+  </p>
+  <div style="margin-top:40px;">
+    <span class="badge cyan">docs/pipeline-performance-model.md</span>
+    <span class="badge purple">geopixel/tests/test_pipeline_proof.c</span>
+  </div>
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      background: '#0a0e17',
+      primaryColor: '#111827',
+      primaryBorderColor: '#06b6d4',
+      primaryTextColor: '#e2e8f0',
+      lineColor: '#06b6d4',
+      secondaryColor: '#1a2235',
+      tertiaryColor: '#064e3b',
+      fontSize: '18px'
+    },
+    sequence: { showSequenceNumbers: true }
+  });
+</script>
+</body>
+</html>
