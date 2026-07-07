@@ -71,6 +71,8 @@
 #include "pogls_store.h"
 #include "pogls_meta.h"
 #include "pogls_v3_geopixel.h"
+#include "pogls_v3_framestore.h"
+#include "pogls_v3_geoframe.h"
 #include "gguf.h"
 
 /* ggml_tensor->data is at offset 248 in the struct (same as SID swap) */
@@ -296,7 +298,7 @@ typedef struct {
 static FoundTensor found_tensors[MAX_TENSORS];
 static int n_found = 0;
 
-#include "capture_pipeline.h"
+#include "capture_radial.h"
 #include "tensor_memory.h"
 #include "geo_addr.h"
 #include "dramtile_store.h"
@@ -393,6 +395,22 @@ static const PoglsV3Entry *g_pogls_v3_entries = NULL;
 static uint32_t g_pogls_v3_n_tensors = 0;
 static uint8_t *g_gguf_v3_map = NULL;         /* mmap of original GGUF file */
 static size_t g_gguf_v3_size = 0;
+
+/* ── POGLS v3 FrameStore (self-contained, addr-indexed data) ── */
+static int g_opt_pogls_fs = 0;
+static const char *g_opt_pogls_fs_path = NULL;
+static uint8_t *g_pogls_fs_map = NULL;        /* mmap of .framestore file */
+static const FrameStoreEntry *g_pogls_fs_entries = NULL;
+static uint32_t g_pogls_fs_n_tensors = 0;
+
+/* ── POGLS v3 GeoFrame (bitmap-based O(1) 144² grid) ── */
+static int g_opt_pogls_geo = 0;
+static const char *g_opt_pogls_geo_path = NULL;
+static uint8_t *g_pogls_geo_map = NULL;        /* mmap of .geo file */
+static const uint8_t *g_pogls_geo_bmap = NULL; /* pointer to bitmap in mmap */
+static const uint64_t *g_pogls_geo_offsets = NULL; /* pointer to offset table in mmap */
+static uint32_t g_pogls_geo_n_occupied = 0;    /* number of occupied addresses */
+static uint64_t g_pogls_geo_data_start = 0;    /* absolute offset of data section in mmap */
 
 /* Load model from .pogls file by using GGUF for metadata/tensor info, then sourcing all
  * tensor data from the .pogls mmap. The original GGUF path is stored in the POGLS header. */
@@ -499,9 +517,31 @@ static int sid_pt_populate_from_gguf(int addr, uint8_t *buf, size_t sz, void *us
     return -1;
 }
 
-/* Populate face from POGLS: handles v1 (index), v2 (meta), v3 (geopixel GGUF mmap) */
+/* Populate face from POGLS: handles v1 (index), v2 (meta), v3 (geopixel GGUF mmap), FrameStore, GeoFrame */
 static int sid_pt_populate_from_pogls(int addr, uint8_t *buf, size_t sz, void *user) {
     (void)user;
+    /* GeoFrame: bitmap-based O(1) 144² grid */
+    if (g_opt_pogls_geo && g_pogls_geo_map && g_pogls_geo_bmap && g_pogls_geo_offsets) {
+        if (!geof_bitmap_get(g_pogls_geo_bmap, (uint32_t)addr)) return -1;
+        uint32_t idx = geof_bitmap_popcount(g_pogls_geo_bmap, (uint32_t)addr);
+        if (idx >= g_pogls_geo_n_occupied) return -2;
+        /* read frame header to check size */
+        const uint8_t *frame_ptr = g_pogls_geo_map + g_pogls_geo_data_start + g_pogls_geo_offsets[idx];
+        const GeoFFrame *fr = (const GeoFFrame *)frame_ptr;
+        if (fr->size != sz) return -3;
+        memcpy(buf, frame_ptr + sizeof(GeoFFrame), sz);
+        return 0;
+    }
+    /* FrameStore: self-contained addr-indexed data */
+    if (g_opt_pogls_fs && g_pogls_fs_entries && g_pogls_fs_map) {
+        const FrameStoreEntry *fe = framestore_seek(
+            g_pogls_fs_entries, g_pogls_fs_n_tensors, (uint32_t)addr);
+        if (fe && fe->nbytes == sz) {
+            memcpy(buf, g_pogls_fs_map + fe->file_offset, sz);
+            return 0;
+        }
+        return -1;
+    }
     if (!g_pogls_map && !g_opt_pogls_v3) return -1;
     /* v3 geopixel: read from GGUF mmap via v3 entry */
     if (g_opt_pogls_v3 && g_pogls_v3_entries && g_gguf_v3_map) {
@@ -538,8 +578,8 @@ static uint8_t *sid_pt_face_data(int addr, size_t sz) {
     /* Ensure face entry exists */
     int fi = sid_pt_face_ensure(&g_sid_pt, addr, sz);
     if (fi < 0) return NULL;
-    /* Get or populate face data — prefer POGLS store/v3 for O(1) lookup */
-    int (*populate)(int, uint8_t*, size_t, void*) = (g_pogls_store || g_opt_pogls_v3)
+    /* Get or populate face data — prefer POGLS store/v3/framestore for O(1) lookup */
+    int (*populate)(int, uint8_t*, size_t, void*) = (g_pogls_store || g_opt_pogls_v3 || g_opt_pogls_fs || g_opt_pogls_geo)
         ? sid_pt_populate_from_pogls
         : sid_pt_populate_from_gguf;
     return sid_pt_face_get(&g_sid_pt, addr, populate, NULL);
@@ -1241,6 +1281,8 @@ int main(int argc,char**argv){
         else if(!strcmp(argv[i],"--simulate"))g_opt_simulate=1;
         else if(!strcmp(argv[i],"--pogls")){g_opt_pogls=1;}
         else if(!strcmp(argv[i],"--pogls-v3")&&i+1<argc){g_opt_pogls_v3=1;g_opt_pogls_v3_path=argv[++i];}
+        else if(!strcmp(argv[i],"--pogls-fs")&&i+1<argc){g_opt_pogls_fs=1;g_opt_pogls_fs_path=argv[++i];}
+        else if(!strcmp(argv[i],"--pogls-geo")&&i+1<argc){g_opt_pogls_geo=1;g_opt_pogls_geo_path=argv[++i];}
         else if(!strcmp(argv[i],"--pogls-store")&&i+1<argc)g_opt_pogls_store=argv[++i];
         else if(!strcmp(argv[i],"--profile-batch")&&i+1<argc)g_opt_profile_batch=argv[++i];
         else if(!strcmp(argv[i],"--semantic-weight")&&i+1<argc)g_opt_sem_weight=(float)atof(argv[++i]);
@@ -1297,6 +1339,8 @@ int main(int argc,char**argv){
             fprintf(stderr,"  --pogls                    POGLS native mode: load model from .pogls directly (no GGUF needed)\n");
             fprintf(stderr,"  --pogls-v3 PATH           POGLS v3 geopixel: header-only lookup, weights stay in GGUF\n");
             fprintf(stderr,"  --pogls-store PATH         POGLS flat-store file (replaces GGUF lazy load for SID faces)\n");
+            fprintf(stderr,"  --pogls-fs PATH           POGLS v3 FrameStore: self-contained addr-indexed tensor data\n");
+            fprintf(stderr,"  --pogls-geo PATH          POGLS v3 GeoFrame: bitmap-O(1) 144² grid frame layout\n");
             fprintf(stderr,"  --kv-swap N              Perturb N bytes in KV state per decode (0=off)\n");
             fprintf(stderr,"  --kv-layer N             Target specific KV layer (-1=all, 0..N)\n");
             fprintf(stderr,"  --ctx N                  Context size (default: 2048)\n");
@@ -1475,6 +1519,91 @@ int main(int argc,char**argv){
             llama_model_free(model); llama_backend_free(); return 1;
         }
         gidx_valid = 1;
+    }
+
+    /* ── FrameStore load (self-contained addr-indexed tensor data) ── */
+    if (g_opt_pogls_fs && g_opt_pogls_fs_path) {
+        clock_gettime(CLOCK_MONOTONIC, &t0);
+        fprintf(stderr, "\n--- framestore load ---\n");
+        FILE *ff = fopen(g_opt_pogls_fs_path, "rb");
+        if (!ff) { fprintf(stderr, "ERROR: cannot open '%s'\n", g_opt_pogls_fs_path); llama_backend_free(); return 1; }
+#ifdef _WIN32
+        HANDLE fhFile = (HANDLE)_get_osfhandle(_fileno(ff));
+        HANDLE fhMap = CreateFileMappingA(fhFile, NULL, PAGE_READONLY, 0, 0, NULL);
+        if (fhMap) { g_pogls_fs_map = (uint8_t*)MapViewOfFile(fhMap, FILE_MAP_READ, 0, 0, 0); CloseHandle(fhMap); }
+#else
+        struct stat fst;
+        if (fstat(fileno(ff), &fst) == 0) {
+            g_pogls_fs_map = (uint8_t*)mmap(NULL, (size_t)fst.st_size, PROT_READ, MAP_PRIVATE, fileno(ff), 0);
+            if (g_pogls_fs_map == MAP_FAILED) g_pogls_fs_map = NULL;
+        }
+#endif
+        fclose(ff);
+        if (!g_pogls_fs_map) {
+            fprintf(stderr, "ERROR: framestore mmap failed\n"); llama_backend_free(); return 1;
+        }
+        const FrameStoreHeader *fshdr = (const FrameStoreHeader *)g_pogls_fs_map;
+        if (fshdr->magic != FRAMESTORE_MAGIC || fshdr->version != FRAMESTORE_VERSION) {
+            fprintf(stderr, "ERROR: framestore bad magic/version (0x%08x v%u)\n", fshdr->magic, fshdr->version);
+            llama_backend_free(); return 1;
+        }
+        g_pogls_fs_entries = (const FrameStoreEntry*)(g_pogls_fs_map + fshdr->addr_map_off);
+        g_pogls_fs_n_tensors = fshdr->n_tensors;
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        double fsms = (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_nsec - t0.tv_nsec) / 1e6;
+        uint64_t last_end = 0;
+        if (g_pogls_fs_n_tensors > 0)
+            last_end = g_pogls_fs_entries[g_pogls_fs_n_tensors - 1].file_offset
+                     + g_pogls_fs_entries[g_pogls_fs_n_tensors - 1].nbytes;
+        fprintf(stderr, "[framestore] loaded %u tensors in %.0f ms (header %.0f KB, data %.2f GB)\n",
+                g_pogls_fs_n_tensors, fsms,
+                (double)(FRAMESTORE_HEADER_SZ + g_pogls_fs_n_tensors * FRAMESTORE_ENTRY_SZ) / 1024.0,
+                (double)(last_end - fshdr->data_off) / (1024.0*1024.0*1024.0));
+    }
+
+    /* ── POGLS GeoFrame (bitmap-O(1) 144² grid) ── */
+    if (g_opt_pogls_geo && g_opt_pogls_geo_path) {
+        clock_gettime(CLOCK_MONOTONIC, &t0);
+        FILE *gf = fopen(g_opt_pogls_geo_path, "rb");
+        if (!gf) { fprintf(stderr, "ERROR: cannot open '%s'\n", g_opt_pogls_geo_path); llama_backend_free(); return 1; }
+#ifdef _WIN32
+        HANDLE ghFile = (HANDLE)_get_osfhandle(_fileno(gf));
+        HANDLE ghMap = CreateFileMappingA(ghFile, NULL, PAGE_READONLY, 0, 0, NULL);
+        if (ghMap) {
+            g_pogls_geo_map = (uint8_t*)MapViewOfFile(ghMap, FILE_MAP_READ, 0, 0, 0);
+            CloseHandle(ghMap);
+        }
+#else
+        {
+            struct stat gst;
+            if (fstat(fileno(gf), &gst) == 0)
+                g_pogls_geo_map = (uint8_t*)mmap(NULL, (size_t)gst.st_size, PROT_READ, MAP_PRIVATE, fileno(gf), 0);
+            if (g_pogls_geo_map == MAP_FAILED) g_pogls_geo_map = NULL;
+        }
+#endif
+        fclose(gf);
+        if (!g_pogls_geo_map) {
+            fprintf(stderr, "ERROR: geo mmap failed (file too large for 32-bit?)\n");
+            llama_backend_free(); return 1;
+        }
+        const GeoFHeader *ghdr = (const GeoFHeader *)g_pogls_geo_map;
+        if (ghdr->magic != GEOF_MAGIC || ghdr->version != GEOF_VERSION) {
+            fprintf(stderr, "ERROR: bad geo magic/version\n");
+            llama_backend_free(); return 1;
+        }
+        g_pogls_geo_n_occupied = ghdr->n_occupied;
+        g_pogls_geo_bmap   = g_pogls_geo_map + GEOF_HEADER_SZ;
+        g_pogls_geo_offsets = (const uint64_t *)(g_pogls_geo_map + GEOF_HEADER_SZ + GEOF_BITMAP_SZ);
+        g_pogls_geo_data_start = (uint64_t)GEOF_HEADER_SZ + GEOF_BITMAP_SZ + (uint64_t)g_pogls_geo_n_occupied * 8;
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        double gms = (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_nsec - t0.tv_nsec) / 1e6;
+        fprintf(stderr, "[geoframe] loaded %u addrs in %.0f ms (header %.0f B, data %.2f GB)\n",
+                g_pogls_geo_n_occupied, gms,
+                (double)(GEOF_HEADER_SZ + GEOF_BITMAP_SZ + g_pogls_geo_n_occupied * 8),
+                /* estimate data size from last offset */
+                g_pogls_geo_n_occupied > 0
+                    ? (double)g_pogls_geo_offsets[g_pogls_geo_n_occupied - 1] / (1024.0*1024.0*1024.0)
+                    : 0.0);
     }
 
     /* ── Open POGLS store (if --pogls-store given, skip if already loaded via --pogls) ── */
@@ -1657,6 +1786,54 @@ int main(int argc,char**argv){
             n_redirected++;
         }
         fprintf(stderr, "[v3] redirected %d CPU tensors to GGUF mmap (%d GPU skipped, %d miss)\n",
+                n_redirected, n_gpu_skipped, n_miss);
+    }
+
+    /* ── Redirect CPU tensor data to FrameStore mmap (self-contained addr-indexed) ── */
+    if (g_opt_pogls_fs && g_pogls_fs_map && g_pogls_fs_entries) {
+        int n_redirected = 0, n_gpu_skipped = 0, n_miss = 0;
+        const FrameStoreHeader *fshdr = (const FrameStoreHeader *)g_pogls_fs_map;
+        for (int fi = 0; fi < n_found; fi++) {
+            uint32_t addr = addr_from_tensor_name(found_tensors[fi].name, 0);
+            const FrameStoreEntry *fe = framestore_seek(
+                g_pogls_fs_entries, g_pogls_fs_n_tensors, addr);
+            if (!fe) { n_miss++; continue; }
+
+            uint8_t *fs_data = g_pogls_fs_map + fe->file_offset;
+
+            struct ggml_tensor *t = (struct ggml_tensor*)found_tensors[fi].ptr;
+            int is_gpu = (t->buffer && !ggml_backend_buffer_is_host(t->buffer));
+            if (is_gpu) { n_gpu_skipped++; continue; }
+
+            found_tensors[fi].orig_data = fs_data;
+            t->data = (void*)fs_data;
+            n_redirected++;
+        }
+        fprintf(stderr, "[framestore] redirected %d CPU tensors to FrameStore mmap (%d GPU skipped, %d miss)\n",
+                n_redirected, n_gpu_skipped, n_miss);
+    }
+
+    /* ── Redirect CPU tensor data to GeoFrame mmap (bitmap-O(1) 144² grid) ── */
+    if (g_opt_pogls_geo && g_pogls_geo_map && g_pogls_geo_bmap && g_pogls_geo_offsets) {
+        int n_redirected = 0, n_gpu_skipped = 0, n_miss = 0;
+        for (int fi = 0; fi < n_found; fi++) {
+            uint32_t addr = addr_from_tensor_name(found_tensors[fi].name, 0);
+            if (!geof_bitmap_get(g_pogls_geo_bmap, addr)) { n_miss++; continue; }
+            uint32_t idx = geof_bitmap_popcount(g_pogls_geo_bmap, addr);
+            if (idx >= g_pogls_geo_n_occupied) { n_miss++; continue; }
+            const uint8_t *frame_ptr = g_pogls_geo_map + g_pogls_geo_data_start + g_pogls_geo_offsets[idx];
+            const GeoFFrame *fr = (const GeoFFrame *)frame_ptr;
+            uint8_t *geo_data = (uint8_t *)(frame_ptr + sizeof(GeoFFrame));
+
+            struct ggml_tensor *t = (struct ggml_tensor*)found_tensors[fi].ptr;
+            int is_gpu = (t->buffer && !ggml_backend_buffer_is_host(t->buffer));
+            if (is_gpu) { n_gpu_skipped++; continue; }
+
+            found_tensors[fi].orig_data = geo_data;
+            t->data = (void*)geo_data;
+            n_redirected++;
+        }
+        fprintf(stderr, "[geoframe] redirected %d CPU tensors to GeoFrame mmap (%d GPU skipped, %d miss)\n",
                 n_redirected, n_gpu_skipped, n_miss);
     }
 
@@ -3170,15 +3347,13 @@ int main(int argc,char**argv){
                 #else
                 mkdir(opt_capture, 0755);
                 #endif
-                CaptureTensor ctens[MAX_TENSORS];
+                CradResult cr;
+                crad_init(&cr);
                 for (int ci = 0; ci < n_found; ci++) {
-                    ctens[ci].name   = found_tensors[ci].name;
-                    ctens[ci].data   = found_tensors[ci].orig_data;
-                    ctens[ci].nbytes = found_tensors[ci].nbytes;
-                    ctens[ci].dtype  = (int)found_tensors[ci].dtype;
+                    crad_capture(&cr, found_tensors[ci].name);
                 }
-                CaptureResult cr;
-                capture_run_full(&cr, opt_capture, ctens, n_found, 12);
+                crad_write_store(&cr, opt_capture);
+                crad_summary(&cr, stderr);
             }
             Sampler gs=sp;gs.count=0;int32_t pos=(int32_t)pending_n;
             struct llama_batch gb=llama_batch_init(1,0,1);
@@ -3276,15 +3451,13 @@ int main(int argc,char**argv){
             #else
             mkdir(opt_capture, 0755);
             #endif
-            CaptureTensor ctens[MAX_TENSORS];
+            CradResult cr;
+            crad_init(&cr);
             for (int ci2 = 0; ci2 < n_found; ci2++) {
-                ctens[ci2].name   = found_tensors[ci2].name;
-                ctens[ci2].data   = found_tensors[ci2].orig_data;
-                ctens[ci2].nbytes = found_tensors[ci2].nbytes;
-                ctens[ci2].dtype  = (int)found_tensors[ci2].dtype;
+                crad_capture(&cr, found_tensors[ci2].name);
             }
-            CaptureResult cr;
-            capture_run_full(&cr, opt_capture, ctens, n_found, 12);
+            crad_write_store(&cr, opt_capture);
+            crad_summary(&cr, stderr);
         }
         llama_batch_free(pb);
 
@@ -3403,6 +3576,33 @@ int main(int argc,char**argv){
         g_pogls_map = NULL;
         g_pogls_store = NULL;
         fprintf(stderr, "[pogls] store unmapped\n");
+    }
+
+    /* ── FrameStore unmapping ── */
+    if (g_pogls_fs_map) {
+#ifdef _WIN32
+        UnmapViewOfFile(g_pogls_fs_map);
+#else
+        munmap(g_pogls_fs_map, 0);
+#endif
+        g_pogls_fs_map = NULL;
+        g_pogls_fs_entries = NULL;
+        g_pogls_fs_n_tensors = 0;
+        fprintf(stderr, "[framestore] unmapped\n");
+    }
+
+    /* ── GeoFrame unmapping ── */
+    if (g_pogls_geo_map) {
+#ifdef _WIN32
+        UnmapViewOfFile(g_pogls_geo_map);
+#else
+        munmap(g_pogls_geo_map, 0);
+#endif
+        g_pogls_geo_map = NULL;
+        g_pogls_geo_bmap = NULL;
+        g_pogls_geo_offsets = NULL;
+        g_pogls_geo_n_occupied = 0;
+        fprintf(stderr, "[geoframe] unmapped\n");
     }
 
     /* ── Cleanup ── */

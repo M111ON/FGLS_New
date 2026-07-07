@@ -1,0 +1,26 @@
+- generic [ref=f9e2]:
+  - navigation "Main Kaggle page navigation" [ref=f9e3]:
+    - generic [ref=f9e5]:
+      - button "Navigation menu" [ref=f9e7] [cursor=pointer]: menu
+      - link "Skip to content" [ref=f9e8] [cursor=pointer]:
+        - /url: "#site-content"
+      - link "Return to Kaggle home page" [ref=f9e10] [cursor=pointer]:
+        - /url: /
+    - button "Create" [ref=f9e13] [cursor=pointer]:
+      - img [ref=f9e14]
+      - generic [ref=f9e19]: Create
+    - generic [ref=f9e20]:
+      - generic [ref=f9e22]
+      - button "1 View Active Events" [ref=f9e86] [cursor=pointer]
+  - navigation "Main menu, search and your account" [ref=f9e91]:
+    - generic [ref=f9e92]:
+      - generic [ref=f9e96]
+      - button "Nicharee Pishaone" [ref=f9e103] [cursor=pointer]
+  - main [ref=f9e108]:
+    - generic [ref=f9e110]:
+      - generic [ref=f9e111]: Kaggle uses cookies from Google to deliver and enhance the quality of its services and to analyze traffic.
+      - generic [ref=f9e112]
+    - generic [ref=f9e118]:
+      - generic [ref=f9e120]
+      - generic [ref=f9e574]
+  - alert [ref=f9e581]

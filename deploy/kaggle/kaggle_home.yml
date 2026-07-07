@@ -1,0 +1,429 @@
+- generic [ref=f9e2]:
+  - navigation "Main Kaggle page navigation" [ref=f9e3]:
+    - generic [ref=f9e5]:
+      - button "Navigation menu" [ref=f9e7] [cursor=pointer]: menu
+      - link "Skip to content" [ref=f9e8] [cursor=pointer]:
+        - /url: "#site-content"
+        - text: Skip to
+        - text: content
+      - link "Return to Kaggle home page" [ref=f9e10] [cursor=pointer]:
+        - /url: /
+        - img "Kaggle" [ref=f9e11]
+    - button "Create" [ref=f9e13] [cursor=pointer]:
+      - img [ref=f9e14]
+      - generic [ref=f9e19]: Create
+    - generic [ref=f9e20]:
+      - generic [ref=f9e22]:
+        - list [ref=f9e23]:
+          - listitem "Home List Item" [ref=f9e24]:
+            - link "Home" [ref=f9e26] [cursor=pointer]:
+              - /url: /
+              - generic [ref=f9e27]:
+                - generic [ref=f9e30]: explore
+                - paragraph [ref=f9e32]: Home
+          - listitem "Competitions List Item" [ref=f9e34]:
+            - link "Competitions" [ref=f9e36] [cursor=pointer]:
+              - /url: /competitions
+              - generic [ref=f9e37]:
+                - generic [ref=f9e40]: emoji_events
+                - paragraph [ref=f9e42]: Competitions
+          - listitem "Benchmarks List Item" [ref=f9e43]:
+            - link "Benchmarks" [ref=f9e45] [cursor=pointer]:
+              - /url: /benchmarks
+              - generic [ref=f9e46]:
+                - generic [ref=f9e49]: leaderboard
+                - paragraph [ref=f9e51]: Benchmarks
+          - listitem "Game Arena List Item" [ref=f9e52]:
+            - link "Game Arena" [ref=f9e54] [cursor=pointer]:
+              - /url: /game-arena
+              - generic [ref=f9e55]:
+                - generic [ref=f9e58]: smart_toy
+                - paragraph [ref=f9e60]: Game Arena
+        - list [ref=f9e61]:
+          - listitem "Data Hub List Item" [ref=f9e62]:
+            - generic [ref=f9e63]:
+              - link "Data Hub" [ref=f9e64] [cursor=pointer]:
+                - /url: "#"
+                - generic [ref=f9e65]:
+                  - generic [ref=f9e68]: code
+                  - paragraph [ref=f9e70]: Data Hub
+              - button "Expand" [ref=f9e72] [cursor=pointer]: expand_more
+        - list [ref=f9e73]:
+          - listitem "More on Kaggle List Item" [ref=f9e74]:
+            - generic [ref=f9e75]:
+              - link "More on Kaggle" [ref=f9e76] [cursor=pointer]:
+                - /url: "#"
+                - generic [ref=f9e77]:
+                  - generic [ref=f9e80]: format_list_bulleted
+                  - paragraph [ref=f9e82]: More
+              - button "Expand" [ref=f9e84] [cursor=pointer]: expand_more
+      - button "1 View Active Events" [ref=f9e86] [cursor=pointer]:
+        - generic [ref=f9e87]:
+          - generic [ref=f9e88]: auto_awesome_motion
+          - generic [ref=f9e89]: "1"
+        - paragraph [ref=f9e90]: View Active Events
+  - navigation "Main menu, search and your account" [ref=f9e91]:
+    - generic [ref=f9e92]:
+      - generic [ref=f9e96]:
+        - generic [ref=f9e97]: search
+        - textbox "Search" [ref=f9e98]
+        - group
+      - button "Nicharee Pishaone" [ref=f9e103] [cursor=pointer]:
+        - generic "Nicharee Pishaone" [ref=f9e104]
+        - img [ref=f9e105]
+  - main [ref=f9e108]:
+    - generic [ref=f9e110]:
+      - generic [ref=f9e111]: Kaggle uses cookies from Google to deliver and enhance the quality of its services and to analyze traffic.
+      - generic [ref=f9e112]:
+        - link "Learn more" [ref=f9e113] [cursor=pointer]:
+          - /url: /cookies
+          - generic [ref=f9e114]: Learn more
+        - generic [ref=f9e115] [cursor=pointer]: OK, Got it.
+    - generic [ref=f9e118]:
+      - generic [ref=f9e120]:
+        - generic [ref=f9e121]:
+          - generic [ref=f9e122]:
+            - generic [ref=f9e123]:
+              - heading "Welcome, Nicharee Pishaone!" [level=1] [ref=f9e124]
+              - text: Jump back in, or start something new.
+            - generic [ref=f9e125]:
+              - generic [ref=f9e126]:
+                - generic [ref=f9e127]: Login streak
+                - generic [ref=f9e128]:
+                  - generic [ref=f9e129]: "1"
+                  - generic [ref=f9e131]: Your longest is 2 days
+              - generic [ref=f9e132]:
+                - generic [ref=f9e133]: Tier progress
+                - generic [ref=f9e134]:
+                  - generic [ref=f9e135]: 0%
+                  - link "to Expert" [ref=f9e137] [cursor=pointer]:
+                    - /url: /progression
+                  - img [ref=f9e138]
+              - generic [ref=f9e140]:
+                - generic [ref=f9e141]: Public activity
+                - generic [ref=f9e143]:
+                  - generic [ref=f9e144]: M
+                  - generic [ref=f9e145]: T
+                  - generic [ref=f9e146]: W
+                  - generic [ref=f9e147]: T
+                  - generic [ref=f9e148]: F
+                  - generic [ref=f9e149]: S
+                  - generic [ref=f9e150]: S
+                  - button "Tue Jun 16 2026 04:05:28 GMT+0700 (Indochina Time)" [ref=f9e153]
+                  - button "Wed Jun 17 2026 04:05:28 GMT+0700 (Indochina Time)" [ref=f9e156]
+                  - button "Thu Jun 18 2026 04:05:28 GMT+0700 (Indochina Time)" [ref=f9e159]
+                  - button "Fri Jun 19 2026 04:05:28 GMT+0700 (Indochina Time)" [ref=f9e162]
+                  - button "Sat Jun 20 2026 04:05:28 GMT+0700 (Indochina Time)" [ref=f9e165]
+                  - button "Sun Jun 21 2026 04:05:28 GMT+0700 (Indochina Time)" [ref=f9e168]
+                  - button "Mon Jun 22 2026 04:05:28 GMT+0700 (Indochina Time)" [ref=f9e171]
+                  - button "Tue Jun 23 2026 04:05:28 GMT+0700 (Indochina Time)" [ref=f9e174]
+                  - button "Wed Jun 24 2026 04:05:28 GMT+0700 (Indochina Time)" [ref=f9e177]
+                  - button "Thu Jun 25 2026 04:05:28 GMT+0700 (Indochina Time)" [ref=f9e180]
+                  - button "Fri Jun 26 2026 04:05:28 GMT+0700 (Indochina Time)" [ref=f9e183]
+                  - button "Sat Jun 27 2026 04:05:28 GMT+0700 (Indochina Time)" [ref=f9e186]
+                  - button "Sun Jun 28 2026 04:05:28 GMT+0700 (Indochina Time)" [ref=f9e189]
+                  - button "Mon Jun 29 2026 04:05:28 GMT+0700 (Indochina Time)" [ref=f9e192]
+                  - button "Tue Jun 30 2026 04:05:28 GMT+0700 (Indochina Time)" [ref=f9e195]
+                  - button "Wed Jul 01 2026 04:05:28 GMT+0700 (Indochina Time)" [ref=f9e198]
+                  - button "Thu Jul 02 2026 04:05:28 GMT+0700 (Indochina Time)" [ref=f9e201]
+                  - button "Fri Jul 03 2026 04:05:28 GMT+0700 (Indochina Time)" [ref=f9e204]
+                  - button "Sat Jul 04 2026 04:05:28 GMT+0700 (Indochina Time)" [ref=f9e207]
+                  - button "Sun Jul 05 2026 04:05:28 GMT+0700 (Indochina Time)" [ref=f9e210]
+                  - button "Mon Jul 06 2026 04:05:28 GMT+0700 (Indochina Time)" [ref=f9e213]
+          - separator [ref=f9e214]
+          - generic [ref=f9e215]:
+            - link "Datasets 4 trending_up 1 total created" [ref=f9e216] [cursor=pointer]:
+              - /url: /work/datasets
+              - generic [ref=f9e217]:
+                - generic [ref=f9e219]:
+                  - img [ref=f9e220]
+                  - generic [ref=f9e222]: table_chart
+                - heading "Datasets" [level=2] [ref=f9e223]
+              - generic [ref=f9e224]:
+                - generic [ref=f9e226]:
+                  - generic [ref=f9e227]: "4"
+                  - generic [ref=f9e229]:
+                    - generic [ref=f9e230]: trending_up
+                    - text: "1"
+                - generic [ref=f9e232]: total created
+            - link "Notebooks 3 total created" [ref=f9e233] [cursor=pointer]:
+              - /url: /work/code
+              - generic [ref=f9e234]:
+                - generic [ref=f9e236]:
+                  - img [ref=f9e237]
+                  - generic [ref=f9e239]: code
+                - heading "Notebooks" [level=2] [ref=f9e240]
+              - generic [ref=f9e241]:
+                - generic [ref=f9e244]: "3"
+                - generic [ref=f9e246]: total created
+            - link "Competitions 0 total joined" [ref=f9e247] [cursor=pointer]:
+              - /url: /work/competitions
+              - generic [ref=f9e248]:
+                - generic [ref=f9e250]:
+                  - img [ref=f9e251]
+                  - generic [ref=f9e253]: emoji_events
+                - heading "Competitions" [level=2] [ref=f9e254]
+              - generic [ref=f9e255]:
+                - generic [ref=f9e258]: "0"
+                - generic [ref=f9e260]: total joined
+            - link "Discussions 0 total posted" [ref=f9e261] [cursor=pointer]:
+              - /url: /work/discussions
+              - generic [ref=f9e262]:
+                - generic [ref=f9e265]: comment
+                - heading "Discussions" [level=2] [ref=f9e266]
+              - generic [ref=f9e267]:
+                - generic [ref=f9e270]: "0"
+                - generic [ref=f9e272]: total posted
+            - link "Courses 0 total completed" [ref=f9e273] [cursor=pointer]:
+              - /url: /learn
+              - generic [ref=f9e274]:
+                - generic [ref=f9e277]: school
+                - heading "Courses" [level=2] [ref=f9e278]
+              - generic [ref=f9e279]:
+                - generic [ref=f9e282]: "0"
+                - generic [ref=f9e284]: total completed
+          - button "Hide stats" [ref=f9e286]
+        - separator [ref=f9e287]
+        - generic [ref=f9e289]:
+          - generic [ref=f9e290]:
+            - generic [ref=f9e291]:
+              - 'heading "How to start: Choose a focus for today" [level=5] [ref=f9e292]'
+              - paragraph [ref=f9e293]: Help us make relevant suggestions for you
+            - button "Close" [ref=f9e296] [cursor=pointer]: close
+          - generic [ref=f9e301]:
+            - generic [ref=f9e302] [cursor=pointer]:
+              - generic [ref=f9e305]: emoji_events
+              - generic [ref=f9e307]:
+                - heading "Learn to compete on Kaggle" [level=5] [ref=f9e308]
+                - paragraph [ref=f9e309]: Improve and test your skills
+            - generic [ref=f9e310] [cursor=pointer]:
+              - generic [ref=f9e313]: school
+              - generic [ref=f9e315]:
+                - heading "Take a short course" [level=5] [ref=f9e316]
+                - paragraph [ref=f9e317]: Our courses are the fastest way to learn data science
+            - generic [ref=f9e318] [cursor=pointer]:
+              - generic [ref=f9e321]: explore
+              - generic [ref=f9e323]:
+                - heading "Browse inspiring data and code" [level=5] [ref=f9e324]
+                - paragraph [ref=f9e325]: Improve your data science projects
+        - separator [ref=f9e326]
+        - generic [ref=f9e328]:
+          - generic [ref=f9e330]:
+            - generic [ref=f9e331]: trending_up
+            - heading "Next Steps" [level=2] [ref=f9e333]
+          - generic [ref=f9e334]:
+            - generic [ref=f9e335]:
+              - heading "Jump back In" [level=3] [ref=f9e336]
+              - list [ref=f9e337]:
+                - listitem "undefined List Item" [ref=f9e338]:
+                  - 'link "Nicharee Pishaone pogls_store Usability Rating: 1.25 · Last Updated an hour ago" [ref=f9e340] [cursor=pointer]':
+                    - /url: /datasets/nichareepishaone/pogls-store
+                    - generic [ref=f9e341]:
+                      - generic "Nicharee Pishaone" [ref=f9e345]:
+                        - generic "Nicharee Pishaone" [ref=f9e346]
+                        - img [ref=f9e347]
+                        - generic [ref=f9e351]: table_chart
+                      - generic [ref=f9e352]:
+                        - generic [ref=f9e354]: pogls_store
+                        - paragraph [ref=f9e356]: "Usability Rating: 1.25 · Last Updated an hour ago"
+                - listitem "undefined List Item" [ref=f9e357]:
+                  - link "Nicharee Pishaone notebook7767ff09d8 Commit complete an hour ago" [ref=f9e359] [cursor=pointer]:
+                    - /url: /code/nichareepishaone/notebook7767ff09d8/edit
+                    - generic [ref=f9e360]:
+                      - generic "Nicharee Pishaone" [ref=f9e364]:
+                        - generic "Nicharee Pishaone" [ref=f9e365]
+                        - img [ref=f9e366]
+                        - generic [ref=f9e370]: code
+                      - generic [ref=f9e371]:
+                        - generic [ref=f9e373]: notebook7767ff09d8
+                        - paragraph [ref=f9e375]: Commit complete an hour ago
+                - listitem "undefined List Item" [ref=f9e376]:
+                  - link "Nicharee Pishaone notebookcd5db9b1b7 Commit complete 3 months ago" [ref=f9e378] [cursor=pointer]:
+                    - /url: /code/nichareepishaone/notebookcd5db9b1b7/edit
+                    - generic [ref=f9e379]:
+                      - generic "Nicharee Pishaone" [ref=f9e383]:
+                        - generic "Nicharee Pishaone" [ref=f9e384]
+                        - img [ref=f9e385]
+                        - generic [ref=f9e389]: code
+                      - generic [ref=f9e390]:
+                        - generic [ref=f9e392]: notebookcd5db9b1b7
+                        - paragraph [ref=f9e394]: Commit complete 3 months ago
+            - generic [ref=f9e395]:
+              - heading "More things to do" [level=3] [ref=f9e396]
+              - list [ref=f9e397]:
+                - listitem "Join a conversation List Item" [ref=f9e398]:
+                  - generic [ref=f9e399]:
+                    - link "Join a conversation opens in new window" [ref=f9e400] [cursor=pointer]:
+                      - /url: https://www.kaggle.com/discussion?sort=published
+                      - generic [ref=f9e402]:
+                        - generic [ref=f9e403]: Join a conversation
+                        - paragraph [ref=f9e407]:
+                          - text: Make your first comment! Visit the
+                          - link "forums (opens in a new tab)" [ref=f9e408]:
+                            - /url: /discussion
+                            - text: forums
+                          - text: or explore discussions on
+                          - link "datasets (opens in a new tab)" [ref=f9e409]:
+                            - /url: /datasets
+                            - text: datasets
+                          - text: .
+                    - button "Close" [ref=f9e411] [cursor=pointer]: close
+                - listitem "Cast your first upvote List Item" [ref=f9e412]:
+                  - generic [ref=f9e413]:
+                    - link "Cast your first upvote opens in new window" [ref=f9e414] [cursor=pointer]:
+                      - /url: https://www.kaggle.com/code
+                      - generic [ref=f9e416]:
+                        - generic [ref=f9e417]: Cast your first upvote
+                        - paragraph [ref=f9e421]: Explore notebooks and upvote one that you find helpful
+                    - button "Close" [ref=f9e423] [cursor=pointer]: close
+                - listitem "Make a competition submission List Item" [ref=f9e424]:
+                  - generic [ref=f9e425]:
+                    - link "Make a competition submission opens in new window" [ref=f9e426] [cursor=pointer]:
+                      - /url: https://www.kaggle.com/code/alexisbcook/titanic-tutorial/notebook
+                      - generic [ref=f9e428]:
+                        - generic [ref=f9e429]: Make a competition submission
+                        - paragraph [ref=f9e433]:
+                          - text: Follow our guide to make your first submission to the
+                          - link "Titanic competition (opens in a new tab)" [ref=f9e434]:
+                            - /url: https://www.kaggle.com/c/titanic
+                            - text: Titanic competition
+                    - button "Close" [ref=f9e436] [cursor=pointer]: close
+        - separator [ref=f9e437]
+        - generic [ref=f9e439]:
+          - generic [ref=f9e440]:
+            - generic [ref=f9e441]:
+              - generic [ref=f9e442]: star
+              - heading "Join Top AI Challenges" [level=2] [ref=f9e444]
+            - link "See all" [ref=f9e445] [cursor=pointer]:
+              - /url: /competitions?hostSegmentIdFilter=1
+              - button "See all" [ref=f9e446]:
+                - generic [ref=f9e447]: See all
+          - paragraph [ref=f9e448]: Build solutions to solve the industry's hardest AI problems and reveal the true state-of-the-art.
+          - list [ref=f9e449]:
+            - listitem "Biohub - Cell Tracking During Development" [ref=f9e450]:
+              - link "organized by Biohub COMPETITION Biohub - Cell Tracking During Development Competition options menu collapsed Detect and track zebrafish cells through 3D space and time 708 Teams" [ref=f9e451] [cursor=pointer]:
+                - /url: /competitions/biohub-cell-tracking-during-development
+                - generic [ref=f9e452]:
+                  - img "organized by Biohub" [ref=f9e453]
+                  - img [ref=f9e454]
+                - generic [ref=f9e456]:
+                  - paragraph [ref=f9e457]:
+                    - generic [ref=f9e458]: trophy
+                    - text: COMPETITION
+                  - generic [ref=f9e459]:
+                    - generic [ref=f9e460]: Biohub - Cell Tracking During Development
+                    - button "Competition options menu collapsed" [ref=f9e462]: more_vert
+                  - paragraph [ref=f9e463]: Detect and track zebrafish cells through 3D space and time
+                  - paragraph [ref=f9e464]: 708 Teams
+              - generic [ref=f9e465]:
+                - heading "$60,000" [level=2] [ref=f9e467]
+                - paragraph [ref=f9e469]:
+                  - generic [ref=f9e470]: 3 months to go
+            - listitem "The Pokémon Company - PTCG AI Battle Challenge Strategy" [ref=f9e471]:
+              - link "organized by The Pokémon Company - PTCGABC Team HACKATHON The Pokémon Company - PTCG AI Battle Challenge Strategy Competition options menu collapsed Analyze data and agentic play supporting the Pokémon Trading Card Game 153 Teams" [ref=f9e472] [cursor=pointer]:
+                - /url: /competitions/pokemon-tcg-ai-battle-challenge-strategy
+                - generic [ref=f9e473]:
+                  - img "organized by The Pokémon Company - PTCGABC Team" [ref=f9e474]
+                  - img [ref=f9e475]
+                - generic [ref=f9e477]:
+                  - paragraph [ref=f9e478]:
+                    - generic [ref=f9e479]: rocket_launch
+                    - text: HACKATHON
+                  - generic [ref=f9e480]:
+                    - generic [ref=f9e481]: The Pokémon Company - PTCG AI Battle Challenge Strategy
+                    - button "Competition options menu collapsed" [ref=f9e483]: more_vert
+                  - paragraph [ref=f9e484]: Analyze data and agentic play supporting the Pokémon Trading Card Game
+                  - paragraph [ref=f9e485]: 153 Teams
+              - generic [ref=f9e486]:
+                - heading "$240,000" [level=2] [ref=f9e488]
+                - paragraph [ref=f9e490]:
+                  - generic [ref=f9e491]: 2 months to go
+            - listitem "AI Agent Security - Multi-Step Tool Attacks" [ref=f9e492]:
+              - link "organized by OpenAI COMPETITION AI Agent Security - Multi-Step Tool Attacks Competition options menu collapsed Develop attack algorithms to identify reproducible multi-step failures in tool-using AI agents. 1497 Teams" [ref=f9e493] [cursor=pointer]:
+                - /url: /competitions/ai-agent-security-multi-step-tool-attacks
+                - generic [ref=f9e494]:
+                  - img "organized by OpenAI" [ref=f9e495]
+                  - img [ref=f9e496]
+                - generic [ref=f9e498]:
+                  - paragraph [ref=f9e499]:
+                    - generic [ref=f9e500]: trophy
+                    - text: COMPETITION
+                  - generic [ref=f9e501]:
+                    - generic [ref=f9e502]: AI Agent Security - Multi-Step Tool Attacks
+                    - button "Competition options menu collapsed" [ref=f9e504]: more_vert
+                  - paragraph [ref=f9e505]: Develop attack algorithms to identify reproducible multi-step failures in tool-using AI agents.
+                  - paragraph [ref=f9e506]: 1497 Teams
+              - generic [ref=f9e507]:
+                - heading "$50,000" [level=2] [ref=f9e509]
+                - paragraph [ref=f9e511]:
+                  - generic [ref=f9e512]: 2 months to go
+            - listitem "ROGII - Wellbore Geology Prediction" [ref=f9e513]:
+              - link "organized by ROGII COMPETITION ROGII - Wellbore Geology Prediction Competition options menu collapsed Build a model that contributes to automating drilling operations in the oil and gas industry. 4286 Teams" [ref=f9e514] [cursor=pointer]:
+                - /url: /competitions/rogii-wellbore-geology-prediction
+                - generic [ref=f9e515]:
+                  - img "organized by ROGII" [ref=f9e516]
+                  - img [ref=f9e517]
+                - generic [ref=f9e519]:
+                  - paragraph [ref=f9e520]:
+                    - generic [ref=f9e521]: trophy
+                    - text: COMPETITION
+                  - generic [ref=f9e522]:
+                    - generic [ref=f9e523]: ROGII - Wellbore Geology Prediction
+                    - button "Competition options menu collapsed" [ref=f9e525]: more_vert
+                  - paragraph [ref=f9e526]: Build a model that contributes to automating drilling operations in the oil and gas industry.
+                  - paragraph [ref=f9e527]: 4286 Teams
+              - generic [ref=f9e528]:
+                - heading "$50,000" [level=2] [ref=f9e530]
+                - paragraph [ref=f9e532]:
+                  - generic [ref=f9e533]: A month to go
+          - paragraph [ref=f9e534]:
+            - text: New to Kaggle? Build your skills and learn by doing in our monthly low-stakes
+            - link "Playground Series" [ref=f9e535] [cursor=pointer]:
+              - /url: /competitions?hostSegmentIdFilter=8
+            - text: .
+        - separator [ref=f9e536]
+        - generic [ref=f9e538]:
+          - generic [ref=f9e540]:
+            - generic [ref=f9e541]: youtube_trending
+            - heading "New and Exciting" [level=2] [ref=f9e543]
+          - generic [ref=f9e544]:
+            - generic [ref=f9e545]:
+              - 'link "Announcement 5-Day AI Agents: Intensive Vibe Coding Course With Google Registration is now open for the 5-Day AI Agents: Intensive Vibecoding Course with Google" [ref=f9e546] [cursor=pointer]':
+                - /url: https://www.kaggle.com/competitions/5-day-ai-agents-intensive-vibecoding-course-with-google
+                - generic [ref=f9e547]:
+                  - generic [ref=f9e548]: Announcement
+                  - generic [ref=f9e549]: "5-Day AI Agents: Intensive Vibe Coding Course With Google"
+                  - paragraph [ref=f9e550]: "Registration is now open for the 5-Day AI Agents: Intensive Vibecoding Course with Google"
+              - separator [ref=f9e551]
+            - generic [ref=f9e552]:
+              - link "Blog Benchmark Research Grants Apply for compute and infrastructure support for novel research benchmarks" [ref=f9e553] [cursor=pointer]:
+                - /url: https://www.kaggle.com/blog/introducing-the-benchmarks-resource-grant-program
+                - generic [ref=f9e554]:
+                  - generic [ref=f9e555]: Blog
+                  - generic [ref=f9e556]: Benchmark Research Grants
+                  - paragraph [ref=f9e557]: Apply for compute and infrastructure support for novel research benchmarks
+              - separator [ref=f9e558]
+            - generic [ref=f9e559]:
+              - 'link "Learn Level Up Your Skills: 2 New Kaggle Learn Guides Discover how to evaluate models like a pro in \"Kaggle Benchmarks Deep Dive\" and conquer complex text data in \"Intermediate NLP\"" [ref=f9e560] [cursor=pointer]':
+                - /url: https://www.kaggle.com/learn
+                - generic [ref=f9e561]:
+                  - generic [ref=f9e562]: Learn
+                  - generic [ref=f9e563]: "Level Up Your Skills: 2 New Kaggle Learn Guides"
+                  - paragraph [ref=f9e564]: Discover how to evaluate models like a pro in "Kaggle Benchmarks Deep Dive" and conquer complex text data in "Intermediate NLP"
+              - separator [ref=f9e565]
+            - link "Announcement Private Hackathons Kaggle’s new Private option now enables exclusive, closed-door community hackathons for internal teams." [ref=f9e567] [cursor=pointer]:
+              - /url: https://www.kaggle.com/discussions/product-announcements/697874
+              - generic [ref=f9e568]:
+                - generic [ref=f9e569]: Announcement
+                - generic [ref=f9e570]: Private Hackathons
+                - paragraph [ref=f9e571]: Kaggle’s new Private option now enables exclusive, closed-door community hackathons for internal teams.
+        - separator [ref=f9e572]
+      - generic [ref=f9e574]:
+        - generic [ref=f9e575]:
+          - generic [ref=f9e576]: library_newsstand
+          - heading "New from Kagglers you follow" [level=2] [ref=f9e577]
+          - paragraph [ref=f9e578]: The newsfeed is now in an experimental state! Now you will see new content from only users you follow, and announcements from Kaggle.
+        - generic:
+          - generic:
+            - list
+  - alert [ref=f9e581]

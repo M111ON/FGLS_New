@@ -29,6 +29,8 @@ __pycache__/
 *.f32
 *.shape
 *.npz
+*.pogls
+*.rad
 
 # ── Build / temp output ──
 build/

@@ -1,6 +1,6 @@
 #!/bin/bash
 # pack_for_colab.sh — Create a clean Colab tarball with exactly the files needed
-#   to build the POGLS runner with DRamTile + SID on Linux/Colab.
+#   to build the POGLS runner with DRamTile + SID + FrameStore on Linux/Colab/Kaggle.
 #
 # Usage:
 #   cd /path/to/FGLS_new
@@ -53,7 +53,10 @@ for f in \
     runner/kv_remap_rail.h \
     runner/capture_pipeline.h \
     runner/geo_addr.h \
-    runner/gear_lock.h; do
+    runner/gear_lock.h \
+    runner/pogls_v3_framestore.h \
+    runner/gguf_to_pogls_v3_framestore.c \
+    runner/addr_space.h; do
     cp_if "$f"
 done
 
@@ -85,6 +88,12 @@ done
 for f in \
     collection/core/core/pogls_platform.h \
     collection/core/core/pogls_fold.h; do
+    cp_if "$f"
+done
+
+# rdh
+for f in \
+    collection/rdh/rdh_addr.h; do
     cp_if "$f"
 done
 

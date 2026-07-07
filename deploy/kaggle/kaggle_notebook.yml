@@ -1,0 +1,8 @@
+- generic [ref=f9e1]:
+  - generic [ref=f9e2]:
+    - navigation "Main Kaggle page navigation" [ref=f9e922]
+    - main [ref=f9e108]
+    - alert [ref=f9e581]: Session started.
+    - alert [ref=f9e1082]
+  - tooltip "LFM2.5-8B-A1B-Q4_K_M.framestore (5.15 GB)":
+    - generic

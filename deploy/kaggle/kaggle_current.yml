@@ -1,0 +1,9 @@
+- generic [ref=f12e2]:
+  - navigation "Main Kaggle page navigation" [ref=f12e3]:
+    - generic [ref=f12e5]
+    - button "Create" [ref=f12e13] [cursor=pointer]
+    - generic [ref=f12e20]
+  - main [ref=f12e90]:
+    - generic [ref=f12e92]
+    - generic [ref=f12e99]
+  - alert [ref=f12e362]: Session started.
