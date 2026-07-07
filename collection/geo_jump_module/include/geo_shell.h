@@ -1,5 +1,4 @@
-#ifndef GEO_SHELL_H
-#define GEO_SHELL_H
+#pragma once
 /*
  * geo_shell.h — Dodecahedron compound shell address space
  *
@@ -153,6 +152,4 @@ static inline uint32_t geo_container_zone(const CentroidContainer *c, uint32_t n
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif
