@@ -27,7 +27,8 @@
 #define GEO_HILBERT_N       576u  /* = GEO_SLOTS                */
 #define GEO_BLOCK_BOUNDARY  288u  /* 576/2 = 2×144 ✓            */
 #define GEO_GROUP_SIZE      8u    /* lines per audit group      */
-#define GEO_BUNDLE_WORDS    8u    /* words per bundle           */
+#define GEO_BUNDLE_WORDS    9u    /* words per bundle           */
+#define GEO_PHASE_COUNT     4u    /* pipeline phases            */
 
 /* ── ThirdEye ───────────────────────────────── */
 #define GEO_TE_CYCLE        144u  /* ops per snapshot           */
@@ -36,7 +37,7 @@
 
 /* ── QRPN thresholds ────────────────────────── */
 #define GEO_HOT_THRESH      64u   /* 8² = 1 face                */
-#define GEO_IMBAL_THRESH   144u   /* TE_CYCLE = single-spoke seed OK */
+#define GEO_IMBAL_THRESH    72u   /* half-TE_CYCLE for tighter balance */
 #define GEO_ANOMALY_HOT     96u   /* 576/6 = 1/6 spoke          */
 
 /* ── Verify (compile-time) ──────────────────── */

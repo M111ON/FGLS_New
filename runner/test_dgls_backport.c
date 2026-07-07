@@ -11,7 +11,7 @@
 /* #include "diamond/binary_shell_codec.h" */
 /* #include "diamond/hex_codec.h" */
 #include "diamond/pogls_fold.h"
-#include "diamond/hex_tile.h"
+#include "hex_tile.h"
 
 /* Hamburger Architecture */
 #include "diamond/hamburger/hamburger_encode.h"

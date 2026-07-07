@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "geo_config_engine.h"
+#include "geo_config.h"
 
 #define TE_CYCLE        GEO_TE_CYCLE
 #define TE_MAX_SNAP     GEO_TE_SNAPS

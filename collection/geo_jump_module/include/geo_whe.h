@@ -1,6 +1,6 @@
 #pragma once
 #include <stdint.h>
-#include "geo_config_engine.h"
+#include "geo_config.h"
 #include "theta_map.h"
 
 #define WHE_PHI_PRIME       UINT64_C(0x9E3779B97F4A7C15)
