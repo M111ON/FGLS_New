@@ -48,6 +48,7 @@
 #define DT_HASH_NAME    48        /* compact name stored in hash entry */
 #define DT_DIR_ENTRY_SZ 48        /* bytes per directory entry (V2) */
 #define DT_COLD_DEFAULT (256UL << 20)  /* default cold region: 256 MB */
+#define DT_MAX_FREE     512            /* max free-list entries for dt_free */
 
 /* ── Data types ─────────────────────────────────────────── */
 
@@ -96,6 +97,10 @@ typedef struct {
      * name: tensor name being evicted. user: caller-provided context. */
     void            (*evict_cb)(const char *name, void *user);
     void             *evict_user;
+    /* free list for space reclamation (dt_free / dt_put reuse) */
+    size_t            free_offs[DT_MAX_FREE];
+    size_t            free_sizes[DT_MAX_FREE];
+    int               free_count;
 #define DT_KV_FLAG    0x80000000u       /* dram_addr bit31: KV region */
 #define DT_BOND_FLAG  0x40000000u       /* dram_addr bit30: spilled to cold */
 #define DT_DELTA_FLAG 0x20000000u       /* dram_addr bit29: delta compose mode
@@ -347,7 +352,6 @@ static inline uint8_t *dt_put_addr(DRamTileStore *store,
 
     /* size>0 guard: dram_addr=0 equals the "unused" sentinel */
     if (store->hash[slot].dram_addr == addr && store->hash[slot].size > 0) {
-        size_t off = store->hash[slot].offset;
         if (store->hash[slot].size != sz) return NULL;
         memcpy(dt_entry_ptr(store, slot), data, sz);
         return dt_entry_ptr(store, slot);
@@ -378,6 +382,91 @@ static inline uint8_t *dt_put_addr(DRamTileStore *store,
     return local ? (store->base + off) : (store->cold_base + store->hash[slot].cold_offset);
 }
 
+/* ── Free-list helpers ── */
+static inline void dt_free_clear(DRamTileStore *store) {
+    store->free_count = 0;
+}
+
+/* Add free block (offset, size) to free list.  Coalesces adjacent blocks. */
+static inline int dt_free_add(DRamTileStore *store, size_t offset, size_t size) {
+    if (!store || size == 0) return 0;
+    size_t end = offset + size;
+    for (int i = 0; i < store->free_count; i++) {
+        size_t fe = store->free_offs[i] + store->free_sizes[i];
+        if (end == store->free_offs[i]) {
+            store->free_offs[i] = offset;
+            store->free_sizes[i] += size;
+            return 1;
+        }
+        if (offset == fe) {
+            store->free_sizes[i] += size;
+            return 1;
+        }
+        size_t free_end = fe;
+        if (offset >= store->free_offs[i] && offset < free_end) return 0;
+        if (offset <= store->free_offs[i] && end > store->free_offs[i]) return 0;
+    }
+    if (store->free_count >= DT_MAX_FREE) return -1;
+    store->free_offs[store->free_count] = offset;
+    store->free_sizes[store->free_count] = size;
+    store->free_count++;
+    return 1;
+}
+
+/* Find free block that fits sz (best-fit).  Returns offset, or SIZE_MAX if none. */
+static inline size_t dt_free_take(DRamTileStore *store, size_t sz) {
+    int best = -1;
+    size_t best_sz = SIZE_MAX;
+    for (int i = 0; i < store->free_count; i++) {
+        if (store->free_sizes[i] >= sz && store->free_sizes[i] < best_sz) {
+            best = i;
+            best_sz = store->free_sizes[i];
+        }
+    }
+    if (best < 0) return SIZE_MAX;
+    size_t off = store->free_offs[best];
+    size_t rem = store->free_sizes[best] - sz;
+    size_t rem_off = off + sz;
+    int last = store->free_count - 1;
+    if (best < last) {
+        store->free_offs[best] = store->free_offs[last];
+        store->free_sizes[best] = store->free_sizes[last];
+    }
+    store->free_count--;
+    if (rem >= 64) dt_free_add(store, rem_off, rem);
+    return off;
+}
+
+/* dt_free: remove a stored entry by name, returning its space to the free list. */
+static inline int dt_free(DRamTileStore *store, const char *name) {
+    if (!store || !name) return -1;
+    uint32_t addr = dt_name_to_addr(name);
+    uint32_t slot = addr % DT_HASH_SLOTS;
+    uint32_t entry = store->hash[slot].dram_addr;
+    if ((entry & ~DT_FLAGS_MASK) != addr) return -1;
+    size_t sz = store->hash[slot].size;
+    if (entry & DT_BOND_FLAG) {
+        if (store->evict_cb) store->evict_cb(name, store->evict_user);
+        memset(&store->hash[slot], 0, sizeof(store->hash[slot]));
+        store->n_stored--;
+        return 0;
+    }
+    size_t off = store->hash[slot].offset;
+    if (store->evict_cb) store->evict_cb(name, store->evict_user);
+    memset(&store->hash[slot], 0, sizeof(store->hash[slot]));
+    store->n_stored--;
+    dt_free_add(store, off, sz);
+    return 0;
+}
+
+/* Count free bytes available in the free list. */
+static inline size_t dt_free_bytes(DRamTileStore *store) {
+    size_t total = 0;
+    for (int i = 0; i < store->free_count; i++)
+        total += store->free_sizes[i];
+    return total;
+}
+
 /* ── Full-dispatch read pointer: handles base/kv/cold/compose ──
  *   BOND       → cold_base + cold_offset
  *   BOND|KV    → kv_compose (cold ptr or delta compose)
@@ -406,7 +495,6 @@ static inline uint8_t *dt_put(DRamTileStore *store,
     uint32_t slot = addr % DT_HASH_SLOTS;
 
     if (store->hash[slot].dram_addr == addr) {
-        size_t off = store->hash[slot].offset;
         if (store->hash[slot].size != sz) return NULL;
         /* Triple-aliasing guard: warn if overwriting slot that may be
          * an active SID source (orig_data/delta_orig_data alias this mmap). */
@@ -427,11 +515,17 @@ static inline uint8_t *dt_put(DRamTileStore *store,
     strncpy(store->hash[slot].name, name, DT_HASH_NAME - 1);
     store->hash[slot].name[DT_HASH_NAME - 1] = '\0';
 
-    size_t off = (store->used + 63) & ~63;
+    size_t off = SIZE_MAX;
+    if (store->free_count > 0) {
+        off = dt_free_take(store, sz);
+    }
+    if (off == SIZE_MAX) {
+        off = (store->used + 63) & ~63;
+    }
     int local = (off + sz <= store->capacity);
     if (local) {
         memcpy(store->base + off, data, sz);
-        store->used = off + sz;
+        if (off + sz > store->used) store->used = off + sz;
         store->hash[slot].dram_addr = addr;
         store->hash[slot].offset    = off;
     } else {

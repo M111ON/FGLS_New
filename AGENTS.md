@@ -108,7 +108,12 @@ Global skill `cross-session-board` ให้ board + context source tools ทุ
 - **`gguf_to_pogls.c` rewrite**: standalone GGUF reader (no llama DLL), writes v2 `.pogls` with metadata + optional `--compress` flag. Fixed `POGLS_MAX_ADDR` double-define, `data_pos`/`src_pos` separate tracking.
 - **All tests**: 99/99 PASS (42 meta + 33 compress + 20 priority_dram + 4 gguf_to_pogls build).
 
-### ✅ July 2 — Triplet World + Hidden Pocket: Corrected Tables + Icosphere 162v
+### ✅ July 8 — DGFS Drive: WinFsp FUSE + DRamTile = Persistent virtual drive X:\
+- **Root cause of write failures**: `dirlist_add()` called `dt_put(DIRLIST_KEY, buf, new_sz)` but `dt_put` rejects size changes for existing entries (`old_sz != new_sz → return NULL`). Fix: `dt_free(&g_store, DIRLIST_KEY)` before every dirlist update.
+- **`statfs` block count bug**: `f_blocks = capacity` (bytes) with `f_bsize = 4096` reported 35 TB storage (overflow in 32-bit calc). Fix: divide by 4096: `f_blocks = capacity / 4096`.
+- **Delayed write bug**: `open()` only checked `dt_get(key)` which returns NULL for zero-size entries. Fix: `create`/`mknod` now stores a zero-size `dt_put` entry + dirlist entry so `open` finds it.
+- **Verified**: Create, write (same-size + resize), overwrite, delete, readback, persistence across unmount/remount — all work on X:\.
+- **`dgfs-launcher.ps1`**: PowerShell WinForms GUI for Drive Mode (mount X:\) vs LLM pass-through mode.
 
 - **Face tables fixed**: `TRIPLET_FACE_VERTS`, `POCKET_FACE_VERTS` corrected to use actual plane-equation-derived CCW edge-connected vertex sets (not goldberg_sid.h's region-based grouping). Faces 9-12 had z-plane errors (wrong φ sign) — fixed.
 - **POCKET_FACE_CENTERS corrected**: swapped faces 10/11 to match plane equations (z-φx=+φ² at (-1.1708, 0, 0.7236), z-φx=-φ² at (1.1708, 0, -0.7236)).
