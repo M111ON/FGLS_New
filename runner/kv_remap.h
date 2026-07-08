@@ -6,12 +6,13 @@
  * ══════════════════════════════════════════════════════════
  *
  * Three-tier adaptive system:
- *   0-15% change:  XOR delta, RLE compressed (small, precise)
+ *   0-15% change:  XOR delta, compressed (small, precise)
  *   15-85% change: byte-offset ranges (fast, topology)
  *   85%+ change:   Rebuild skeleton (new baseline)
  *
- * Self-contained — no zstd/diamond dependencies.
- * For production: swap compress/decompress with Binary Shell.
+ * Compression auto-selects:
+ *   data < 64B:   RLE (small overhead)
+ *   data >= 64B:  Diamond Shell (2.32x at 40% change, lossless)
  */
 
 #include <stdint.h>
@@ -26,6 +27,9 @@
 /* bond_key derived from delta hash to find stored delta */
 #define KV_REMAP_SHADOW_BOND_BASE  0x4B56524D  /* "KVRM" */
 #endif
+
+/* Diamond Shell integration (auto-selected for data >= 64B) */
+#include "kv_remap_diamond.h"
 
 /* ── Thresholds ─────────────────────────────────────────── */
 #define KV_REMAP_THRESH_LOW     15
@@ -134,11 +138,18 @@ typedef struct {
 
 /* =============================================================
  * RLE compress: XOR diff → [zero_run][data_len][data...]
+ * Auto-selects Diamond Shell for data >= 64B.
  * ============================================================= */
 
 static inline int kv_remap_compress(const void *data, size_t size,
                                     void **out, size_t *out_size)
 {
+    /* Diamond Shell for data >= 64B (chunk-aligned) */
+    if (size >= 64) {
+        return kv_remap_compress_diamond(data, size, out, out_size);
+    }
+
+    /* RLE for small data */
     const uint8_t *src = (const uint8_t *)data;
     /* Worst case: every byte is non-zero → 1 literal per byte + overhead */
     size_t max_out = sizeof(RLEHeader) + size * 3 + 256;
@@ -211,51 +222,63 @@ static inline int kv_remap_compress(const void *data, size_t size,
 
 
 /* =============================================================
- * RLE decompress
+ * Decompress — auto-detects Diamond Shell vs RLE
  * ============================================================= */
 
 static inline void *kv_remap_decompress(const void *compressed, size_t comp_size,
                                         size_t *out_size)
 {
-    if (comp_size < sizeof(RLEHeader)) return NULL;
-    const RLEHeader *hdr = (const RLEHeader *)compressed;
+    if (comp_size < 4) return NULL;
 
-    if (hdr->magic != RLE_MAGIC) return NULL;
+    /* Auto-detect format by magic number */
+    const uint32_t magic = *(const uint32_t *)compressed;
 
-    size_t orig = hdr->orig_size;
-    if (out_size) *out_size = orig;
+    /* Diamond Shell: DIA_MAGIC */
+    if (magic == DIA_MAGIC) {
+        return kv_remap_decompress_diamond(compressed, comp_size, out_size);
+    }
 
-    if (hdr->n_runs == 0) {
-        /* Raw data */
+    /* RLE: RLE_MAGIC */
+    if (magic == RLE_MAGIC) {
+        const RLEHeader *hdr = (const RLEHeader *)compressed;
+
+        size_t orig = hdr->orig_size;
+        if (out_size) *out_size = orig;
+
+        if (hdr->n_runs == 0) {
+            /* Raw data */
+            uint8_t *out = (uint8_t *)malloc(orig > 0 ? orig : 1);
+            if (!out) return NULL;
+            memcpy(out, (const uint8_t *)compressed + sizeof(RLEHeader), orig);
+            return out;
+        }
+
         uint8_t *out = (uint8_t *)malloc(orig > 0 ? orig : 1);
         if (!out) return NULL;
-        memcpy(out, (const uint8_t *)compressed + sizeof(RLEHeader), orig);
+
+        const uint8_t *src = (const uint8_t *)compressed + sizeof(RLEHeader);
+        size_t dst_pos = 0;
+
+        for (uint32_t r = 0; r < hdr->n_runs; r++) {
+            const RLERun *run = (const RLERun *)src;
+            uint16_t zeros = run->zero_run;
+            uint8_t  dlen  = run->data_len;
+            src += sizeof(RLERun);
+
+            /* Write zeros */
+            for (uint16_t z = 0; z < zeros && dst_pos < orig; z++)
+                out[dst_pos++] = 0;
+
+            /* Write literal data */
+            for (uint8_t d = 0; d < dlen && dst_pos < orig; d++)
+                out[dst_pos++] = src[d];
+            src += dlen;
+        }
+
         return out;
     }
 
-    uint8_t *out = (uint8_t *)malloc(orig > 0 ? orig : 1);
-    if (!out) return NULL;
-
-    const uint8_t *src = (const uint8_t *)compressed + sizeof(RLEHeader);
-    size_t dst_pos = 0;
-
-    for (uint32_t r = 0; r < hdr->n_runs; r++) {
-        const RLERun *run = (const RLERun *)src;
-        uint16_t zeros = run->zero_run;
-        uint8_t  dlen  = run->data_len;
-        src += sizeof(RLERun);
-
-        /* Write zeros */
-        for (uint16_t z = 0; z < zeros && dst_pos < orig; z++)
-            out[dst_pos++] = 0;
-
-        /* Write literal data */
-        for (uint8_t d = 0; d < dlen && dst_pos < orig; d++)
-            out[dst_pos++] = src[d];
-        src += dlen;
-    }
-
-    return out;
+    return NULL;
 }
 
 

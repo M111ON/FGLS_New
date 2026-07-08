@@ -405,8 +405,8 @@ SID_EXPORT int sid_tensor_restore_all(struct llama_model * model) { return 0; }
 // Check if pointer is any valid ggml_tensor (no name filter)
 static int is_valid_tensor_ptr(const char *cand) {
     __try {
-        // Read name at offset 256 (GGML_MAX_SRC=10)
-        const char *name = cand + 256;
+        const struct ggml_tensor *t = (const struct ggml_tensor*)cand;
+        const char *name = t->name;
         if (name[0] < 32 || name[0] > 126) return 0;
         int nlen = (int)strnlen(name, 64);
         if (nlen < 3 || nlen >= 64) return 0;
@@ -421,14 +421,11 @@ static int is_valid_tensor_ptr(const char *cand) {
               (name[0] >= '0' && name[0] <= '9') ||
               name[0] == '_' || name[0] == '.')) return 0;
         // Sanity: ne[0] should be reasonable
-        int64_t ne0; memcpy(&ne0, cand + 16, sizeof(ne0));
-        if (ne0 <= 0 || ne0 > 10000000) return 0;
+        if (t->ne[0] <= 0 || t->ne[0] > 10000000) return 0;
         // type should be in range
-        int type; memcpy(&type, cand, sizeof(type));
-        if (type < 0 || type > 43) return 0;
+        if (t->type < 0 || t->type > 43) return 0;
         // data non-NULL
-        void *data; memcpy(&data, cand + 248, sizeof(data));
-        if (!data || (uintptr_t)data < 0x10000) return 0;
+        if (!t->data || (uintptr_t)t->data < 0x10000) return 0;
         return 1;
     } __except(EXCEPTION_EXECUTE_HANDLER) { return 0; }
 }
@@ -450,8 +447,8 @@ static int valid_tensor_name_only(const char *name, int nlen) {
 
 static int is_tensor_with_name(const char *cand, const char *target_name) {
     __try {
-        // Read name at offset 256 (GGML_MAX_SRC=10)
-        const char *name = cand + 256;
+        const struct ggml_tensor *t = (const struct ggml_tensor*)cand;
+        const char *name = t->name;
         // Check name starts with printable ASCII
         if (name[0] < 32 || name[0] > 126) return 0;
         // Null-terminated check
@@ -459,14 +456,11 @@ static int is_tensor_with_name(const char *cand, const char *target_name) {
         if (!valid_tensor_name_only(name, nlen)) return 0;
         if (strcmp(name, target_name) != 0) return 0;
         // Sanity check: ne[0] should be reasonable (positive, not huge)
-        int64_t ne0; memcpy(&ne0, cand + 16, sizeof(ne0));
-        if (ne0 <= 0 || ne0 > 10000000) return 0;
+        if (t->ne[0] <= 0 || t->ne[0] > 10000000) return 0;
         // Sanity check: type should be 0..43 (ggml_type range)
-        int type; memcpy(&type, cand, sizeof(type));
-        if (type < 0 || type > 43) return 0;
+        if (t->type < 0 || t->type > 43) return 0;
         // data pointer should be non-NULL and look valid
-        void *data; memcpy(&data, cand + 248, sizeof(data));
-        if (!data || (uintptr_t)data < 0x10000) return 0;
+        if (!t->data || (uintptr_t)t->data < 0x10000) return 0;
         return 1;
     } __except(EXCEPTION_EXECUTE_HANDLER) { return 0; }
 }
@@ -493,15 +487,13 @@ SID_EXPORT int sid_tensor_find_in_model(struct llama_model * model,
         if (!cand || (uintptr_t)cand < 0x10000) continue;
         // Check if this pointer looks like a valid tensor with our name
         if (is_tensor_with_name((const char*)cand, name)) {
+            const struct ggml_tensor *tc = (const struct ggml_tensor*)cand;
             struct_out[0] = cand;
-            memcpy(&data_out[0], (const char*)cand + 248, sizeof(void*));
+            data_out[0] = tc->data;
             if (nbytes) {
-                // Calculate nbytes from ne[] and nb[]
-                int64_t ne[4]; memcpy(ne, (const char*)cand + 16, sizeof(ne));
-                size_t nb[4]; memcpy(nb, (const char*)cand + 48, sizeof(nb));
-                size_t total = nb[0] * ne[0];
+                size_t total = (size_t)tc->nb[0] * tc->ne[0];
                 for (int i = 1; i < 4; i++) {
-                    size_t ni = nb[i] * ne[i];
+                    size_t ni = tc->nb[i] * tc->ne[i];
                     if (ni > total) total = ni;
                 }
                 *nbytes = total;
@@ -525,14 +517,13 @@ SID_EXPORT int sid_tensor_find_in_model(struct llama_model * model,
                         void *cand; memcpy(&cand, p, sizeof(cand));
                         if (!cand || (uintptr_t)cand < 0x10000) continue;
                         if (is_tensor_with_name((const char*)cand, name)) {
+                            const struct ggml_tensor *tc = (const struct ggml_tensor*)cand;
                             struct_out[0] = cand;
-                            memcpy(&data_out[0], (const char*)cand + 248, sizeof(void*));
+                            data_out[0] = tc->data;
                             if (nbytes) {
-                                int64_t ne[4]; memcpy(ne, (const char*)cand + 16, sizeof(ne));
-                                size_t nb[4]; memcpy(nb, (const char*)cand + 48, sizeof(nb));
-                                size_t total = nb[0] * ne[0];
+                                size_t total = (size_t)tc->nb[0] * tc->ne[0];
                                 for (int i = 1; i < 4; i++) {
-                                    size_t ni = nb[i] * ne[i];
+                                    size_t ni = tc->nb[i] * tc->ne[i];
                                     if (ni > total) total = ni;
                                 }
                                 *nbytes = total;
@@ -590,7 +581,8 @@ SID_EXPORT int sid_tensor_enum_model(struct llama_model * model,
         if (!cand || (uintptr_t)cand < 0x10000) continue;
         if (!is_valid_tensor_ptr((const char*)cand)) continue;
         // Check name matches known tensor
-        const char *name = (const char*)cand + 256;
+        const struct ggml_tensor *tc = (const struct ggml_tensor*)cand;
+        const char *name = tc->name;
         int known = 0;
         for (int i = 0; i < ctx_n && !known; i++)
             if (strcmp(name, ctx_names[i]) == 0) known = 1;
@@ -602,7 +594,7 @@ SID_EXPORT int sid_tensor_enum_model(struct llama_model * model,
         if (dup) continue;
         found_ptrs[count++] = cand;
         fprintf(stderr, "[tensor]   [%d] ptr=%p data=%p name='%s'\n",
-            count-1, cand, *(void**)((char*)cand+248), name);
+            count-1, cand, tc->data, name);
     }
 
     // Tier 2: Find layers array in model struct
@@ -619,8 +611,9 @@ SID_EXPORT int sid_tensor_enum_model(struct llama_model * model,
             void *subcand; memcpy(&subcand, (char*)cand + off, sizeof(subcand));
             if (!subcand || (uintptr_t)subcand < 0x10000) continue;
             if (!is_valid_tensor_ptr((const char*)subcand)) continue;
-            const char *name = (const char*)subcand + 256;
-            if (strncmp(name, "blk.0.", 6) == 0) { layers_ptr = cand; break; }
+            const struct ggml_tensor *tsc = (const struct ggml_tensor*)subcand;
+            const char *sname = tsc->name;
+            if (strncmp(sname, "blk.0.", 6) == 0) { layers_ptr = cand; break; }
         }
         if (layers_ptr) break;
     }
@@ -638,7 +631,8 @@ SID_EXPORT int sid_tensor_enum_model(struct llama_model * model,
                 if (!cand || (uintptr_t)cand < 0x10000) continue;
                 if (!is_valid_tensor_ptr((const char*)cand)) continue;
                 // Check name matches
-                const char *name = (const char*)cand + 256;
+                const struct ggml_tensor *tc3 = (const struct ggml_tensor*)cand;
+                const char *name = tc3->name;
                 // Must start with "blk." for layer tensors
                 if (strncmp(name, "blk.", 4) != 0) continue;
                 int known = 0;
@@ -660,11 +654,12 @@ SID_EXPORT int sid_tensor_enum_model(struct llama_model * model,
     int out_count = count;
     if (max_count > 0 && max_count < count) out_count = max_count;
     for (int i = 0; i < out_count; i++) {
+        const struct ggml_tensor *tcf = (const struct ggml_tensor*)found_ptrs[i];
         ptrs_out[i] = found_ptrs[i];
-        memcpy(&datas_out[i], (const char*)found_ptrs[i] + 248, sizeof(void*));
+        datas_out[i] = tcf->data;
         // Copy datas for name lookup, then find matching ctx name for names_out/nbytes_out
         int found_idx = -1;
-        const char *tname = (const char*)found_ptrs[i] + 256;
+        const char *tname = tcf->name;
         for (int j = 0; j < ctx_n && found_idx < 0; j++)
             if (strcmp(tname, ctx_names[j]) == 0) found_idx = j;
         if (names_out && found_idx >= 0)

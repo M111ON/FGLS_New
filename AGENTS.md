@@ -99,6 +99,9 @@ Global skill `cross-session-board` ให้ board + context source tools ทุ
 | **DRamTile benchmark** | **✅ (CPU: -36%, GPU: +38%, 5-face: -23%)** |
 | **GearShift (Tier-2 streaming router)** | **✅ generic src→dst, no data storage** |
 | **GearLock→GearShift priority sync** | **✅ sync_gearlock_to_gearshift + gs_stream_pending_prioritized** |
+| **KV Remap Diamond Shell** | **✅ auto-selects Diamond Shell for data ≥ 64B, RLE for < 64B** |
+| **Avalanche investigation** | **✅ use only for error detection, not compression preprocessing** |
+| **Hilbert Fold POC** | **✅ 4-axis symmetry analysis on images (80% mandala, 40% lotus, 10% tree)** |
 
 ### ✅ July 2 — POGLS v2 Compression Benchmark + gguf_to_pogls Upgrade
 
@@ -125,6 +128,16 @@ Global skill `cross-session-board` ให้ board + context source tools ทุ
 - **Icosphere f=4 position table**: 162-vertex pre-computed `TRIPLET_ICOSPHERE_POS` table (Python-generated from icosa subdivision, projected to face-center sphere at R≈1.376). Plus `TRIPLET_ICOSA_FACES_TABLE` (20 faces) and `TRIPLET_ICOSA_EDGES` (30 edges) for topology queries. Added `triplet_icosphere_pos()` lookup function.
 - **Tests**: 51/51 PASS (was 42, added 9 new icosphere/icosa table tests).
 - **Philosophical insight**: Triplet world = geometric address space for zero-copy pipeline (disk→RAM→CPU→GPU); Hidden pocket = persistent alternate-dimension storage accessible within the world. Recorded on session board.
+
+### ✅ July 9 — Diamond Shell KV Remap Integration + Avalanche Investigation
+
+- **Benchmark A (KV Remap + Diamond Shell)**: Diamond Shell wins at 40%+ change (2.32x vs RLE 2.10x at 40%). RLE wins at 0-15% change. All tests lossless roundtrip verified.
+- **Diamond Shell integration into kv_remap.h**: Auto-selects compression: data ≥ 64B → Diamond Shell, < 64B → RLE. `kv_remap_decompress()` auto-detects format by magic number (DIA_MAGIC vs RLE_MAGIC). Backward compatible with existing RLE data.
+- **New file**: `runner/kv_remap_diamond.h` (Diamond Shell compress/decompress for KV Remap)
+- **Avalanche investigation**: Avalanche effect (1-bit → ~50% output change) makes compression WORSE by destroying patterns. Overhead ~100ms for 12MB. Correct usage: error detection AFTER compression, NOT before. For hash distribution/load balancing: already in use.
+- **Generative Geo-Signature (P1)**: Tested lossless vs lossy SPARSE compression. Lossless: must store full 66B rotated data (same as Diamond Shell). Lossy: 10B signature saves 85% but corrupts data. Conclusion: lossless not viable for infrastructure, lossy not suitable for general files.
+- **Hilbert Fold POC review**: Analyzed results from 3 images. Mandala: 80% 4-axis symmetry agreement. Lotus: 40% agreement. Tree: 10% agreement. Applications: biases/norms compression, image pipeline, geometric data.
+- **Tests**: `test_kv_remap_diamond.c` 5/5 PASS, `test_kv_remap.c` 7/7 PASS.
 
 ### ✅ (June 30 — Page Table SID: Zero-Copy Indirect Layer + GPU Twin Buffer Swap)
 - **Page Table SID** (`runner/sid_page_table.h` + `--sid-pt` flag): 20736-bit indirect layer (2592 bytes) replaces 5.1GB sid_cache + DRamTile preload with zero-copy bit flip

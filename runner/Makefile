@@ -11,7 +11,7 @@ INCS   += -I../collection/Hfolder
 INCS   += -I../collection/rdh
 INCS   += -II:/llama.cpp/include -II:/llama.cpp/ggml/include
 INCS   += -II:/llama.cpp/src
-CFLAGS  = -O2 -std=c11 $(INCS)
+CFLAGS  = -O2 -std=c11 -fno-strict-aliasing $(INCS)
 CXXFLAGS = -O2 -std=c++17 $(INCS)
 LDLIBS  = -lm
 ZSTDLIB = ./zstd.dll

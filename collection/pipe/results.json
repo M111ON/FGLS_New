@@ -1,0 +1,248 @@
+{
+  "wheel": [
+    {
+      "scale_idx": 0,
+      "shape": [
+        900,
+        900
+      ],
+      "hilbert_n": 1024,
+      "raw_agreement_ratio": 0.3200836181640625,
+      "weighted_agreement_ratio": 0.40248870849609375,
+      "significant_fraction": 0.25,
+      "seq_len": 1048576
+    },
+    {
+      "scale_idx": 1,
+      "shape": [
+        450,
+        450
+      ],
+      "hilbert_n": 512,
+      "raw_agreement_ratio": 0.186798095703125,
+      "weighted_agreement_ratio": 0.3087921142578125,
+      "significant_fraction": 0.25,
+      "seq_len": 262144
+    },
+    {
+      "scale_idx": 2,
+      "shape": [
+        225,
+        225
+      ],
+      "hilbert_n": 256,
+      "raw_agreement_ratio": 0.1611328125,
+      "weighted_agreement_ratio": 0.24981689453125,
+      "significant_fraction": 0.25,
+      "seq_len": 65536
+    },
+    {
+      "scale_idx": 3,
+      "shape": [
+        112,
+        112
+      ],
+      "hilbert_n": 128,
+      "raw_agreement_ratio": 0.13818359375,
+      "weighted_agreement_ratio": 0.205810546875,
+      "significant_fraction": 0.25,
+      "seq_len": 16384
+    },
+    {
+      "scale_idx": 4,
+      "shape": [
+        56,
+        56
+      ],
+      "hilbert_n": 64,
+      "raw_agreement_ratio": 0.08984375,
+      "weighted_agreement_ratio": 0.13170731707317074,
+      "significant_fraction": 0.250244140625,
+      "seq_len": 4096
+    },
+    {
+      "scale_idx": 5,
+      "shape": [
+        28,
+        28
+      ],
+      "hilbert_n": 32,
+      "raw_agreement_ratio": 0.1171875,
+      "weighted_agreement_ratio": 0.14785992217898833,
+      "significant_fraction": 0.2509765625,
+      "seq_len": 1024
+    }
+  ],
+  "tresd34": [
+    {
+      "scale_idx": 0,
+      "shape": [
+        711,
+        736
+      ],
+      "hilbert_n": 1024,
+      "raw_agreement_ratio": 0.038585662841796875,
+      "weighted_agreement_ratio": 0.09954414541570505,
+      "significant_fraction": 0.2500009536743164,
+      "seq_len": 1048576
+    },
+    {
+      "scale_idx": 1,
+      "shape": [
+        355,
+        368
+      ],
+      "hilbert_n": 512,
+      "raw_agreement_ratio": 0.0204925537109375,
+      "weighted_agreement_ratio": 0.05833346048796863,
+      "significant_fraction": 0.2500038146972656,
+      "seq_len": 262144
+    },
+    {
+      "scale_idx": 2,
+      "shape": [
+        177,
+        184
+      ],
+      "hilbert_n": 256,
+      "raw_agreement_ratio": 0.01312255859375,
+      "weighted_agreement_ratio": 0.040283203125,
+      "significant_fraction": 0.25,
+      "seq_len": 65536
+    },
+    {
+      "scale_idx": 3,
+      "shape": [
+        88,
+        92
+      ],
+      "hilbert_n": 128,
+      "raw_agreement_ratio": 0.0087890625,
+      "weighted_agreement_ratio": 0.027092994874298268,
+      "significant_fraction": 0.25006103515625,
+      "seq_len": 16384
+    },
+    {
+      "scale_idx": 4,
+      "shape": [
+        44,
+        46
+      ],
+      "hilbert_n": 64,
+      "raw_agreement_ratio": 0.0078125,
+      "weighted_agreement_ratio": 0.02829268292682927,
+      "significant_fraction": 0.250244140625,
+      "seq_len": 4096
+    },
+    {
+      "scale_idx": 5,
+      "shape": [
+        22,
+        23
+      ],
+      "hilbert_n": 32,
+      "raw_agreement_ratio": 0.01171875,
+      "weighted_agreement_ratio": 0.038910505836575876,
+      "significant_fraction": 0.2509765625,
+      "seq_len": 1024
+    }
+  ],
+  "flower": [
+    {
+      "scale_idx": 0,
+      "shape": [
+        2048,
+        2048
+      ],
+      "hilbert_n": 2048,
+      "raw_agreement_ratio": 0.7944402694702148,
+      "weighted_agreement_ratio": 0.807064240394363,
+      "significant_fraction": 0.2500002384185791,
+      "seq_len": 4194304
+    },
+    {
+      "scale_idx": 1,
+      "shape": [
+        1024,
+        1024
+      ],
+      "hilbert_n": 1024,
+      "raw_agreement_ratio": 0.7485809326171875,
+      "weighted_agreement_ratio": 0.7600564573041637,
+      "significant_fraction": 0.2500009536743164,
+      "seq_len": 1048576
+    },
+    {
+      "scale_idx": 2,
+      "shape": [
+        512,
+        512
+      ],
+      "hilbert_n": 512,
+      "raw_agreement_ratio": 0.6909027099609375,
+      "weighted_agreement_ratio": 0.7113494873046875,
+      "significant_fraction": 0.25,
+      "seq_len": 262144
+    },
+    {
+      "scale_idx": 3,
+      "shape": [
+        256,
+        256
+      ],
+      "hilbert_n": 256,
+      "raw_agreement_ratio": 0.63116455078125,
+      "weighted_agreement_ratio": 0.65777587890625,
+      "significant_fraction": 0.25,
+      "seq_len": 65536
+    },
+    {
+      "scale_idx": 4,
+      "shape": [
+        128,
+        128
+      ],
+      "hilbert_n": 128,
+      "raw_agreement_ratio": 0.56396484375,
+      "weighted_agreement_ratio": 0.575439453125,
+      "significant_fraction": 0.25,
+      "seq_len": 16384
+    },
+    {
+      "scale_idx": 5,
+      "shape": [
+        64,
+        64
+      ],
+      "hilbert_n": 64,
+      "raw_agreement_ratio": 0.478515625,
+      "weighted_agreement_ratio": 0.4541015625,
+      "significant_fraction": 0.25,
+      "seq_len": 4096
+    },
+    {
+      "scale_idx": 6,
+      "shape": [
+        32,
+        32
+      ],
+      "hilbert_n": 32,
+      "raw_agreement_ratio": 0.3515625,
+      "weighted_agreement_ratio": 0.30078125,
+      "significant_fraction": 0.25,
+      "seq_len": 1024
+    },
+    {
+      "scale_idx": 7,
+      "shape": [
+        16,
+        16
+      ],
+      "hilbert_n": 16,
+      "raw_agreement_ratio": 0.15625,
+      "weighted_agreement_ratio": 0.140625,
+      "significant_fraction": 0.25,
+      "seq_len": 256
+    }
+  ]
+}

@@ -27,7 +27,7 @@ int main(int argc,char**argv){
 
     // For each pointer in model struct, scan in detail
     for (int off = 0; off < 2048; off += 8) {
-        void *val = *(void**)(base + off);
+        void *val; memcpy(&val, base + off, sizeof(val));
         if (!val || (uintptr_t)val < 0x10000 || (uintptr_t)val > 0x7FFFFFFF0000ULL) continue;
         if (!VirtualQuery(val, &mbi, sizeof(mbi)) || mbi.State != MEM_COMMIT) continue;
         if (!(mbi.Protect & (PAGE_READONLY|PAGE_READWRITE))) continue;
