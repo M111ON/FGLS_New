@@ -379,8 +379,12 @@ static inline PipeBackend *pipe_backend_ram_create(uint64_t capacity) {
 /* Growth increment (64 MB chunks) */
 #define DT_GROW_CHUNK      (64UL * 1024 * 1024)
 
-/* Minimal file size (header + slot table, 64KB) */
-#define DT_MIN_FILE_SIZE   (64UL * 1024)
+/* Minimal file size: slot offset gap + full slot table + 64KB data region.
+   For PIPE_MAX_SLOTS=4096, slot_size~112: 64KB + 448KB + 64KB = 576KB */
+#define DT_MIN_FILE_SIZE   (DT_SLOT_OFFSET + PIPE_MAX_SLOTS * sizeof(PipeSlot) + 64UL * 1024)
+
+/* Minimal file size for the "file too small to restore" check (just the header+slots) */
+#define DT_MIN_FILE_SIZE_FULL  (DT_SLOT_OFFSET + PIPE_MAX_SLOTS * sizeof(PipeSlot))
 
 typedef struct {
     HANDLE       hFile;        /* file handle */
@@ -395,7 +399,7 @@ typedef struct {
     uint8_t     *bump_ptr;     /* current bump allocator position */
     uint32_t     max_slots;    /* max slot count */
 
-    /* Tracked allocations (for compact defrag) */
+    /*     Tracked allocations (for compact defrag) */
     uint32_t     n_tracked;
     struct {
         uint32_t offset;
@@ -404,6 +408,7 @@ typedef struct {
     } tracked[DT_MAX_TRACKED];
 
     BackendStats stats;
+    char         file_path[260];  /* backend file path (for snapshot/restore routing) */
 } DRamTileBackend;
 
 /* ── Slot table offset (right after header, 64KB aligned) ───── */
@@ -472,8 +477,8 @@ static inline int dramtile_backend_init(PipeBackend *b, uint64_t capacity, void 
     GetFileSizeEx(dt->hFile, &li);
     uint64_t cur_size = (uint64_t)li.QuadPart;
 
-    /* If file is empty/new, write initial header */
-    if (cur_size < sizeof(PipeSnapshotHeader)) {
+    /* If file is too small (new or truncated), extend to full size */
+    if (cur_size < DT_MIN_FILE_SIZE_FULL) {
         cur_size = DT_MIN_FILE_SIZE;
         li.QuadPart = (LONGLONG)cur_size;
         SetFilePointerEx(dt->hFile, li, NULL, FILE_BEGIN);
@@ -514,6 +519,10 @@ static inline int dramtile_backend_init(PipeBackend *b, uint64_t capacity, void 
     dt->bump_ptr = dt->data_base + dt->used;
     dt->stats.capacity_total = cur_size;
     dt->stats.capacity_used  = dt->used;
+    /* Store file path for snapshot/restore routing */
+    strncpy(dt->file_path, path, sizeof(dt->file_path) - 1);
+    dt->file_path[sizeof(dt->file_path) - 1] = '\0';
+
     b->storage_base = dt->data_base;  /* offsets relative to data region */
     return 0;
 }
@@ -751,9 +760,17 @@ static inline int dramtile_backend_snapshot(PipeBackend *b, const char *path,
         memcpy(dt->base + dt->slot_offset, slot_data, (size_t)copy_sz);
     }
 
-    /* If path is different from our file, write a copy */
-    /* (for now, data lives in the mmap — snapshot updates in-place) */
-    (void)path;
+    /* If path is different from our file, write a compact snapshot file */
+    if (path && path[0] && strcmp(path, dt->file_path) != 0) {
+        FILE *f = fopen(path, "wb");
+        if (f) {
+            PipeSnapshotHeader out = *hdr;
+            fwrite(&out, sizeof(out), 1, f);
+            if (slot_data && slot_count > 0)
+                fwrite(slot_data, slot_size, slot_count, f);
+            fclose(f);
+        }
+    }
     return 0;
 }
 
@@ -762,14 +779,35 @@ static inline int dramtile_backend_restore(PipeBackend *b, const char *path,
 {
     DRamTileBackend *dt = (DRamTileBackend *)b->impl;
     if (!dt->base || !slot_data || !slot_count) return -1;
-    (void)path;  /* data lives in mmap, not a separate file */
 
+    /* Different file path → read compact snapshot file */
+    if (path && path[0] && strcmp(path, dt->file_path) != 0) {
+        FILE *f = fopen(path, "rb");
+        if (!f) return -1;
+        PipeSnapshotHeader hdr;
+        if (fread(&hdr, sizeof(hdr), 1, f) != 1 ||
+            hdr.magic != PIPE_SNAP_MAGIC ||
+            hdr.version != PIPE_SNAP_VERSION) {
+            fclose(f); return -1;
+        }
+        uint32_t to_read = hdr.n_slots;
+        uint32_t max_read = (uint32_t)(hdr.slot_data_size / slot_size);
+        if (to_read > max_read) to_read = max_read;
+        if (to_read > 0) {
+            size_t sz = (size_t)to_read * slot_size;
+            if (fread(slot_data, 1, sz, f) == sz)
+                *slot_count = to_read;
+        }
+        fclose(f);
+        return 0;
+    }
+
+    /* Same file → read from mmap (gap layout: header at 0, slots at slot_offset) */
     PipeSnapshotHeader *hdr = (PipeSnapshotHeader *)dt->base;
     if (hdr->magic != PIPE_SNAP_MAGIC || hdr->version != PIPE_SNAP_VERSION)
         return -1;
-    if (hdr->n_slots == 0) return 0;  /* empty — never checkpointed */
+    if (hdr->n_slots == 0) return 0;
 
-    /* Read slot table from mmap */
     uint32_t to_read = hdr->n_slots;
     uint32_t max_read = (uint32_t)(hdr->slot_data_size / slot_size);
     if (to_read > max_read) to_read = max_read;
@@ -778,12 +816,10 @@ static inline int dramtile_backend_restore(PipeBackend *b, const char *path,
         *slot_count = to_read;
     }
 
-    /* Ensure used is set */
     dt->used = (uint64_t)hdr->backend_size;
     dt->bump_ptr = dt->data_base + (size_t)dt->used;
     dt->stats.capacity_used = dt->used;
 
-    /* Rebuild tracked array from restored slots (offset is data_base-relative) */
     dt->n_tracked = 0;
     PipeSlot *slots = (PipeSlot *)slot_data;
     for (uint32_t i = 0; i < *slot_count && dt->n_tracked < DT_MAX_TRACKED; i++) {
