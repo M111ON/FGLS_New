@@ -1,10 +1,13 @@
 # AGENTS.md — Session Handoff
 
-## ⚠️ ห้ามใช้ git โดยเด็ดขาด
-- **ห้าม run `git` commands ใดๆ ทั้งสิ้น** ไม่ว่า git status, git add, git commit, git push, git clean, git reset, git checkout ฯลฯ
-- หากจำเป็นต้องตรวจสอบประวัติไฟล์ ให้ใช้ Read tool อ่านไฟล์โดยตรงเท่านั้น
-- หาก user ต้องการให้ commit หรือ push เดี๋ยว user จัดการเอง
-- ข้อยกเว้น: ถ้า user สั่งให้ใช้ git โดยตรง (written in stone) เท่านั้น
+## 🐙 Git — ระวัง untracked files ก่อนเสมอ
+- ใช้ `git status` เช็คสถานะก่อนทุกครั้ง
+- **ระวัง untracked files เป็นอันดับแรก** — เช็คว่ามีไฟล์อะไรใหม่บ้างก่อนทำอะไรกับ git
+- **Confirm ทุก action กับ user ก่อนเสมอ**:
+  - `git add`, `git commit`, `git push`, `git reset`, `git restore`
+  - โดยเฉพาะ `git clean` หรืออะไรก็ตามที่จะลบไฟล์
+- **ห้ามลบหรือทำอะไรนอกเหนือจากที่คุยกันไว้**
+- `git status` ใช้ได้โดยไม่ต้อง confirm
 
 ## 🛑 วงจรอุบาทว์ (Fix→Crash Loop) Protocol
 เมื่อเข้า loop: แก้ → crash → แก้ → crash → แก้ → crash เกิน **3 รอบติด**:

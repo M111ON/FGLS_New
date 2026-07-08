@@ -85,6 +85,11 @@
 #define NAME_MAX 64
 #define SCAN_LIMIT 0x200000
 #define MAX_SID_SWAPS 512
+
+/* Logging macros: hidden by default, enabled with --sid-verbose */
+#define SID_LOG(...)  do { if (g_opt_sid_verbose) fprintf(stderr, __VA_ARGS__); } while(0)
+#define DBG_LOG(...)  do { if (g_opt_sid_verbose) fprintf(stderr, __VA_ARGS__); } while(0)
+
 #define SAVE_LOGITS 15
 
 typedef struct{
@@ -179,8 +184,9 @@ static uint64_t xor_hash(const uint8_t *d, size_t n) {
 
 static int is_valid_tensor_ptr(const void *cand) {
     if (!cand || (uintptr_t)cand < 0x10000) return 0;
-    if (!pogls_is_valid_ptr((const char*)cand + 256 + 63)) return 0;
-    const char *name = (const char*)cand + 256;
+    const struct ggml_tensor *t = (const struct ggml_tensor*)cand;
+    if (!pogls_is_valid_ptr(t->name + 63)) return 0;
+    const char *name = t->name;
     if (name[0] < 32 || name[0] > 126) return 0;
     int nlen = (int)strnlen(name, 64);
     if (nlen < 3 || nlen >= 64) return 0;
@@ -192,18 +198,16 @@ static int is_valid_tensor_ptr(const void *cand) {
           (name[0] >= 'A' && name[0] <= 'Z') ||
           (name[0] >= '0' && name[0] <= '9') ||
           name[0] == '_' || name[0] == '.')) return 0;
-    int64_t ne0; memcpy(&ne0, (const char*)cand + 16, sizeof(ne0));
-    if (ne0 <= 0 || ne0 > 10000000) return 0;
-    int type; memcpy(&type, cand, sizeof(type));
-    if (type < 0 || type > 43) return 0;
-    void *data; memcpy(&data, (const char*)cand + 248, sizeof(data));
-    if (!data || (uintptr_t)data < 0x10000) return 0;
+    if (t->ne[0] <= 0 || t->ne[0] > 10000000) return 0;
+    int gtype = t->type;
+    if (gtype < 0 || gtype > 43) return 0;
+    if (!t->data || (uintptr_t)t->data < 0x10000) return 0;
     return 1;
 }
 
-static const char* tensor_name(const void *tensor) { return (const char*)tensor + 256; }
-static void* tensor_data(const void *tensor) { void *d; memcpy(&d, (const char*)tensor + 248, sizeof(d)); return d; }
-static void tensor_set_data(void *tensor, void *new_data) { memcpy((char*)tensor + 248, &new_data, sizeof(void*)); }
+static const char* tensor_name(const void *tensor) { return ((const struct ggml_tensor*)tensor)->name; }
+static void* tensor_data(const void *tensor) { return ((const struct ggml_tensor*)tensor)->data; }
+static void tensor_set_data(void *tensor, void *new_data) { ((struct ggml_tensor*)tensor)->data = new_data; }
 
 /* ── Hash table for GGUF name lookup (avoids O(n) strcmp loop in scan) ── */
 #define NAME_HT_SIZE 512
@@ -799,6 +803,7 @@ static void sid_pt_redo_set_bit(int addr, uint8_t new_bit, void *user) {
 static SessionProfile g_ses;
 static int g_opt_sid_disable = 0;
 static int g_opt_sid_force = 0;
+static int g_opt_sid_verbose = 0;
 static int g_opt_simulate = 0;
 static const char *g_opt_profile_batch = NULL;
 static int g_turn_count = 0;
@@ -917,7 +922,7 @@ static int capo_advance_face(void) {
 
 static void sid_swap_apply_ex(const uint8_t *mask) {
     int n_apply = 0;
-    fprintf(stderr, "[dbg] sid_swap_apply_ex: n_sid_swaps=%d g_sid_progress=%d mask=%p g_capo.is_init=%d\n",
+    DBG_LOG("[dbg] sid_swap_apply_ex: n_sid_swaps=%d g_sid_progress=%d mask=%p g_capo.is_init=%d\n",
         n_sid_swaps, g_sid_progress, (void*)mask, g_capo.is_init);
     int apply_ft_idx[MAX_SID_SWAPS];
     void *apply_tptr[MAX_SID_SWAPS];
@@ -938,11 +943,11 @@ static void sid_swap_apply_ex(const uint8_t *mask) {
         n_apply++;
     }
 
-    fprintf(stderr, "[dbg] n_apply=%d g_sid_pt_enabled=%d g_gear2.enabled=%d g_gs.n_entries=%d\n",
+    DBG_LOG("[dbg] n_apply=%d g_sid_pt_enabled=%d g_gear2.enabled=%d g_gs.n_entries=%d\n",
         n_apply, g_sid_pt_enabled, g_gear2.enabled, g_gs.n_entries);
     for (int _di = 0; _di < n_apply && _di < 3; _di++) {
         int _dfi = apply_ft_idx[_di];
-        fprintf(stderr, "[dbg]   _di=%d fi=%d orig=%p sid=%p sz=%zu ptr=%p tname=%s\n",
+        DBG_LOG("[dbg]   _di=%d fi=%d orig=%p sid=%p sz=%zu ptr=%p tname=%s\n",
             _di, _dfi, apply_orig[_di], apply_sid[_di], apply_sz[_di],
             apply_tptr[_di], found_tensors[_dfi].name);
     }
@@ -998,7 +1003,7 @@ static void sid_swap_apply_ex(const uint8_t *mask) {
             }
         }
     }
-    fprintf(stderr, "[dbg] sid_swap_apply_ex done (n_apply=%d)\n", n_apply);
+    DBG_LOG("[dbg] sid_swap_apply_ex done (n_apply=%d)\n", n_apply);
     fflush(stderr);
 }
 
@@ -1264,6 +1269,7 @@ int main(int argc,char**argv){
         else if(!strcmp(argv[i],"--sid-disable"))g_opt_sid_disable=1;
         else if(!strcmp(argv[i],"--sid-force"))g_opt_sid_force=1;
         else if(!strcmp(argv[i],"--sid-pt"))g_sid_pt_enabled=1;
+        else if(!strcmp(argv[i],"--sid-verbose"))g_opt_sid_verbose=1;
         else if(!strcmp(argv[i],"--kv-swap")&&i+1<argc)g_opt_kv_swap=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--kv-layer")&&i+1<argc)g_opt_kv_layer=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--kv-evict")&&i+1<argc)opt_kv_evict=atoi(argv[++i]);
@@ -1336,6 +1342,7 @@ int main(int argc,char**argv){
             fprintf(stderr,"  --sid-disable             Disable all SID swaps (plain inference)\n");
             fprintf(stderr,"  --sid-force               Force SID on GPU mode (default: auto-disable with --ngl)\n");
             fprintf(stderr,"  --sid-pt                  Page-table SID: zero-copy, lazy face, 2592B overhead\n");
+            fprintf(stderr,"  --sid-verbose             Show [sid]/[dbg] debug output (hidden by default)\n");
             fprintf(stderr,"  --pogls                    POGLS native mode: load model from .pogls directly (no GGUF needed)\n");
             fprintf(stderr,"  --pogls-v3 PATH           POGLS v3 geopixel: header-only lookup, weights stay in GGUF\n");
             fprintf(stderr,"  --pogls-store PATH         POGLS flat-store file (replaces GGUF lazy load for SID faces)\n");
@@ -1379,12 +1386,12 @@ int main(int argc,char**argv){
     if(!gguf_path){fprintf(stderr,"ERROR: missing model.gguf\n");return 1;}
 
     if (g_opt_sid_disable) {
-        fprintf(stderr, "[sid] disabled by --sid-disable\n");
+        SID_LOG("[sid] disabled by --sid-disable\n");
         sid_face = 0;
     }
 
     if (opt_ngl > 0 && !g_opt_sid_force && sid_face > 0) {
-        fprintf(stderr, "[sid] GPU mode (--ngl %d): disabled by default (use --sid-force to enable)\n", opt_ngl);
+        SID_LOG("[sid] GPU mode (--ngl %d): disabled by default (use --sid-force to enable)\n", opt_ngl);
         sid_face = 0;
     }
 
@@ -1718,19 +1725,17 @@ int main(int argc,char**argv){
 
     /* populate found_tensors from ptrs */
     for (int i = 0; i < n; i++) {
+        const struct ggml_tensor *t = (const struct ggml_tensor*)ptrs[i];
         found_tensors[i].ptr = ptrs[i];
-        found_tensors[i].orig_data = tensor_data(ptrs[i]);
-        found_tensors[i].gpu_data = tensor_data(ptrs[i]);  /* preserve for GPU backend updates */
-        int64_t ne[4]; memcpy(ne, (const char*)ptrs[i] + 16, sizeof(ne));
-        size_t nb[4]; memcpy(nb, (const char*)ptrs[i] + 48, sizeof(nb));
-        size_t nb_total = (size_t)ne[0] * nb[0];
-        for (int j = 1; j < 4; j++) { size_t ni = (size_t)ne[j] * nb[j]; if (ni > nb_total) nb_total = ni; }
+        found_tensors[i].orig_data = t->data;
+        found_tensors[i].gpu_data = t->data;  /* preserve for GPU backend updates */
+        size_t nb_total = (size_t)t->ne[0] * t->nb[0];
+        for (int j = 1; j < 4; j++) { size_t ni = (size_t)t->ne[j] * t->nb[j]; if (ni > nb_total) nb_total = ni; }
         found_tensors[i].nbytes = nb_total;
-        memcpy(found_tensors[i].ne, ne, sizeof(ne));
-        int t; memcpy(&t, ptrs[i], sizeof(t));
-        found_tensors[i].dtype = (uint32_t)t;
-        size_t nl = strnlen(tensor_name(ptrs[i]), 63);
-        memcpy(found_tensors[i].name, tensor_name(ptrs[i]), nl);
+        memcpy(found_tensors[i].ne, t->ne, sizeof(found_tensors[i].ne));
+        found_tensors[i].dtype = (uint32_t)t->type;
+        size_t nl = strnlen(t->name, 63);
+        memcpy(found_tensors[i].name, t->name, nl);
         found_tensors[i].name[nl] = 0;
     }
     n_found = n;
@@ -1976,7 +1981,7 @@ int main(int argc,char**argv){
         total_bytes += gidx.sizes[i];
         if (gidx.sizes[i] > max_sz) max_sz = gidx.sizes[i];
     }
-    fprintf(stderr, "[sid] weight tensors: %d, total data: %llu bytes, max tensor: %llu\n",
+    SID_LOG("[sid] weight tensors: %d, total data: %llu bytes, max tensor: %llu\n",
         n_weight_tensors, (unsigned long long)total_bytes, (unsigned long long)max_sz);
 
     SIDCache sid_cache = {0};
@@ -2129,7 +2134,7 @@ int main(int argc,char**argv){
                     n_cached++;
                 }
             }
-            fprintf(stderr, "[sid] cached %d tensors from DRamTile (raw)\n", n_cached);
+            SID_LOG("[sid] cached %d tensors from DRamTile (raw)\n", n_cached);
         } else {
             /* Fall back to GGUF file.
              * Always open the file handle for lazy on-demand loading.
@@ -2157,7 +2162,7 @@ int main(int argc,char**argv){
                     /* Close GGUF file handle — all data is via POGLS mmap */
                     if (slc.gguf_file) { fclose(slc.gguf_file); slc.gguf_file = NULL; }
                     free(read_buf); read_buf = NULL;
-                    fprintf(stderr, "[sid] POGLS active: skipping heap preload for %d weight tensors (using POGLS mmap)\n",
+                    SID_LOG("[sid] POGLS active: skipping heap preload for %d weight tensors (using POGLS mmap)\n",
                         n_weight_tensors);
                 } else {
                     int n_loaded = 0;
@@ -2167,11 +2172,11 @@ int main(int argc,char**argv){
                         if (sid_loader_load(&slc, found_tensors[fi].name, read_buf, &data, &data_sz) == 0)
                             n_loaded++;
                     }
-                    fprintf(stderr, "[sid] cached %d/%d tensors from GGUF (compressed, full preload)\n",
+                    SID_LOG("[sid] cached %d/%d tensors from GGUF (compressed, full preload)\n",
                         n_loaded, n_weight_tensors);
                 }
             } else if (slc_ok) {
-                fprintf(stderr, "[sid] GGUF open, lazy load for GPU tensors\n");
+                SID_LOG("[sid] GGUF open, lazy load for GPU tensors\n");
             }
         }
     }
@@ -2283,17 +2288,17 @@ int main(int argc,char**argv){
     /*    slot  = tensor name substring (e.g. "attn_q", "ffn_gate")    */
     /*    bond  = when --bond active, skip "cold" tensors (hotness<0.3)*/
     if (sid_face > 0) {
-        fprintf(stderr, "\n--- SID swap setup (face=%d, spoke=%d, slot=\"%s\") ---\n",
+        SID_LOG("[sid] SID swap setup (face=%d, spoke=%d, slot=\"%s\")\n",
             sid_face, sid_spoke, sid_slot);
         if (bond_hotness) {
             if (opt_sid_multi > 0 && multi_include)
-                fprintf(stderr, "[sid] multi-depth filter active: %d hottest layers\n", opt_sid_multi);
+                SID_LOG("[sid] multi-depth filter active: %d hottest layers\n", opt_sid_multi);
             else if (opt_hybrid)
-                fprintf(stderr, "[sid] hybrid filter active: hot epicenter + geodesic neighbors\n");
+                SID_LOG("[sid] hybrid filter active: hot epicenter + geodesic neighbors\n");
             else if (opt_swap_cold)
-                fprintf(stderr, "[sid] bond filter inverted (--swap-cold): will skip hot/warm tensors (hotness >= 0.3)\n");
+                SID_LOG("[sid] bond filter inverted (--swap-cold): will skip hot/warm tensors (hotness >= 0.3)\n");
             else
-                fprintf(stderr, "[sid] bond filter active: will skip cold tensors (hotness < 0.3)\n");
+                SID_LOG("[sid] bond filter active: will skip cold tensors (hotness < 0.3)\n");
         }
         if (g_opt_gear_lock)
             fprintf(stderr, "[gear] route stability feedback active (threshold=%.2f)\n", g_opt_gear_threshold);
@@ -2419,7 +2424,7 @@ int main(int argc,char**argv){
         }
         /* ── goldberg geodesic expansion ── */
         if (opt_sid_geodesic && n_sid_swaps > 0) {
-            fprintf(stderr, "[sid] geodesic expansion: radius=%.2f rad\n", opt_sid_geo_radius);
+            SID_LOG("[sid] geodesic expansion: radius=%.2f rad\n", opt_sid_geo_radius);
             THGridState ggs;
             th_grid_init(&ggs, 2, n_layers);
             THCoord *gcoords = (THCoord*)calloc((size_t)n_found, sizeof(THCoord));
@@ -2493,11 +2498,11 @@ int main(int argc,char**argv){
                     n_sid_swaps++; added++;
                 }
             }
-            fprintf(stderr, "[sid] geodesic added %d neighbors (total=%d)\n", added, n_sid_swaps);
+            SID_LOG("[sid] geodesic added %d neighbors (total=%d)\n", added, n_sid_swaps);
             free(in_swap); free(gcoords);
         }
         if (n_sid_swaps == 0) {
-            fprintf(stderr, "[sid] WARNING: no tensors matched coordinates. SID disabled. (n_found=%d, sid_face=%d)\n", n_found, sid_face);
+            SID_LOG("[sid] WARNING: no tensors matched coordinates. SID disabled. (n_found=%d, sid_face=%d)\n", n_found, sid_face);
         } else {
             if (sid_corrupt) {
                 int v = sid_corrupt_val;
@@ -2567,17 +2572,17 @@ int main(int argc,char**argv){
                     }
                 }
                 if (n_geo > 0) {
-                    fprintf(stderr, "[sid] GEO_ADDR: per-tensor patterns for %d tensors\n", n_geo);
+                    SID_LOG("[sid] GEO_ADDR: per-tensor patterns for %d tensors\n", n_geo);
                 }
                 if (opt_sid_adaptive && bond_hotness) {
-                    fprintf(stderr, "[sid] ADAPTIVE: corruption scaled by hotness for %d tensors (base=%d bytes)\n",
+                    SID_LOG("[sid] ADAPTIVE: corruption scaled by hotness for %d tensors (base=%d bytes)\n",
                         n_adaptive, sid_corrupt);
                 } else {
-                    fprintf(stderr, "[sid] CORRUPTED first %d bytes of %d swapped tensors (pattern=%s byte=%d)\n",
+                    SID_LOG("[sid] CORRUPTED first %d bytes of %d swapped tensors (pattern=%s byte=%d)\n",
                         sid_corrupt, n_sid_swaps, sid_pattern ? sid_pattern : "xor", v);
                 }
             }
-            fprintf(stderr, "[sid] %d / %d tensors will be swapped per decode", n_sid_swaps, n_found);
+            SID_LOG("[sid] %d / %d tensors will be swapped per decode", n_sid_swaps, n_found);
             if (bond_hotness && !opt_hybrid) {
                 int n_skipped = 0;
                 float threshold = opt_swap_cold ? 0.3f : 0.3f;
@@ -2592,7 +2597,7 @@ int main(int argc,char**argv){
             /* Init lazy progressive: start with PROGRESS_STEP, grow per decode */
             g_sid_progress = (n_sid_swaps < PROGRESS_STEP) ? n_sid_swaps : PROGRESS_STEP;
             if (opt_ngl > 0)
-                fprintf(stderr, "[sid] lazy progressive: start %d/%d, +%d per decode\n",
+                SID_LOG("[sid] lazy progressive: start %d/%d, +%d per decode\n",
                     g_sid_progress, n_sid_swaps, PROGRESS_STEP);
         }
     }
@@ -3068,7 +3073,7 @@ int main(int argc,char**argv){
         goto cleanup;
     }
     free(bond_hotness); free(hybrid_include); free(multi_include);
-    fprintf(stderr, "[dbg] after init block, opt_chat=%d opt_prompt=%s\n", opt_chat, opt_prompt ? opt_prompt : "NULL");
+    DBG_LOG("[dbg] after init block, opt_chat=%d opt_prompt=%s\n", opt_chat, opt_prompt ? opt_prompt : "NULL");
 
     if(!opt_chat&&!opt_prompt&&!opt_dump_logits&&!opt_count_only){opt_chat=1;}
     if(opt_chat){
@@ -3424,9 +3429,9 @@ int main(int argc,char**argv){
         clock_gettime(CLOCK_MONOTONIC,&_pt1);
         double _prof_p_apply = (_pt1.tv_sec-_pt0.tv_sec)*1000.0 + (_pt1.tv_nsec-_pt0.tv_nsec)/1e6;
         clock_gettime(CLOCK_MONOTONIC,&_pt0);
-        fprintf(stderr, "[dbg] calling llama_decode...\n"); fflush(stderr);
-        if(llama_decode(lctx,pb)!=0){fprintf(stderr,"[dbg] decode fail\n");llama_batch_free(pb);free(toks);sid_swap_restore();return 1;}
-        fprintf(stderr, "[dbg] llama_decode returned\n"); fflush(stderr);
+        DBG_LOG("[dbg] calling llama_decode...\n"); fflush(stderr);
+        if(llama_decode(lctx,pb)!=0){DBG_LOG("[dbg] decode fail\n");llama_batch_free(pb);free(toks);sid_swap_restore();return 1;}
+        DBG_LOG("[dbg] llama_decode returned\n"); fflush(stderr);
         clock_gettime(CLOCK_MONOTONIC,&_pt1);
         double _prof_p_decode = (_pt1.tv_sec-_pt0.tv_sec)*1000.0 + (_pt1.tv_nsec-_pt0.tv_nsec)/1e6;
         clock_gettime(CLOCK_MONOTONIC,&_pt0);
