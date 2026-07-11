@@ -35,6 +35,20 @@ Global skill `cross-session-board` ให้ board + context source tools ทุ
 โปรเจ็กต์นี้มีของดีผ่านการทดลองมามาก แต่บางอันถูกทิ้งเพราะมีอะไรดีกว่ามาแทน หรือยังไม่เจอเคสเหมาะ
 **อย่า hardcode/scan ใหม่ ถ้ามีของที่ใช้ได้อยู่แล้ว**
 
+## 🔧 LSP / Code Intelligence
+- โปรเจ็กต์ใช้ **clangd-mcp-server** สำหรับ C/C++ code intelligence (MCP server)
+- Tools พร้อมใช้: `find_definition`, `find_references`, `get_hover`, `workspace_symbol_search`, `find_implementations`, `get_document_symbols`, `get_diagnostics`, `get_call_hierarchy`, `get_type_hierarchy`
+- ใช้ explore/navigate โค้ด C/C++ ก่อนแก้ไขทุกครั้ง
+- `compile_commands.json` อยู่ที่ root โปรเจ็กต์
+- clangd path: `C:/msys64/mingw64/bin/clangd.exe`
+
+## 🐛 GDB Debugger
+- โปรเจ็กต์ใช้ **embedded-gdb-mcp** (`@vividcodeai/embedded-gdb-mcp`) สำหรับ debugging ผ่าน MCP
+- Tools พร้อมใช้: `gdb_start`, `gdb_load`, `gdb_command`, `gdb_terminate`, `gdb_list_sessions`, `gdb_attach`, `gdb_load_core`, `gdb_set_breakpoint`, `gdb_continue`, `gdb_step`, `gdb_next`, `gdb_finish`, `gdb_backtrace`, `gdb_print`, `gdb_examine`, `gdb_info_registers`, `gdb_list_source`
+- ใช้สำหรับ debug crash (AV, segfault), inspect memory/tensors, step through code
+- GDB path: `C:\mingw64\bin\gdb.exe` (version 8.1)
+- เมื่อเจอ crash ที่ไม่ชัดเจน ให้ใช้ gdb debug ก่อนเพิ่ม printf/fprintf
+
 ## 🧠 Behavioral Rules
 
 ### 1. File Deletion — Strict Scoping

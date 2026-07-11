@@ -1,0 +1,15 @@
+{
+  "$schema": "https://opencode.ai/config/magic-context.json",
+  "dreamer": {
+    "enabled": true,
+    "models": {
+      "checker": "gemini/gemini-2.0-flash",
+      "compiler": "gemini/gemini-2.0-flash",
+      "historian": "gemini/gemini-2.0-flash"
+    },
+    "schedule": {
+      "check_interval_minutes": 30,
+      "auto_review": true
+    }
+  }
+}

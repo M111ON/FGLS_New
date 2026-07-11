@@ -316,6 +316,7 @@ static IcosaBridge g_ibridge;
 static void *g_ibridge_ctx = NULL;
 static int g_opt_twin_gpu = 0;
 static int g_opt_gear_lock = 0;
+static int g_opt_bermuda_gpu = 0;
 static int g_opt_vram = 0;           /* VRAM size in MB (0=disabled) */
 static VRamTileStore g_vrt;          /* VRamTile instance (deprecated for GPU) */
 static GearShiftStore g_gs;          /* GearShift: Tier-2 streaming router */
@@ -1171,6 +1172,28 @@ static void twin_gpu_gear_push(void) {
     }
 
     free(addrs); free(vals); free(routes); free(events);
+
+    /* ── Bermuda GPU batch traverse ── */
+    if (g_opt_bermuda_gpu && g_ibridge.bermuda_dispatch) {
+        /* Prepare input indices from SID swaps (using geo_addr as index) */
+        uint16_t *bermuda_idxs = (uint16_t*)malloc((size_t)n_sid_swaps * sizeof(uint16_t));
+        BermudaRouteEntry *bermuda_out = (BermudaRouteEntry*)malloc((size_t)n_sid_swaps * sizeof(BermudaRouteEntry));
+        if (bermuda_idxs && bermuda_out) {
+            for (int s = 0; s < n_sid_swaps; s++) {
+                bermuda_idxs[s] = (uint16_t)(sid_swaps[s].geo_addr & 0xFFFF);
+            }
+            int bret = g_ibridge.bermuda_dispatch(g_ibridge_ctx, bermuda_idxs, bermuda_out,
+                                                  2, 2, (uint32_t)n_sid_swaps);  /* gear=2, mode=CROSS */
+            if (bret == 0) {
+                DBG_LOG("[bermuda-gpu] batch traverse: %d tokens, gear=2, mode=CROSS\n", n_sid_swaps);
+                /* Could feed bermuda_out into gear lock / gear shift here */
+            } else {
+                fprintf(stderr, "[bermuda-gpu] dispatch error %d\n", bret);
+            }
+        }
+        free(bermuda_idxs);
+        free(bermuda_out);
+    }
 }
 
 /* ── VRamTile GPU upload callback (via icosa bridge) ─────── */
@@ -1259,6 +1282,7 @@ int main(int argc,char**argv){
         else if(!strcmp(argv[i],"--capture")&&i+1<argc)opt_capture=argv[++i];
         else if(!strcmp(argv[i],"--mem-store")&&i+1<argc)g_opt_mem_store=argv[++i];
         else if(!strcmp(argv[i],"--twin-gpu"))g_opt_twin_gpu=1;
+        else if(!strcmp(argv[i],"--bermuda-gpu"))g_opt_bermuda_gpu=1;
         else if(!strcmp(argv[i],"--gear-lock")){g_opt_gear_lock=1;g_opt_twin_gpu=1;}
         else if(!strcmp(argv[i],"--gear-lock-threshold")&&i+1<argc){g_opt_gear_threshold=(float)atof(argv[++i]);g_opt_gear_lock=1;g_opt_twin_gpu=1;}
         else if(!strcmp(argv[i],"--gear-log")&&i+1<argc){g_opt_gear_log=atoi(argv[++i]);g_opt_gear_lock=1;g_opt_twin_gpu=1;}
@@ -1333,6 +1357,7 @@ int main(int argc,char**argv){
             fprintf(stderr,"  --capture DIR             Capture tensor geometry after decode, write to DIR\n");
             fprintf(stderr,"  --mem-store PATH          Log SID tensor memory timeline to file\n");
             fprintf(stderr,"  --twin-gpu                Enable GPU icosa lane (CUDA twin bridge)\n");
+            fprintf(stderr,"  --bermuda-gpu             Enable GPU Bermuda batch traverse (requires --twin-gpu)\n");
             fprintf(stderr,"  --gear-lock              Enable gear lock feedback (requires --twin-gpu)\n");
             fprintf(stderr,"  --gear-lock-threshold N  Gear lock priority threshold 0..1 (default: 0.30, lower=more swaps)\n");
             fprintf(stderr,"  --gear-log N             Gear lock log interval cycles (default: 16, 0=disable)\n");

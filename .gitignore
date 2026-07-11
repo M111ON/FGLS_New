@@ -71,3 +71,5 @@ memory_store/raw/
 /runner/test_tail
 /runner/cpl_profiles
 /.file_vault
+runner/nul
+clangd-mcp-server/

@@ -126,13 +126,140 @@ __global__ void icosa_lane_kernel(
     uint64_t isect = d_fast_intersect(core_raw);
 
     uint32_t drift = ((core_raw & 7u) == 0u)
-                   ? (uint32_t)__popcll(baseline & ~isect)
-                   : 0u;
+                    ? (uint32_t)__popcll(baseline & ~isect)
+                    : 0u;
 
     out_route[i] = d_route_update(0, isect);
 
     int at_end = (isect == 0) || (drift > 72u);
     out_event[i] = at_end ? ICOSA_EV_BOUNDARY : ICOSA_EV_NONE;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * BERMUDA GPU KERNEL — batch traverse (mode 0..3)
+ * Mirrors bermuda_traverse() from bermuda_export.h exactly
+ * ═══════════════════════════════════════════════════════════════════ */
+
+#define BERMUDA_STRIDE       37u
+#define BERMUDA_N_ZONES      12u
+#define BERMUDA_TRING_SLOTS  720u
+
+__constant__ uint8_t  d_bermuda_cross[12] = {9,10,11,6,7,8,3,4,5,0,1,2};
+__constant__ uint16_t d_bermuda_slots[5];       /* [0]=0, [1]=512, [2]=1024, [3]=2048, [4]=4096 */
+__constant__ uint16_t d_bermuda_walk_len[5];
+__constant__ uint16_t d_bermuda_face_sz[5];
+__constant__ uint16_t d_bermuda_inv37[5];
+__constant__ uint16_t d_bermuda_inv37_wl[5];
+
+typedef struct {
+    uint16_t idx_in;
+    uint16_t idx_out;
+    uint8_t  zone;
+    uint8_t  pole;
+    uint8_t  shape;
+    uint8_t  polarity;
+    uint16_t tring_slot;
+} BermudaRouteEntry;
+
+__device__ __forceinline__ uint16_t d_bermuda_mod_mul(uint16_t a, uint16_t b, uint16_t mod) {
+    return (uint16_t)(((uint32_t)a * (uint32_t)b) % (uint32_t)mod);
+}
+
+__device__ __forceinline__ uint16_t d_bermuda_traverse_orbit(uint16_t idx, uint8_t gear) {
+    uint16_t N = d_bermuda_slots[gear];
+    return (uint16_t)((idx + 1) % N);
+}
+
+__device__ __forceinline__ uint16_t d_bermuda_traverse_chiral(uint16_t idx, uint8_t gear) {
+    uint16_t N = d_bermuda_slots[gear];
+    return (uint16_t)((idx + N / 2) % N);
+}
+
+__device__ __forceinline__ uint16_t d_bermuda_traverse_cross(uint16_t idx, uint8_t gear) {
+    uint16_t WL = d_bermuda_walk_len[gear];
+    uint16_t FS = d_bermuda_face_sz[gear];
+    uint16_t IW = d_bermuda_inv37_wl[gear];
+    uint16_t N  = d_bermuda_slots[gear];
+
+    uint16_t enc = (uint16_t)(((uint32_t)idx * BERMUDA_STRIDE) % WL);
+    uint8_t  z   = (uint8_t)(enc / FS);
+    uint8_t  pz  = d_bermuda_cross[z % 12];
+    uint16_t ne  = (uint16_t)(pz * FS + enc % FS);
+    return (uint16_t)(((uint32_t)ne * IW) % WL % N);
+}
+
+__device__ __forceinline__ uint16_t d_bermuda_traverse_hub(uint16_t idx, uint8_t gear) {
+    uint16_t WL = d_bermuda_walk_len[gear];
+    uint16_t FS = d_bermuda_face_sz[gear];
+    uint16_t N  = d_bermuda_slots[gear];
+    uint16_t enc = (uint16_t)(((uint32_t)idx * BERMUDA_STRIDE) % WL);
+    uint8_t  z  = (uint8_t)(enc / FS);
+    return (uint16_t)(((uint32_t)z * (N / BERMUDA_N_ZONES)) % N);
+}
+
+__device__ __forceinline__ uint16_t d_bermuda_traverse(uint16_t idx, uint8_t gear, uint8_t mode) {
+    switch (mode) {
+        case 0: return d_bermuda_traverse_orbit(idx, gear);
+        case 1: return d_bermuda_traverse_chiral(idx, gear);
+        case 2: return d_bermuda_traverse_cross(idx, gear);
+        case 3: return d_bermuda_traverse_hub(idx, gear);
+        default: return idx;
+    }
+}
+
+__device__ __forceinline__ uint8_t d_bermuda_zone(uint16_t idx, uint8_t gear) {
+    uint16_t enc = (uint16_t)(((uint32_t)idx * BERMUDA_STRIDE) % d_bermuda_walk_len[gear]);
+    return (uint8_t)(enc / d_bermuda_face_sz[gear]);
+}
+
+__device__ __forceinline__ uint8_t d_bermuda_pole(uint8_t zone) {
+    return zone >= 6 ? 1 : 0;
+}
+
+__device__ __forceinline__ uint16_t d_bermuda_tring_slot(uint16_t idx) {
+    return idx % BERMUDA_TRING_SLOTS;
+}
+
+__device__ __forceinline__ uint8_t d_bermuda_shape(uint8_t mode, uint8_t zone) {
+    /* shape bytes: I=73, O=79, S=83, L=76 */
+    switch (mode) {
+        case 0: return zone < 6 ? 73 : 79;  /* ORBITAL: I or O */
+        case 1: return 79;                   /* CHIRAL: O */
+        case 2: return 83;                   /* CROSS: S */
+        case 3: return 76;                   /* HUB: L */
+        default: return 73;
+    }
+}
+
+__device__ __forceinline__ uint8_t d_bermuda_polarity(uint8_t mode, uint8_t zone) {
+    switch (mode) {
+        case 0: return d_bermuda_pole(zone);  /* ORBITAL: pole-dependent */
+        case 1: return 1;                      /* CHIRAL: always GROUND */
+        case 2: return 0;                      /* CROSS: always ROUTE */
+        case 3: return 1;                      /* HUB: always GROUND */
+        default: return 0;
+    }
+}
+
+__global__ void bermuda_gpu_kernel(
+    const uint16_t * __restrict__ idxs_in,
+    BermudaRouteEntry * __restrict__ out,
+    uint8_t gear, uint8_t mode, uint32_t n)
+{
+    uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+
+    uint16_t idx = idxs_in[i];
+    uint16_t idx_out = d_bermuda_traverse(idx, gear, mode);
+    uint8_t  z       = d_bermuda_zone(idx, gear);
+
+    out[i].idx_in     = idx;
+    out[i].idx_out    = idx_out;
+    out[i].zone       = z;
+    out[i].pole       = d_bermuda_pole(z);
+    out[i].shape      = d_bermuda_shape(mode, z);
+    out[i].polarity   = d_bermuda_polarity(mode, z);
+    out[i].tring_slot = d_bermuda_tring_slot(idx);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -150,7 +277,8 @@ typedef struct {
     IcosaPair *h_pairs;
     uint64_t  *h_route;
     uint8_t   *h_event;
-
+    uint16_t  *d_bermuda_idxs;   /* Device buffer for Bermuda input indices */
+    BermudaRouteEntry *d_bermuda_out; /* Device buffer for Bermuda output */
     uint32_t   capacity;
     uint32_t   count;
     cudaStream_t stream;
@@ -227,6 +355,14 @@ ICOSA_API void *icosa_gpu_ctx_create(uint64_t gen2, uint64_t gen3) {
     e = cudaStreamCreate(&ctx->stream);
     if (e != cudaSuccess) { printf("[icosa] stream create fail\n"); goto fail; }
 
+    /* Allocate persistent Bermuda buffers (max capacity) */
+    size_t bermuda_idxs_sz = (size_t)ctx->capacity * sizeof(uint16_t);
+    size_t bermuda_out_sz  = (size_t)ctx->capacity * sizeof(BermudaRouteEntry);
+    e = cudaMalloc(&ctx->d_bermuda_idxs, bermuda_idxs_sz);
+    if (e != cudaSuccess) { printf("[icosa] d_bermuda_idxs alloc fail\n"); goto fail; }
+    e = cudaMalloc(&ctx->d_bermuda_out, bermuda_out_sz);
+    if (e != cudaSuccess) { printf("[icosa] d_bermuda_out alloc fail\n"); goto fail; }
+
     /* Save CUDA context for push/pop around dispatch */
     cuCtxGetCurrent(&ctx->cu_ctx);
 
@@ -251,6 +387,8 @@ void icosa_gpu_ctx_destroy(void *gpu_ctx) {
     if (ctx->d_pairs) cudaFree(ctx->d_pairs);
     if (ctx->d_route) cudaFree(ctx->d_route);
     if (ctx->d_event) cudaFree(ctx->d_event);
+    if (ctx->d_bermuda_idxs) cudaFree(ctx->d_bermuda_idxs);
+    if (ctx->d_bermuda_out) cudaFree(ctx->d_bermuda_out);
     if (ctx->h_pairs) cudaFreeHost(ctx->h_pairs);
     if (ctx->h_route) cudaFreeHost(ctx->h_route);
     if (ctx->h_event) cudaFreeHost(ctx->h_event);
@@ -357,6 +495,134 @@ ICOSA_API int icosa_gpu_dispatch(
         if (ret != 0) return ret;
         done += chunk;
     }
+    return 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * BERMUDA GPU — batch traverse initialization and dispatch
+ * ═══════════════════════════════════════════════════════════════════ */
+
+/* Compute walk_len (smallest multiple of 12 >= slots, coprime with 37) */
+static uint16_t _bermuda_walk_len(uint16_t slots) {
+    uint16_t wl = slots;
+    while (1) {
+        if (wl % 12 == 0) {
+            if (wl % 37 != 0) return wl;
+        }
+        wl++;
+    }
+}
+
+/* Modular inverse (Extended Euclidean) */
+static uint16_t _bermuda_modinv(uint16_t a, uint16_t m) {
+    int32_t g = (int32_t)m, x = 0, a0 = (int32_t)a, x0 = 1;
+    while (a0 != 0) {
+        int32_t q = g / a0;
+        int32_t t = a0; a0 = g - q * a0; g = t;
+        t = x0; x0 = x - q * x0; x = t;
+    }
+    int32_t r = x % (int32_t)m;
+    return (uint16_t)(r < 0 ? r + (int32_t)m : r);
+}
+
+/* Initialize Bermuda constant memory on device */
+static int bermuda_gpu_init_constants(void) {
+    uint16_t slots[5] = {0, 512, 1024, 2048, 4096};
+    uint16_t walk_len[5], face_sz[5], inv37[5], inv37_wl[5];
+
+    for (int g = 1; g <= 4; g++) {
+        walk_len[g] = _bermuda_walk_len(slots[g]);
+        face_sz[g]  = walk_len[g] / 12;
+        inv37[g]    = _bermuda_modinv(BERMUDA_STRIDE, slots[g]);
+        inv37_wl[g] = _bermuda_modinv(BERMUDA_STRIDE, walk_len[g]);
+    }
+
+    cudaError_t e;
+    e = cudaMemcpyToSymbol(d_bermuda_slots, slots, sizeof(slots));
+    if (e != cudaSuccess) { printf("[bermuda-gpu] slots copy fail: %d\n", e); return -1; }
+    e = cudaMemcpyToSymbol(d_bermuda_walk_len, walk_len, sizeof(walk_len));
+    if (e != cudaSuccess) { printf("[bermuda-gpu] walk_len copy fail: %d\n", e); return -2; }
+    e = cudaMemcpyToSymbol(d_bermuda_face_sz, face_sz, sizeof(face_sz));
+    if (e != cudaSuccess) { printf("[bermuda-gpu] face_sz copy fail: %d\n", e); return -3; }
+    e = cudaMemcpyToSymbol(d_bermuda_inv37, inv37, sizeof(inv37));
+    if (e != cudaSuccess) { printf("[bermuda-gpu] inv37 copy fail: %d\n", e); return -4; }
+    e = cudaMemcpyToSymbol(d_bermuda_inv37_wl, inv37_wl, sizeof(inv37_wl));
+    if (e != cudaSuccess) { printf("[bermuda-gpu] inv37_wl copy fail: %d\n", e); return -5; }
+
+    return 0;
+}
+
+/* Dispatch Bermuda batch traverse on GPU */
+ICOSA_API int bermuda_gpu_dispatch(
+    void            *gpu_ctx,
+    const uint16_t  *idxs_in,
+    BermudaRouteEntry *out,
+    uint8_t          gear,
+    uint8_t          mode,
+    uint32_t         n)
+{
+    if (!gpu_ctx || !idxs_in || !out || n == 0) return -1;
+    if (gear < 1 || gear > 4) return -2;
+    if (mode > 3) return -3;
+
+    IcosaGpuCtx *ctx = (IcosaGpuCtx *)gpu_ctx;
+    if (!ctx->valid) return -4;
+
+    /* Ensure constants are initialized (one-time, lazy) */
+    static int bermuda_constants_init = 0;
+    if (!bermuda_constants_init) {
+        int r = bermuda_gpu_init_constants();
+        if (r != 0) return r;
+        bermuda_constants_init = 1;
+    }
+
+    /* Ensure persistent buffers are allocated (lazy, once) */
+    size_t idxs_cap = (size_t)ctx->capacity * sizeof(uint16_t);
+    size_t out_cap  = (size_t)ctx->capacity * sizeof(BermudaRouteEntry);
+
+    if (!ctx->d_bermuda_idxs) {
+        cudaError_t e = cudaMalloc(&ctx->d_bermuda_idxs, idxs_cap);
+        if (e != cudaSuccess) { printf("[bermuda-gpu] d_idxs alloc fail: %d\n", e); return -5; }
+    }
+    if (!ctx->d_bermuda_out) {
+        cudaError_t e = cudaMalloc(&ctx->d_bermuda_out, out_cap);
+        if (e != cudaSuccess) { printf("[bermuda-gpu] d_out alloc fail: %d\n", e); return -6; }
+    }
+
+    CUcontext prev_ctx = NULL;
+    cuCtxGetCurrent(&prev_ctx);
+    if (prev_ctx != ctx->cu_ctx) cuCtxSetCurrent(ctx->cu_ctx);
+    int restore_ctx = (prev_ctx != ctx->cu_ctx && prev_ctx != NULL);
+
+    cudaError_t e;
+    dim3 grid((n + ICOSA_GPU_TPB - 1) / ICOSA_GPU_TPB, 1, 1);
+    dim3 block(ICOSA_GPU_TPB, 1, 1);
+
+    /* Copy input idxs to persistent device buffer (async, pinned host -> device) */
+    size_t idxs_sz = (size_t)n * sizeof(uint16_t);
+    e = cudaMemcpyAsync(ctx->d_bermuda_idxs, idxs_in, idxs_sz, cudaMemcpyHostToDevice, ctx->stream);
+    if (e != cudaSuccess) { if (restore_ctx) cuCtxSetCurrent(prev_ctx); return -7; }
+
+    /* Launch kernel */
+    bermuda_gpu_kernel<<<grid, block, 0, ctx->stream>>>(
+        ctx->d_bermuda_idxs, ctx->d_bermuda_out, gear, mode, n);
+
+    e = cudaGetLastError();
+    if (e != cudaSuccess) {
+        printf("[bermuda-gpu] kernel launch error: %d (%s)\n", e, cudaGetErrorString(e));
+        if (restore_ctx) cuCtxSetCurrent(prev_ctx);
+        return -8;
+    }
+
+    /* Copy results back to host (async, device -> pinned host, then sync) */
+    size_t out_sz = (size_t)n * sizeof(BermudaRouteEntry);
+    e = cudaMemcpyAsync(out, ctx->d_bermuda_out, out_sz, cudaMemcpyDeviceToHost, ctx->stream);
+    if (e != cudaSuccess) { if (restore_ctx) cuCtxSetCurrent(prev_ctx); return -9; }
+
+    e = cudaStreamSynchronize(ctx->stream);
+    if (e != cudaSuccess) { if (restore_ctx) cuCtxSetCurrent(prev_ctx); return -10; }
+
+    if (restore_ctx) cuCtxSetCurrent(prev_ctx);
     return 0;
 }
 
@@ -720,3 +986,230 @@ int main(void) {
     return mismatches > 0 ? 1 : 0;
 }
 #endif /* ICOSA_SKIP_MAIN */
+
+/* ═══════════════════════════════════════════════════════════════════
+ * BERMUDA GPU CORRECTNESS TEST
+ * ═══════════════════════════════════════════════════════════════════ */
+
+#ifdef TEST_BERMUDA_CORRECTNESS
+#define BERMUDA_STRIDE       37u
+#define BERMUDA_N_ZONES      12u
+#define BERMUDA_TRING_SLOTS  720u
+#define BERMUDA_GEAR1_SLOTS  512u
+#define BERMUDA_GEAR2_SLOTS  1024u
+#define BERMUDA_GEAR3_SLOTS  2048u
+#define BERMUDA_GEAR4_SLOTS  4096u
+#define ICOSA_GPU_TPB        256u
+
+static const uint8_t  BERMUDA_CROSS[12] = {9,10,11,6,7,8,3,4,5,0,1,2};
+static const uint16_t BERMUDA_SLOTS[5] = {0, 512, 1024, 2048, 4096};
+
+static uint16_t _bermuda_walk_len(uint16_t slots) {
+    uint16_t wl = slots;
+    while (1) {
+        if (wl % 12 == 0 && wl % 37 != 0) return wl;
+        wl++;
+    }
+}
+
+static uint16_t _bermuda_modinv(uint16_t a, uint16_t m) {
+    int32_t g = (int32_t)m, x = 0, a0 = (int32_t)a, x0 = 1;
+    while (a0 != 0) {
+        int32_t q = g / a0;
+        int32_t t = a0; a0 = g - q * a0; g = t;
+        t = x0; x0 = x - q * x0; x = t;
+    }
+    int32_t r = x % (int32_t)m;
+    return (uint16_t)(r < 0 ? r + (int32_t)m : r);
+}
+
+static uint16_t BERMUDA_WALK_LEN[5], BERMUDA_FACE_SZ[5], BERMUDA_INV37[5], BERMUDA_INV37_WL[5];
+
+static void bermuda_cpu_init(void) {
+    for (int g = 1; g <= 4; g++) {
+        uint16_t slots = BERMUDA_SLOTS[g];
+        BERMUDA_WALK_LEN[g] = _bermuda_walk_len(slots);
+        BERMUDA_FACE_SZ[g] = BERMUDA_WALK_LEN[g] / 12;
+        BERMUDA_INV37[g] = _bermuda_modinv(BERMUDA_STRIDE, slots);
+        BERMUDA_INV37_WL[g] = _bermuda_modinv(BERMUDA_STRIDE, BERMUDA_WALK_LEN[g]);
+    }
+}
+
+static uint16_t bermuda_cpu_traverse_orbit(uint16_t idx, uint8_t gear) {
+    uint16_t N = BERMUDA_SLOTS[gear];
+    return (uint16_t)((idx + 1) % N);
+}
+
+static uint16_t bermuda_cpu_traverse_chiral(uint16_t idx, uint8_t gear) {
+    uint16_t N = BERMUDA_SLOTS[gear];
+    return (uint16_t)((idx + N / 2) % N);
+}
+
+static uint16_t bermuda_cpu_traverse_cross(uint16_t idx, uint8_t gear) {
+    uint16_t WL = BERMUDA_WALK_LEN[gear];
+    uint16_t FS = BERMUDA_FACE_SZ[gear];
+    uint16_t IW = BERMUDA_INV37_WL[gear];
+    uint16_t N  = BERMUDA_SLOTS[gear];
+    uint16_t enc = (uint16_t)(((uint32_t)idx * BERMUDA_STRIDE) % WL);
+    uint8_t  z   = (uint8_t)(enc / FS);
+    uint8_t  pz  = BERMUDA_CROSS[z % 12];
+    uint16_t ne  = (uint16_t)(pz * FS + enc % FS);
+    return (uint16_t)(((uint32_t)ne * IW) % WL % N);
+}
+
+static uint16_t bermuda_cpu_traverse_hub(uint16_t idx, uint8_t gear) {
+    uint16_t WL = BERMUDA_WALK_LEN[gear];
+    uint16_t FS = BERMUDA_FACE_SZ[gear];
+    uint16_t N  = BERMUDA_SLOTS[gear];
+    uint16_t enc = (uint16_t)(((uint32_t)idx * BERMUDA_STRIDE) % WL);
+    uint8_t  z  = (uint8_t)(enc / FS);
+    return (uint16_t)(((uint32_t)z * (N / BERMUDA_N_ZONES)) % N);
+}
+
+static uint16_t bermuda_cpu_traverse(uint16_t idx, uint8_t gear, uint8_t mode) {
+    switch (mode) {
+        case 0: return bermuda_cpu_traverse_orbit(idx, gear);
+        case 1: return bermuda_cpu_traverse_chiral(idx, gear);
+        case 2: return bermuda_cpu_traverse_cross(idx, gear);
+        case 3: return bermuda_cpu_traverse_hub(idx, gear);
+        default: return idx;
+    }
+}
+
+static uint8_t bermuda_cpu_zone(uint16_t idx, uint8_t gear) {
+    uint16_t enc = (uint16_t)(((uint32_t)idx * BERMUDA_STRIDE) % BERMUDA_WALK_LEN[gear]);
+    return (uint8_t)(enc / BERMUDA_FACE_SZ[gear]);
+}
+
+static uint8_t bermuda_cpu_pole(uint8_t zone) {
+    return zone >= 6 ? 1 : 0;
+}
+
+static uint16_t bermuda_cpu_tring_slot(uint16_t idx) {
+    return idx % BERMUDA_TRING_SLOTS;
+}
+
+static uint8_t bermuda_cpu_shape(uint8_t mode, uint8_t zone) {
+    switch (mode) {
+        case 0: return zone < 6 ? 73 : 79;
+        case 1: return 79;
+        case 2: return 83;
+        case 3: return 76;
+        default: return 73;
+    }
+}
+
+static uint8_t bermuda_cpu_polarity(uint8_t mode, uint8_t zone) {
+    switch (mode) {
+        case 0: return bermuda_cpu_pole(zone);
+        case 1: return 1;
+        case 2: return 0;
+        case 3: return 1;
+        default: return 0;
+    }
+}
+
+typedef struct {
+    uint16_t idx_in;
+    uint16_t idx_out;
+    uint8_t  zone;
+    uint8_t  pole;
+    uint8_t  shape;
+    uint8_t  polarity;
+    uint16_t tring_slot;
+} BermudaRouteEntry;
+
+static void bermuda_cpu_route_token(uint16_t idx_in, uint8_t gear, uint8_t mode, BermudaRouteEntry *out) {
+    uint16_t idx_out = bermuda_cpu_traverse(idx_in, gear, mode);
+    uint8_t  z       = bermuda_cpu_zone(idx_in, gear);
+    out->idx_in      = idx_in;
+    out->idx_out     = idx_out;
+    out->zone        = z;
+    out->pole        = bermuda_cpu_pole(z);
+    out->shape       = bermuda_cpu_shape(mode, z);
+    out->polarity    = bermuda_cpu_polarity(mode, z);
+    out->tring_slot  = bermuda_cpu_tring_slot(idx_in);
+}
+
+int main(void) {
+    bermuda_cpu_init();
+
+    printf("=== Bermuda GPU vs CPU Correctness Test ===\n\n");
+
+    uint32_t n = 5000;
+    uint16_t *idxs_in = (uint16_t*)malloc(n * sizeof(uint16_t));
+    BermudaRouteEntry *gpu_out = (BermudaRouteEntry*)malloc(n * sizeof(BermudaRouteEntry));
+    BermudaRouteEntry *cpu_out = (BermudaRouteEntry*)malloc(n * sizeof(BermudaRouteEntry));
+
+    srand(12345);
+    for (uint32_t i = 0; i < n; i++) {
+        idxs_in[i] = (uint16_t)(rand() % 4096);
+    }
+
+    /* Test all gear/mode combinations */
+    int all_pass = 1;
+    for (int gear = 1; gear <= 4; gear++) {
+        for (int mode = 0; mode <= 3; mode++) {
+            printf("Testing gear=%d mode=%d... ", gear, mode);
+
+            /* GPU dispatch */
+            IcosaGpuCtx *ctx = (IcosaGpuCtx*)icosa_gpu_ctx_create(0, 0xDEADBEEFCAFEBABEULL);
+            if (!ctx || !icosa_gpu_ctx_valid(ctx)) {
+                printf("GPU init failed, skipping\n");
+                continue;
+            }
+
+            int ret = bermuda_gpu_dispatch(ctx, idxs_in, gpu_out, gear, mode, n);
+            icosa_gpu_ctx_destroy(ctx);
+
+            if (ret != 0) {
+                printf("GPU dispatch error %d\n", ret);
+                all_pass = 0;
+                continue;
+            }
+
+            /* CPU reference */
+            for (uint32_t i = 0; i < n; i++) {
+                bermuda_cpu_route_token(idxs_in[i], gear, mode, &cpu_out[i]);
+            }
+
+            /* Compare */
+            int mismatches = 0;
+            for (uint32_t i = 0; i < n; i++) {
+                if (gpu_out[i].idx_in   != cpu_out[i].idx_in ||
+                    gpu_out[i].idx_out  != cpu_out[i].idx_out ||
+                    gpu_out[i].zone     != cpu_out[i].zone ||
+                    gpu_out[i].pole     != cpu_out[i].pole ||
+                    gpu_out[i].shape    != cpu_out[i].shape ||
+                    gpu_out[i].polarity != cpu_out[i].polarity ||
+                    gpu_out[i].tring_slot != cpu_out[i].tring_slot) {
+                    if (mismatches < 5)
+                        printf("\n  MISMATCH [%u]: GPU(idx_out=%u,zone=%u,shape=%u) CPU(idx_out=%u,zone=%u,shape=%u)",
+                               i, gpu_out[i].idx_out, gpu_out[i].zone, gpu_out[i].shape,
+                               cpu_out[i].idx_out, cpu_out[i].zone, cpu_out[i].shape);
+                    mismatches++;
+                }
+            }
+            if (mismatches == 0) {
+                printf("PASS\n");
+            } else {
+                printf("FAIL (%d mismatches)\n", mismatches);
+                all_pass = 0;
+            }
+        }
+    }
+
+    printf("\n=== RESULT ===\n");
+    if (all_pass) {
+        printf("✓ ALL TESTS PASSED\n");
+    } else {
+        printf("✗ SOME TESTS FAILED\n");
+    }
+
+    free(idxs_in);
+    free(gpu_out);
+    free(cpu_out);
+
+    return all_pass ? 0 : 1;
+}
+#endif /* TEST_BERMUDA_CORRECTNESS */

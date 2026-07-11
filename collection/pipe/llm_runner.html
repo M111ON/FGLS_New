@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLM Runner</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+       background: #1a1a2e; color: #e0e0e0; height: 100vh; display: flex; }
+
+/* Sidebar */
+#sidebar { width: 320px; background: #16213e; border-right: 1px solid #0f3460;
+           display: flex; flex-direction: column; overflow-y: auto; flex-shrink: 0; }
+#sidebar h2 { font-size: 14px; color: #e94560; padding: 12px 16px; border-bottom: 1px solid #0f3460; }
+.section { padding: 12px 16px; border-bottom: 1px solid #0f3460; }
+.section h3 { font-size: 12px; color: #888; margin-bottom: 8px; text-transform: uppercase; }
+.field { margin-bottom: 8px; }
+.field label { display: block; font-size: 12px; color: #aaa; margin-bottom: 4px; }
+.field input, .field select { width: 100%; background: #1a1a2e; border: 1px solid #0f3460;
+  color: #e0e0e0; padding: 6px 8px; border-radius: 4px; font-size: 13px; }
+.field input:focus, .field select:focus { border-color: #e94560; outline: none; }
+.toggle { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.toggle input[type="checkbox"] { accent-color: #e94560; }
+.toggle label { font-size: 13px; cursor: pointer; }
+.btn { background: #e94560; color: white; border: none; padding: 8px 16px; border-radius: 4px;
+       cursor: pointer; font-size: 13px; width: 100%; margin-top: 8px; }
+.btn:hover { background: #c73650; }
+.btn:disabled { background: #555; cursor: not-allowed; }
+.btn.secondary { background: #0f3460; }
+.btn.secondary:hover { background: #1a4a7a; }
+
+/* Main area */
+#main { flex: 1; display: flex; flex-direction: column; }
+#header { background: #16213e; padding: 12px 20px; display: flex; align-items: center; gap: 12px;
+          border-bottom: 1px solid #0f3460; flex-shrink: 0; }
+#header h1 { font-size: 16px; color: #e94560; }
+#status { font-size: 12px; color: #888; margin-left: auto; }
+#status.online { color: #4ecca3; }
+#status.running { color: #f39c12; }
+
+/* Chat */
+#chat { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
+.msg { max-width: 80%; padding: 10px 14px; border-radius: 12px; line-height: 1.5; font-size: 14px; }
+.user { align-self: flex-end; background: #e94560; color: white; border-bottom-right-radius: 4px; }
+.assistant { align-self: flex-start; background: #16213e; color: #e0e0e0; border-bottom-left-radius: 4px; }
+.msg pre { background: #0f3460; padding: 8px; border-radius: 4px; overflow-x: auto; margin-top: 6px; font-size: 13px; }
+.thinking { align-self: flex-start; color: #888; font-style: italic; font-size: 13px; }
+.system { align-self: center; color: #4ecca3; font-size: 12px; background: #0f3460; padding: 4px 12px; border-radius: 12px; }
+.profile { align-self: center; font-size: 11px; color: #f39c12; background: #2a1a00; padding: 4px 12px; border-radius: 12px; font-family: monospace; }
+
+/* Input */
+#input-area { display: flex; gap: 8px; padding: 12px 20px; background: #16213e; border-top: 1px solid #0f3460; }
+#input { flex: 1; background: #1a1a2e; border: 1px solid #0f3460; color: #e0e0e0; padding: 10px 14px;
+         border-radius: 8px; font-size: 14px; resize: none; outline: none; }
+#input:focus { border-color: #e94560; }
+#send-btn { background: #e94560; color: white; border: none; padding: 10px 20px; border-radius: 8px;
+            cursor: pointer; font-size: 14px; }
+#send-btn:hover { background: #c73650; }
+#send-btn:disabled { background: #555; cursor: not-allowed; }
+
+/* Log */
+#log { background: #0a0a1a; border-top: 1px solid #0f3460; max-height: 150px; overflow-y: auto;
+       padding: 8px 12px; font-family: monospace; font-size: 11px; color: #666; flex-shrink: 0; }
+#log div { margin-bottom: 2px; }
+#log .info { color: #4ecca3; }
+#log .warn { color: #f39c12; }
+#log .error { color: #e94560; }
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <h2>LLM Runner</h2>
+  
+  <div class="section">
+    <h3>Model</h3>
+    <div class="field">
+      <label>Select Model</label>
+      <select id="model-select">
+        <option value="I:\model\Qwen2.5-0.5B-Instruct-Q8_0.gguf">Qwen2.5-0.5B-Instruct-Q8_0 (644 MB)</option>
+        <option value="I:\model\Qwen3-0.6B-Q8_0.gguf">Qwen3-0.6B-Q8_0 (610 MB)</option>
+        <option value="I:\model\Qwen3-4B-Q5_0.gguf">Qwen3-4B-Q5_0 (2693 MB)</option>
+        <option value="I:\model\SmolLM2-360M-Instruct.Q8_0.gguf">SmolLM2-360M-Instruct-Q8_0 (369 MB)</option>
+        <option value="I:\model\smolVLM-256M-Instruct-text.Q8_0.gguf">smolVLM-256M-Instruct-text-Q8_0 (167 MB)</option>
+        <option value="I:\model\Kokoro_no_espeak_Q8.gguf">Kokoro_no_espeak-Q8 (197 MB)</option>
+        <option value="I:\model\moondream2-text-model-f16.gguf">moondream2-text-model-f16 (2708 MB)</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Or enter custom path</label>
+      <input id="model-path" value="I:\model\Qwen2.5-0.5B-Instruct-Q8_0.gguf" placeholder="Path to .gguf file">
+    </div>
+  </div>
+
+  <div class="section">
+    <h3>Server</h3>
+    <div class="field">
+      <label>Server URL</label>
+      <input id="server-url" value="http://127.0.0.1:8080" placeholder="http://host:port">
+    </div>
+    <div style="background:#0a0a1a;padding:8px;border-radius:4px;font-size:11px;color:#888;margin-bottom:8px;">
+      1. Run this command in terminal first:<br>
+      2. Then click Connect
+    </div>
+    <button class="btn secondary" id="show-cmd-btn">Show Command</button>
+    <button class="btn" id="connect-btn">Connect</button>
+    <button class="btn secondary" id="save-config-btn" style="margin-top:4px">Save Config</button>
+  </div>
+
+  <div class="section">
+    <h3>GPU</h3>
+    <div class="field">
+      <label>GPU Layers (--ngl)</label>
+      <input id="ngl" type="number" value="0" min="0" max="100">
+    </div>
+    <div class="toggle">
+      <input type="checkbox" id="twin-gpu">
+      <label for="twin-gpu">Twin GPU (--twin-gpu)</label>
+    </div>
+    <div class="toggle">
+      <input type="checkbox" id="bermuda-gpu">
+      <label for="bermuda-gpu">Bermuda GPU (--bermuda-gpu)</label>
+    </div>
+  </div>
+
+  <div class="section">
+    <h3>SID</h3>
+    <div class="toggle">
+      <input type="checkbox" id="sid-pt">
+      <label for="sid-pt">Page Table (--sid-pt)</label>
+    </div>
+    <div class="field">
+      <label>SID Face (--sid-face)</label>
+      <input id="sid-face" type="number" value="0" min="0" max="5">
+    </div>
+  </div>
+
+  <div class="section">
+    <h3>Storage</h3>
+    <div class="toggle">
+      <input type="checkbox" id="dramtile">
+      <label for="dramtile">DRamTile (--dramtile)</label>
+    </div>
+  </div>
+
+  <div class="section">
+    <h3>Generation</h3>
+    <div class="field">
+      <label>Context Size (--ctx)</label>
+      <input id="ctx-size" type="number" value="2048" min="128" max="32768" step="128">
+    </div>
+    <div class="field">
+      <label>Max New Tokens (--max-new)</label>
+      <input id="max-new" type="number" value="512" min="1" max="4096">
+    </div>
+    <div class="field">
+      <label>Temperature</label>
+      <input id="temperature" type="number" value="0.7" min="0" max="2" step="0.1">
+    </div>
+  </div>
+
+  <div class="section">
+    <button class="btn" id="connect-btn">Connect</button>
+    <button class="btn secondary" id="save-config-btn" style="margin-top:4px">Save Config</button>
+  </div>
+</div>
+
+<div id="main">
+  <div id="header">
+    <h1>LLM Runner</h1>
+    <span id="status">Offline</span>
+  </div>
+  <div id="chat"></div>
+  <div id="input-area">
+    <textarea id="input" rows="1" placeholder="Type a message..." disabled></textarea>
+    <button id="send-btn" disabled>Send</button>
+  </div>
+  <div id="log"></div>
+</div>
+
+<script>
+let baseUrl = '';
+let online = false;
+
+// Log
+function log(msg, level = 'info') {
+  const el = document.getElementById('log');
+  const div = document.createElement('div');
+  div.className = level;
+  div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+}
+
+// Build runner args
+function buildArgs() {
+  const args = [];
+  const model = document.getElementById('model-path').value.trim();
+  const ngl = parseInt(document.getElementById('ngl').value) || 0;
+  const sidPt = document.getElementById('sid-pt').checked;
+  const sidFace = parseInt(document.getElementById('sid-face').value) || 0;
+  const dramtile = document.getElementById('dramtile').checked;
+  const twinGpu = document.getElementById('twin-gpu').checked;
+  const bermudaGpu = document.getElementById('bermuda-gpu').checked;
+  const ctxSize = parseInt(document.getElementById('ctx-size').value) || 2048;
+  const maxNew = parseInt(document.getElementById('max-new')?.value) || 512;
+
+  args.push(model);
+  if (ngl > 0) args.push('--ngl', ngl.toString());
+  if (sidPt) args.push('--sid-pt');
+  if (sidFace > 0) args.push('--sid-face', sidFace.toString());
+  if (dramtile) args.push('--dramtile');
+  if (twinGpu) args.push('--twin-gpu');
+  if (bermudaGpu) args.push('--bermuda-gpu');
+  args.push('--ctx', ctxSize.toString());
+  args.push('--host', '127.0.0.1', '--port', '8080');
+  return args;
+}
+
+// Show command
+document.getElementById('show-cmd-btn').onclick = () => {
+  const runnerPath = document.getElementById('runner-path').value.trim();
+  if (!runnerPath) { log('Runner path is empty', 'error'); return; }
+
+  const args = buildArgs();
+  const cmd = `"${runnerPath}" ${args.join(' ')}`;
+  
+  // Show in log
+  log('Run this command in terminal:', 'warn');
+  log(cmd, 'info');
+  
+  // Copy to clipboard
+  navigator.clipboard.writeText(cmd).then(() => {
+    log('Command copied to clipboard!', 'info');
+  }).catch(() => {
+    // Fallback
+    prompt('Copy this command:', cmd);
+  });
+};
+
+// Connect
+document.getElementById('connect-btn').onclick = connect;
+document.getElementById('server-url').onkeydown = e => { if (e.key === 'Enter') connect(); };
+
+async function connect() {
+  baseUrl = document.getElementById('server-url').value.trim().replace(/\/+$/, '');
+  const status = document.getElementById('status');
+  status.textContent = 'Connecting...';
+  status.className = 'running';
+  online = false;
+  document.getElementById('input').disabled = true;
+  document.getElementById('send-btn').disabled = true;
+
+  try {
+    const r = await fetch(baseUrl + '/v1/models', { signal: AbortSignal.timeout(5000) });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    online = true;
+    status.textContent = 'Online';
+    status.className = 'online';
+    document.getElementById('input').disabled = false;
+    document.getElementById('send-btn').disabled = false;
+    document.getElementById('input').focus();
+    log('Connected to ' + baseUrl);
+  } catch (e) {
+    status.textContent = 'Offline';
+    status.className = '';
+    log('Connection failed: ' + e.message, 'error');
+  }
+}
+
+// Send
+document.getElementById('send-btn').onclick = send;
+document.getElementById('input').onkeydown = e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+};
+
+async function send() {
+  const input = document.getElementById('input');
+  const text = input.value.trim();
+  if (!text || !online) return;
+  input.value = '';
+  input.style.height = 'auto';
+
+  addMsg('user', text);
+  const thinkEl = addMsg('thinking', 'Thinking...');
+
+  const temp = parseFloat(document.getElementById('temperature').value) || 0.7;
+  document.getElementById('send-btn').disabled = true;
+  input.disabled = true;
+
+  const startTime = performance.now();
+  try {
+    const body = {
+      messages: [{ role: 'user', content: text }],
+      stream: false,
+      temperature: temp,
+      max_tokens: parseInt(document.getElementById('max-new').value) || 512
+    };
+    const r = await fetch(baseUrl + '/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
+    const reply = data.choices?.[0]?.message?.content || '(no response)';
+    const tokens = data.usage?.completion_tokens || '?';
+    thinkEl.remove();
+    addMsg('assistant', reply);
+    addProfile(`${elapsed}s | ${tokens} tokens | temp=${temp}`);
+    log(`Response: ${elapsed}s, ${tokens} tokens`);
+  } catch (e) {
+    thinkEl.remove();
+    addMsg('system', 'Error: ' + e.message);
+    log('Error: ' + e.message, 'error');
+  } finally {
+    document.getElementById('send-btn').disabled = false;
+    input.disabled = false;
+    input.focus();
+  }
+}
+
+function addMsg(role, content) {
+  const chat = document.getElementById('chat');
+  const el = document.createElement('div');
+  if (role === 'system') {
+    el.className = 'system';
+    el.textContent = content;
+  } else if (role === 'thinking') {
+    el.className = 'thinking';
+    el.textContent = content;
+  } else {
+    el.className = 'msg ' + role;
+    el.textContent = content;
+  }
+  chat.appendChild(el);
+  chat.scrollTop = chat.scrollHeight;
+  return el;
+}
+
+function addProfile(text) {
+  const chat = document.getElementById('chat');
+  const el = document.createElement('div');
+  el.className = 'profile';
+  el.textContent = text;
+  chat.appendChild(el);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+// Auto-resize textarea
+document.getElementById('input').oninput = function() {
+  this.style.height = 'auto';
+  this.style.height = Math.min(this.scrollHeight, 150) + 'px';
+};
+
+// Model dropdown sync
+document.getElementById('model-select').onchange = function() {
+  document.getElementById('model-path').value = this.value;
+};
+document.getElementById('model-path').oninput = function() {
+  const sel = document.getElementById('model-select');
+  const match = Array.from(sel.options).find(o => o.value === this.value);
+  if (match) sel.value = this.value;
+};
+
+// Save config
+document.getElementById('save-config-btn').onclick = () => {
+  const config = {
+    modelPath: document.getElementById('model-path').value,
+    serverUrl: document.getElementById('server-url').value,
+    runnerPath: document.getElementById('runner-path').value,
+    ngl: document.getElementById('ngl').value,
+    sidPt: document.getElementById('sid-pt').checked,
+    sidFace: document.getElementById('sid-face').value,
+    dramtile: document.getElementById('dramtile').checked,
+    twinGpu: document.getElementById('twin-gpu').checked,
+    bermudaGpu: document.getElementById('bermuda-gpu').checked,
+    ctxSize: document.getElementById('ctx-size').value,
+    maxNew: document.getElementById('max-new').value,
+    temperature: document.getElementById('temperature').value
+  };
+  localStorage.setItem('llm-runner-config', JSON.stringify(config));
+  log('Config saved to localStorage');
+};
+
+// Load config
+(function loadConfig() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('llm-runner-config'));
+    if (saved) {
+      if (saved.modelPath) {
+        document.getElementById('model-path').value = saved.modelPath;
+        const sel = document.getElementById('model-select');
+        const match = Array.from(sel.options).find(o => o.value === saved.modelPath);
+        if (match) sel.value = saved.modelPath;
+      }
+      if (saved.serverUrl) document.getElementById('server-url').value = saved.serverUrl;
+      if (saved.runnerPath) document.getElementById('runner-path').value = saved.runnerPath;
+      if (saved.ngl) document.getElementById('ngl').value = saved.ngl;
+      if (saved.sidPt) document.getElementById('sid-pt').checked = saved.sidPt;
+      if (saved.sidFace) document.getElementById('sid-face').value = saved.sidFace;
+      if (saved.dramtile) document.getElementById('dramtile').checked = saved.dramtile;
+      if (saved.twinGpu) document.getElementById('twin-gpu').checked = saved.twinGpu;
+      if (saved.bermudaGpu) document.getElementById('bermuda-gpu').checked = saved.bermudaGpu;
+      if (saved.ctxSize) document.getElementById('ctx-size').value = saved.ctxSize;
+      if (saved.maxNew) document.getElementById('max-new').value = saved.maxNew;
+      if (saved.temperature) document.getElementById('temperature').value = saved.temperature;
+      log('Config loaded from localStorage');
+    }
+  } catch (e) {}
+})();
+</script>
+</body>
+</html>

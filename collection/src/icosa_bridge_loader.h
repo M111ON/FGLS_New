@@ -4,6 +4,17 @@
 #include <stdint.h>
 #include <windows.h>
 
+/* Bermuda GPU route entry (matches device struct) */
+typedef struct {
+    uint16_t idx_in;
+    uint16_t idx_out;
+    uint8_t  zone;
+    uint8_t  pole;
+    uint8_t  shape;
+    uint8_t  polarity;
+    uint16_t tring_slot;
+} BermudaRouteEntry;
+
 typedef struct {
     HMODULE  dll;
     void   *(*create)(uint64_t gen2, uint64_t gen3);
@@ -20,6 +31,9 @@ typedef struct {
     int     (*batch_memcpy_d2h)(void *ctx, void *const *dst, const void *const *src, const size_t *sizes, int n);
     int     (*pin_host)(void *ctx, void **ptr, size_t size);
     int     (*unpin_host)(void *ctx, void *ptr);
+    /* Bermuda GPU batch traverse */
+    int     (*bermuda_dispatch)(void *ctx, const uint16_t *idxs_in,
+                                BermudaRouteEntry *out, uint8_t gear, uint8_t mode, uint32_t n);
 } IcosaBridge;
 
 static inline int icosa_bridge_load(IcosaBridge *br, const char *dll_path) {
@@ -38,6 +52,7 @@ static inline int icosa_bridge_load(IcosaBridge *br, const char *dll_path) {
     br->batch_memcpy_d2h = (int(*)(void*,void*const*,void const*const*,size_t const*,int))GetProcAddress(br->dll, "icosa_gpu_batch_memcpy_d2h");
     br->pin_host      = (int(*)(void*,void**,size_t))GetProcAddress(br->dll, "icosa_gpu_pin_host");
     br->unpin_host    = (int(*)(void*,void*))GetProcAddress(br->dll, "icosa_gpu_unpin_host");
+    br->bermuda_dispatch = (int(*)(void*,const uint16_t*,BermudaRouteEntry*,uint8_t,uint8_t,uint32_t))GetProcAddress(br->dll, "bermuda_gpu_dispatch");
     if (!br->create || !br->destroy || !br->valid || !br->dispatch) {
         FreeLibrary(br->dll);
         memset(br, 0, sizeof(*br));

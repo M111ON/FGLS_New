@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""LLM Launcher GUI — Launch runner or start llama-server with mDNS."""
+"""LLM Launcher GUI — Launch runner, start llama-server, or chat with built-in WebUI."""
 
 import tkinter as tk
 from tkinter import filedialog, scrolledtext, ttk
 import subprocess, threading, os, glob, json, socket, time
+import urllib.request
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "llm_launcher_config.json")
 RUNNER_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "runner")
@@ -100,9 +101,12 @@ class LLMLauncher:
         self.note.add(run, text="Runner Flags")
         self.flag_vars = {}
         runner_flags = [
-            ("--sid-face",       "SID face swap (0=off)",     False, 0, 1, 0),
+            ("--sid-face",       "SID face swap (0=off)",     False, 0, 5, 0),
+            ("--sid-pt",         "SID page table",             True),
             ("--dramtile",       "DRamTile store",             True),
             ("--ngl",            "GPU layers",                False, 0, 99, 0),
+            ("--twin-gpu",       "Twin GPU bridge",            True),
+            ("--bermuda-gpu",    "Bermuda GPU kernel",         True),
             ("--max-new",        "Max tokens",                False, 1, 4096, 256),
             ("--temp",           "Temperature (0..2)",       False, 0, 200, 70, "float"),
             ("--remap",          "KV remap",                   True),
@@ -152,7 +156,24 @@ class LLMLauncher:
 
         tk.Button(btn_frame, text="Save", command=self._save_config).pack(side=tk.RIGHT, padx=2)
         tk.Button(btn_frame, text="Load", command=self._load_config).pack(side=tk.RIGHT, padx=2)
-        tk.Button(btn_frame, text="Open Chat", command=self._open_chat).pack(side=tk.RIGHT, padx=2)
+
+        # Chat tab
+        chat_frame = tk.Frame(self.note, padx=8, pady=6)
+        self.note.add(chat_frame, text="Chat")
+
+        # Chat display
+        self.chat_display = scrolledtext.ScrolledText(chat_frame, wrap=tk.WORD, font=("Consolas", 10),
+                                                       bg="#1e1e1e", fg="#d4d4d4", state=tk.DISABLED)
+        self.chat_display.pack(fill=tk.BOTH, expand=1)
+
+        # Chat input
+        input_frame = tk.Frame(chat_frame)
+        input_frame.pack(fill=tk.X, pady=(4, 0))
+        self.chat_input = tk.Entry(input_frame, font=("Consolas", 10))
+        self.chat_input.pack(side=tk.LEFT, fill=tk.X, expand=1, padx=(0, 4))
+        self.chat_input.bind("<Return>", lambda e: self._send_chat())
+        self.btn_send = tk.Button(input_frame, text="Send", command=self._send_chat, bg="#5cb85c", fg="white")
+        self.btn_send.pack(side=tk.RIGHT)
 
         # Output
         out_frame = tk.Frame(self.root)
@@ -323,9 +344,39 @@ class LLMLauncher:
         except Exception as e:
             self.root.after(0, lambda: self._log(f"[mDNS] {e}\n"))
 
-    def _open_chat(self):
-        if os.path.exists(CHAT_HTML):
-            os.startfile(CHAT_HTML)
+    # ── Chat ──
+
+    def _send_chat(self):
+        text = self.chat_input.get().strip()
+        if not text:
+            return
+        self.chat_input.delete(0, tk.END)
+        self._chat_append("You", text, "#e94560")
+        threading.Thread(target=self._chat_request, args=(text,), daemon=True).start()
+
+    def _chat_request(self, text):
+        port = int(self.var_port.get().strip() or DEF_PORT)
+        url = f"http://127.0.0.1:{port}/v1/chat/completions"
+        body = json.dumps({"messages": [{"role": "user", "content": text}], "stream": False}).encode()
+        req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                data = json.loads(resp.read())
+                reply = data.get("choices", [{}])[0].get("message", {}).get("content", "(no response)")
+                tokens = data.get("usage", {}).get("completion_tokens", "?")
+                self.root.after(0, lambda: self._chat_append("Assistant", reply, "#4ecca3"))
+                self.root.after(0, lambda: self._chat_append("System", f"{tokens} tokens", "#888"))
+        except Exception as e:
+            self.root.after(0, lambda: self._chat_append("Error", str(e), "#d9534f"))
+
+    def _chat_append(self, role, text, color):
+        self.chat_display.config(state=tk.NORMAL)
+        tag = f"role_{role}"
+        self.chat_display.insert(tk.END, f"{role}: ", tag)
+        self.chat_display.insert(tk.END, text + "\n")
+        self.chat_display.tag_config(tag, foreground=color, font=("Consolas", 10, "bold"))
+        self.chat_display.config(state=tk.DISABLED)
+        self.chat_display.see(tk.END)
 
     def _stop_server(self):
         if self.mdns_service:

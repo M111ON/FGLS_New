@@ -560,6 +560,84 @@ h1, h2, h3, h4, .h { font-family: var(--font-headline); font-weight: 700; text-t
   </div>
 </div>
 
+<!-- ─── Section: POGLS Pipeline ─── -->
+<div class="section" id="secPogls">
+  <div class="section-header" onclick="toggleSec(this)">
+    <span class="icon">&#x1F9ED;</span>
+    <h2>POGLS Pipeline</h2>
+    <span class="status-tag" id="poglsStatus">loading</span>
+    <span class="toggle">&#x25BC;</span>
+  </div>
+  <div class="section-body open" id="poglsBody">
+    <div class="gauges-row" id="poglsGauges" style="margin-bottom:10px;"></div>
+
+    <div class="viz-grid" style="grid-template-columns: 1fr 1fr;">
+      <!-- Address Encode/Decode -->
+      <div class="viz-card">
+        <h3>Address Encode / Decode</h3>
+        <div class="form-row">
+          <div class="form-group"><label>uint64</label><input type="number" id="paAddr" value="1234567890" min="0"></div>
+          <button class="btn btn-gold" onclick="poglsEncode()">Encode &#x2192;</button>
+        </div>
+        <div class="output-box" id="paEncodeOut" style="font-family:var(--mono);font-size:.75rem;">&nbsp;</div>
+        <div class="form-row" style="margin-top:6px;">
+          <div class="form-group" style="flex:1;"><label>base62</label><input type="text" id="paB62" value="000001LY7VK" style="font-family:var(--mono);width:100%;"></div>
+          <button class="btn btn-outline" onclick="poglsDecode()">Decode &#x2192;</button>
+        </div>
+        <div class="output-box" id="paDecodeOut" style="font-family:var(--mono);font-size:.75rem;">&nbsp;</div>
+      </div>
+
+      <!-- Address Decompose -->
+      <div class="viz-card">
+        <h3>Address Decompose</h3>
+        <div class="form-row">
+          <div class="form-group" style="flex:1;"><label>Address</label><input type="number" id="pdAddr" value="1234567890" min="0" style="width:100%;"></div>
+          <button class="btn btn-gold" onclick="poglsDecompose()">Decompose</button>
+        </div>
+        <div id="pdResult" class="output-box" style="font-family:var(--mono);font-size:.65rem;min-height:80px;line-height:1.6;">Press <strong>Decompose</strong></div>
+      </div>
+    </div>
+
+    <div class="viz-grid" style="grid-template-columns: 1fr 1fr;">
+      <!-- SVG Card -->
+      <div class="viz-card">
+        <h3>Visual Card</h3>
+        <div class="form-row">
+          <div class="form-group"><label>Address</label><input type="number" id="pvAddr" value="1234567890" min="0"></div>
+          <button class="btn btn-gold" onclick="poglsCard()">Render</button>
+        </div>
+        <div id="pvResult" style="display:flex;justify-content:center;min-height:120px;align-items:center;overflow-x:auto;">
+          <span style="color:var(--text-muted);font-size:.65rem;">Press <strong>Render</strong></span>
+        </div>
+      </div>
+
+      <!-- File Browser -->
+      <div class="viz-card">
+        <h3>File Browser</h3>
+        <div class="form-row">
+          <div class="form-group"><label>Type</label>
+            <select id="pfType" onchange="poglsFiles()">
+              <option value="pogwallet">.pogwallet</option>
+              <option value="gguf">.gguf</option>
+              <option value="pogls">.pogls</option>
+              <option value="svg">.svg</option>
+            </select>
+          </div>
+        </div>
+        <div id="pfList" style="max-height:150px;overflow-y:auto;font-family:var(--mono);font-size:.6rem;">
+          <span style="color:var(--text-muted);">Select type to browse</span>
+        </div>
+        <div class="form-row" style="margin-top:6px;">
+          <div class="form-group" style="flex:1;"><label>Selected</label><input type="text" id="pfSelected" readonly style="width:100%;font-family:var(--mono);font-size:.6rem;"></div>
+          <button class="btn btn-outline" onclick="poglsWalletInfo()">Wallet Info</button>
+          <button class="btn btn-outline" onclick="poglsXxh()">xxh64</button>
+        </div>
+        <div class="output-box" id="pfInfoOut" style="font-family:var(--mono);font-size:.6rem;max-height:120px;overflow-y:auto;">&nbsp;</div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 const API = '';
 async function api(method, path, body) {
@@ -1794,10 +1872,87 @@ async function vlmDescribe(event) {
   event.target.value = '';
 }
 
+// ─── POGLS ───
+async function loadPogls() {
+  const st = el('poglsStatus');
+  try {
+    const d = await api('GET', '/api/pogls/status');
+    const modules = Object.keys(d.modules).length;
+    st.textContent = modules + ' modules'; st.className = 'status-tag ' + (modules > 0 ? 'online' : 'offline');
+    el('poglsGauges').innerHTML =
+      gaugeCard(`<div class="num">${d.addr_codec ? '\u2713' : '\u2717'}</div><div class="desc">addr_codec</div>`) +
+      gaugeCard(`<div class="num">${d.visual ? '\u2713' : '\u2717'}</div><div class="desc">visual</div>`) +
+      gaugeCard(`<div class="num">${d.wallet ? '\u2713' : '\u2717'}</div><div class="desc">wallet</div>`);
+  } catch { st.textContent = 'offline'; st.className = 'status-tag offline'; }
+}
+async function poglsEncode() {
+  const addr = parseInt(el('paAddr').value) || 0;
+  try {
+    const d = await api('POST', '/api/pogls/addr/encode', { addr });
+    el('paEncodeOut').innerHTML = `<span class="ok">${d.encoded}</span>`;
+  } catch (e) { el('paEncodeOut').innerHTML = `<span class="err">${e.message}</span>`; }
+}
+async function poglsDecode() {
+  const enc = el('paB62').value.trim();
+  try {
+    const d = await api('POST', '/api/pogls/addr/decode', { encoded: enc });
+    el('paDecodeOut').innerHTML = `<span class="ok">${d.addr}</span>`;
+  } catch (e) { el('paDecodeOut').innerHTML = `<span class="err">${e.message}</span>`; }
+}
+async function poglsDecompose() {
+  const addr = parseInt(el('pdAddr').value) || 0;
+  try {
+    const d = await api('POST', '/api/pogls/addr/decompose', { addr });
+    const bits = (d.bits || []).map(b => b ? '1' : '0').join('');
+    el('pdResult').innerHTML = `
+      <div>addr: <strong>${d.addr}</strong></div>
+      <div>bits: <span style="font-size:.55rem;">${bits}</span></div>
+      <div>spoke=${d.spoke} slot=${d.slot} world=${d.world} layer=${d.layer} intensity=${d.intensity}</div>
+    `;
+  } catch (e) { el('pdResult').innerHTML = `<span class="err">${e.message}</span>`; }
+}
+async function poglsCard() {
+  const addr = parseInt(el('pvAddr').value) || 0;
+  try {
+    const d = await api('POST', '/api/pogls/visual/card', { addr });
+    el('pvResult').innerHTML = d.svg;
+  } catch (e) { el('pvResult').innerHTML = `<span class="err">${e.message}</span>`; }
+}
+async function poglsFiles() {
+  const type = el('pfType').value;
+  try {
+    const d = await api('GET', '/api/pogls/files?type=' + type);
+    const files = d.files || [];
+    el('pfList').innerHTML = files.length
+      ? files.map(f => `<div style="cursor:pointer;padding:1px 2px;${f.name === '—' ? 'font-weight:700;' : ''}" onclick="poglsSelect('${f.path}')" title="${f.size} B">${f.path}</div>`).join('')
+      : '<span style="color:var(--text-muted);">no files found</span>';
+    if (files.length) { el('pfSelected').value = files[0].path; poglsSelect(files[0].path); }
+  } catch (e) { el('pfList').innerHTML = `<span class="err">${e.message}</span>`; }
+}
+function poglsSelect(path) {
+  el('pfSelected').value = path;
+}
+async function poglsWalletInfo() {
+  const path = el('pfSelected').value;
+  if (!path) return;
+  try {
+    const d = await api('GET', '/api/pogls/wallet/info?path=' + encodeURIComponent(path));
+    el('pfInfoOut').innerHTML = '<pre style="margin:0;font-size:.6rem;">' + JSON.stringify(d.info, null, 2) + '</pre>';
+  } catch (e) { el('pfInfoOut').innerHTML = `<span class="err">${e.message}</span>`; }
+}
+async function poglsXxh() {
+  const path = el('pfSelected').value;
+  if (!path) return;
+  try {
+    const d = await api('GET', '/api/pogls/xxh64?path=' + encodeURIComponent(path));
+    el('pfInfoOut').innerHTML = `<span style="font-family:var(--mono);font-size:.65rem;">xxh64: <strong>${d.xxh64}</strong> (${d.size} bytes)</span>`;
+  } catch (e) { el('pfInfoOut').innerHTML = `<span class="err">${e.message}</span>`; }
+}
+
 // ─── Init ───
 document.addEventListener('DOMContentLoaded', async () => {
   await loadStatus();
-  await Promise.all([loadStore(), loadRouter(), loadGate(), loadPipeline(), loadCBinaries(), loadCodec(), loadGeopixel(), loadContainer(), loadModels()]);
+  await Promise.all([loadStore(), loadRouter(), loadGate(), loadPipeline(), loadCBinaries(), loadCodec(), loadGeopixel(), loadContainer(), loadModels(), loadPogls()]);
   startAutoRefresh(15000);
 });
 </script>

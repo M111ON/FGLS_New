@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>POGLS Address Tool</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #f5f0e8; --fg: #1a1a1a;
+  --border: #1a1a1a; --card: #fff;
+  --gold: #ffcc00; --gold-bg: rgba(255,204,0,0.15);
+  --accent: #0055ff; --accent-bg: rgba(0,85,255,0.08);
+  --muted: #6a6a6a; --mono: 'Menlo','Cascadia Code','Consolas',monospace;
+  --font: 'Inter',system-ui,sans-serif;
+}
+* { box-sizing: border-box; margin: 0; }
+body { font-family: var(--font); background: var(--bg); color: var(--fg); padding: 24px; }
+h1 { font-size: 1.3rem; font-weight: 700; letter-spacing: -0.3px; }
+p.sub { color: var(--muted); font-size: .8rem; margin: 4px 0 16px; }
+
+/* Tabs */
+.tabs { display: flex; gap: 0; margin-bottom: 16px; border-bottom: 2px solid var(--border); }
+.tab { padding: 8px 18px; font-size: .75rem; font-weight: 600; cursor: pointer; border: 2px solid var(--border); border-bottom: none; background: var(--card); margin-bottom: -2px; opacity: .5; transition: all .12s; }
+.tab:hover { opacity: .8; }
+.tab.active { opacity: 1; background: var(--gold); }
+
+/* Panels */
+.panel { display: none; }
+.panel.active { display: block; }
+
+/* Cards */
+.card { background: var(--card); border: 2px solid var(--border); padding: 14px; margin-bottom: 12px; }
+.card h3 { font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; color: var(--muted); }
+
+/* Form */
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; margin-bottom: 8px; }
+.field { display: flex; flex-direction: column; gap: 2px; }
+.field label { font-size: .6rem; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); }
+.field input, .field select { padding: 6px 8px; border: 2px solid var(--border); font-size: .8rem; font-family: var(--font); background: var(--card); outline: none; }
+.field input:focus, .field select:focus { border-color: var(--accent); }
+.field input[type=number] { width: 120px; }
+.field .hint { font-size: .55rem; color: var(--muted); margin-top: 1px; }
+
+button { padding: 6px 16px; border: 2px solid var(--border); cursor: pointer; font-size: .7rem; font-weight: 700; transition: all .1s; background: var(--card); }
+button:hover { background: #eee; }
+button.primary { background: var(--fg); color: var(--bg); }
+button.primary:hover { background: #333; }
+button:active { transform: translate(2px, 2px); }
+button.sm { padding: 4px 10px; font-size: .6rem; }
+
+.output { background: #faf8f5; border: 1px solid #ddd; padding: 10px; font-family: var(--mono); font-size: .7rem; margin-top: 6px; min-height: 24px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+.output.ok { border-color: var(--gold); background: var(--gold-bg); }
+.output.err { border-color: #e63b2e; background: rgba(230,59,46,0.08); }
+.output .key { color: var(--muted); }
+
+/* SVG area */
+.svg-wrap { display: flex; justify-content: center; padding: 10px; min-height: 100px; align-items: center; border: 1px dashed #ddd; margin-top: 6px; }
+
+/* File list */
+.file-list { max-height: 180px; overflow-y: auto; border: 1px solid var(--border); font-family: var(--mono); font-size: .65rem; }
+.file-list div { padding: 4px 6px; cursor: pointer; border-bottom: 1px solid #eee; }
+.file-list div:hover { background: var(--gold-bg); }
+.file-list div.selected { background: var(--gold); font-weight: 600; }
+
+/* Tags */
+.tag { display: inline-block; padding: 1px 6px; font-size: .55rem; font-weight: 700; border: 1px solid var(--border); text-transform: uppercase; }
+.tag.online { background: var(--gold); }
+
+/* bits row */
+.bits { font-size: .5rem; letter-spacing: .5px; word-break: break-all; }
+
+@media (max-width: 600px) {
+  .tabs { flex-wrap: wrap; }
+  .tab { flex: 1; text-align: center; font-size: .65rem; padding: 6px 8px; }
+  .row { flex-direction: column; align-items: stretch; }
+  .field input[type=number], .field input { width: 100%; }
+}
+</style>
+</head>
+<body>
+<h1>&#x25B3; POGLS Address Tool</h1>
+<p class="sub">Encode, decode, visualize, and inspect POGLS addresses &mdash; 128&times;162 = 144&sup2; address space</p>
+
+<div class="tabs" id="tabBar">
+  <div class="tab active" onclick="switchTab('addr')">Address</div>
+  <div class="tab" onclick="switchTab('card')">Visual Card</div>
+  <div class="tab" onclick="switchTab('wallet')">Wallet Browser</div>
+  <div class="tab" onclick="switchTab('svg')">SVG Encode</div>
+</div>
+
+<!-- ── Address Panel ── -->
+<div class="panel active" id="panelAddr">
+  <div class="card">
+    <h3>Encode uint64 &rarr; base62</h3>
+    <div class="row">
+      <div class="field">
+        <label>uint64 address</label>
+        <input type="number" id="encAddr" value="1234567890" min="0">
+        <span class="hint">0 &ndash; 2<sup>64</sup>&minus;1 (max 20,736 for tier0)</span>
+      </div>
+      <button class="primary" onclick="encodeAddr()">Encode</button>
+    </div>
+    <div class="output" id="encOut">base62: <strong>—</strong></div>
+  </div>
+
+  <div class="card">
+    <h3>Decode base62 &rarr; uint64</h3>
+    <div class="row">
+      <div class="field" style="flex:1;">
+        <label>base62 string</label>
+        <input type="text" id="decB62" value="000001LY7VK" style="width:100%;font-family:var(--mono);" oninput="decodeAddr()">
+        <span class="hint">11-character base62 address</span>
+      </div>
+      <button class="primary" onclick="decodeAddr()">Decode</button>
+    </div>
+    <div class="output" id="decOut">uint64: <strong>—</strong></div>
+  </div>
+
+  <div class="card">
+    <h3>Decompose</h3>
+    <div class="row">
+      <div class="field">
+        <label>Address</label>
+        <input type="number" id="decAddr" value="1234567890" min="0">
+        <span class="hint">Same address as above &mdash; explores internal structure</span>
+      </div>
+      <button class="primary" onclick="decomposeAddr()">Decompose</button>
+    </div>
+    <div class="output" id="decResult"><span class="key">spoke</span> — &nbsp;<span class="key">slot</span> — &nbsp;<span class="key">world</span> — &nbsp;<span class="key">layer</span> — &nbsp;<span class="key">intensity</span> —</div>
+  </div>
+</div>
+
+<!-- ── Card Panel ── -->
+<div class="panel" id="panelCard">
+  <div class="card">
+    <h3>Single Card SVG</h3>
+    <div class="row">
+      <div class="field">
+        <label>Address</label>
+        <input type="number" id="cardAddr" value="1234567890" min="0">
+      </div>
+      <button class="primary" onclick="renderCard()">Render</button>
+      <button class="sm" onclick="addToGrid()">+ Add to Grid</button>
+    </div>
+    <div class="svg-wrap" id="cardSvg">Press <strong>Render</strong></div>
+  </div>
+
+  <div class="card">
+    <h3>Card Grid</h3>
+    <div class="row">
+      <div class="field">
+        <label>Addresses (comma separated)</label>
+        <input type="text" id="gridAddrs" value="1234567890, 42, 20736, 999999" style="width:300px;font-family:var(--mono);">
+      </div>
+      <div class="field">
+        <label>Columns</label>
+        <input type="number" id="gridCols" value="2" min="1" max="8">
+      </div>
+      <button class="primary" onclick="renderGrid()">Render Grid</button>
+      <button class="sm" onclick="clearGrid()">Clear</button>
+    </div>
+    <div class="svg-wrap" id="gridSvg" style="overflow-x:auto;">Enter addresses and press <strong>Render Grid</strong></div>
+  </div>
+</div>
+
+<!-- ── Wallet Panel ── -->
+<div class="panel" id="panelWallet">
+  <div class="card">
+    <h3>File Browser</h3>
+    <div class="row">
+      <div class="field">
+        <label>Type</label>
+        <select id="fileType" onchange="listFiles()">
+          <option value="pogwallet">.pogwallet (wallet)</option>
+          <option value="gguf">.gguf (model)</option>
+          <option value="pogls">.pogls (native)</option>
+          <option value="svg">.svg (visual)</option>
+        </select>
+        <span class="hint">Select file type to scan workspace</span>
+      </div>
+    </div>
+    <div class="file-list" id="fileList"><span style="color:var(--muted);padding:4px;display:block;">Select a type above</span></div>
+  </div>
+
+  <div class="card">
+    <h3>File Info</h3>
+    <div class="row">
+      <div class="field" style="flex:1;">
+        <label>Selected file</label>
+        <input type="text" id="selFile" readonly style="width:100%;font-family:var(--mono);background:#faf8f5;">
+      </div>
+      <button class="primary" onclick="walletInfo()">Wallet Info</button>
+      <button class="sm" onclick="xxhHash()">xxh64</button>
+    </div>
+    <div class="output" id="fileInfo">&nbsp;</div>
+  </div>
+</div>
+
+<!-- ── SVG Encode Panel ── -->
+<div class="panel" id="panelSvg">
+  <div class="card">
+    <h3>Encode File &rarr; SVG</h3>
+    <div class="row">
+      <div class="field">
+        <label>Type</label>
+        <select id="svgFileType" onchange="svgListFiles()">
+          <option value="pogwallet">.pogwallet</option>
+          <option value="gguf">.gguf</option>
+          <option value="pogls">.pogls</option>
+        </select>
+        <span class="hint">Select file to encode into SVG</span>
+      </div>
+    </div>
+    <div class="file-list" id="svgFileList"><span style="color:var(--muted);padding:4px;display:block;">Select a type above</span></div>
+    <div class="row" style="margin-top:8px;">
+      <div class="field" style="flex:1;">
+        <label>Selected</label>
+        <input type="text" id="svgSelFile" readonly style="width:100%;font-family:var(--mono);background:#faf8f5;">
+      </div>
+      <button class="primary" onclick="svgEncode()">Encode &rarr; SVG</button>
+    </div>
+    <div class="output" id="svgEncodeOut">&nbsp;</div>
+    <div class="svg-wrap" id="svgPreview" style="margin-top:8px;min-height:200px;">Select a file and press <strong>Encode</strong></div>
+    <div class="row" style="margin-top:8px;">
+      <button class="sm" onclick="svgDownload()">Download SVG</button>
+      <span class="hint" style="align-self:center;">SVG ฝังข้อมูล lossless &mdash; decode กลับได้ 100%</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Decode SVG &rarr; File</h3>
+    <div class="row">
+      <div class="field" style="flex:1;">
+        <label>Upload SVG file</label>
+        <input type="file" id="svgUpload" accept=".svg" onchange="svgFileLoaded()" style="font-size:.6rem;">
+      </div>
+      <button class="primary" onclick="svgDecode()">Decode &rarr; File</button>
+    </div>
+    <div class="output" id="svgDecodeOut">&nbsp;</div>
+    <div class="row" style="margin-top:8px;">
+      <button class="sm" onclick="svgDownloadDecoded()">Download Decoded File</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '';
+
+// ─── Tab switching ───
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelector(`.tab[onclick*='${name}']`).classList.add('active');
+  document.getElementById('panel' + name.charAt(0).toUpperCase() + name.slice(1)).classList.add('active');
+}
+
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(API + path, opts);
+  if (!r.ok) {
+    let text = await r.text();
+    try { const j = JSON.parse(text); text = j.detail || j.error || text; } catch {}
+    throw new Error(text);
+  }
+  return r.json();
+}
+
+function out(el, html, ok) {
+  const o = document.getElementById(el);
+  o.innerHTML = html;
+  o.className = 'output' + (ok !== undefined ? (ok ? ' ok' : ' err') : '');
+}
+
+// ─── Address ───
+async function encodeAddr() {
+  const addr = parseInt(document.getElementById('encAddr').value) || 0;
+  try {
+    const d = await api('POST', '/api/pogls/addr/encode', { addr });
+    out('encOut', `base62: <strong>${d.encoded}</strong>`, true);
+    document.getElementById('decB62').value = d.encoded;
+    document.getElementById('decAddr').value = addr;
+    decomposeAddr();
+  } catch (e) { out('encOut', `<span style="color:#e63b2e;">${e.message}</span>`, false); }
+}
+async function decodeAddr() {
+  const enc = document.getElementById('decB62').value.trim();
+  if (!enc) return;
+  try {
+    const d = await api('POST', '/api/pogls/addr/decode', { encoded: enc });
+    out('decOut', `uint64: <strong>${d.addr}</strong>`, true);
+    document.getElementById('encAddr').value = d.addr;
+    document.getElementById('decAddr').value = d.addr;
+    decomposeAddr();
+  } catch (e) { out('decOut', `<span style="color:#e63b2e;">${e.message}</span>`, false); }
+}
+async function decomposeAddr() {
+  const addr = parseInt(document.getElementById('decAddr').value) || 0;
+  try {
+    const d = await api('POST', '/api/pogls/addr/decompose', { addr });
+    const bits = (d.bits || []).map(b => b ? '1' : '0').join('');
+    const nbits = d.bits ? d.bits.filter(b => b).length : 0;
+    out('decResult',
+      `<span class="key">spoke</span> ${d.spoke} &middot; `
+      + `<span class="key">slot</span> ${d.slot} &middot; `
+      + `<span class="key">world</span> ${d.world} &middot; `
+      + `<span class="key">layer</span> ${d.layer} &middot; `
+      + `<span class="key">intensity</span> ${d.intensity}<br>`
+      + `<span class="bits">bits (${nbits} set): ${bits}</span>`, true);
+    renderCard(addr);
+  } catch (e) { out('decResult', `<span style="color:#e63b2e;">${e.message}</span>`, false); }
+}
+
+// ─── Card ───
+async function renderCard(addr) {
+  const a = addr !== undefined ? addr : parseInt(document.getElementById('cardAddr').value) || 0;
+  try {
+    const d = await api('POST', '/api/pogls/visual/card', { addr: a });
+    document.getElementById('cardSvg').innerHTML = d.svg;
+    document.getElementById('cardAddr').value = a;
+  } catch (e) { document.getElementById('cardSvg').innerHTML = `<span style="color:#e63b2e;">${e.message}</span>`; }
+}
+function addToGrid() {
+  const addr = document.getElementById('cardAddr').value;
+  const grid = document.getElementById('gridAddrs');
+  grid.value = grid.value.trim() ? grid.value.trim() + ', ' + addr : addr;
+  renderGrid();
+}
+async function renderGrid() {
+  const raw = document.getElementById('gridAddrs').value;
+  const cols = parseInt(document.getElementById('gridCols').value) || 2;
+  const addrs = raw.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+  if (!addrs.length) return;
+  try {
+    const d = await api('POST', '/api/pogls/visual/grid', { addrs, cols });
+    document.getElementById('gridSvg').innerHTML = d.svg;
+  } catch (e) { document.getElementById('gridSvg').innerHTML = `<span style="color:#e63b2e;">${e.message}</span>`; }
+}
+function clearGrid() {
+  document.getElementById('gridAddrs').value = '';
+  document.getElementById('gridSvg').innerHTML = 'Cleared';
+}
+
+// ─── Wallet ───
+async function listFiles() {
+  const type = document.getElementById('fileType').value;
+  try {
+    const d = await api('GET', '/api/pogls/files?type=' + type);
+    const files = d.files || [];
+    const list = document.getElementById('fileList');
+    if (!files.length) {
+      list.innerHTML = '<div style="color:var(--muted);padding:4px;">No files found</div>';
+      return;
+    }
+    list.innerHTML = files.map((f, i) =>
+      `<div ${i === 0 ? 'class="selected"' : ''} onclick="selectFile('${f.path.replace(/'/g, "\\'")}', this)">${f.path} <span style="color:var(--muted)">(${(f.size/1024).toFixed(0)} KB)</span></div>`
+    ).join('');
+    document.getElementById('selFile').value = files[0].path;
+    walletInfo();
+  } catch (e) { document.getElementById('fileList').innerHTML = `<span style="color:#e63b2e;">${e.message}</span>`; }
+}
+function selectFile(path, el) {
+  document.querySelectorAll('.file-list div').forEach(d => d.classList.remove('selected'));
+  if (el) el.classList.add('selected');
+  document.getElementById('selFile').value = path;
+}
+async function walletInfo() {
+  const path = document.getElementById('selFile').value;
+  if (!path) return;
+  try {
+    const d = await api('GET', '/api/pogls/wallet/info?path=' + encodeURIComponent(path));
+    out('fileInfo', JSON.stringify(d.info, null, 2), true);
+  } catch (e) { out('fileInfo', `<span style="color:#e63b2e;">${e.message}</span>`, false); }
+}
+async function xxhHash() {
+  const path = document.getElementById('selFile').value;
+  if (!path) return;
+  try {
+    const d = await api('GET', '/api/pogls/xxh64?path=' + encodeURIComponent(path));
+    out('fileInfo', `xxh64: <strong>${d.xxh64}</strong>  &middot;  ${d.size} bytes`, true);
+  } catch (e) { out('fileInfo', `<span style="color:#e63b2e;">${e.message}</span>`, false); }
+}
+
+// ─── SVG Encode/Decode ───
+let _svgData = '';
+async function svgListFiles() {
+  const type = document.getElementById('svgFileType').value;
+  try {
+    const d = await api('GET', '/api/pogls/files?type=' + type);
+    const files = d.files || [];
+    const list = document.getElementById('svgFileList');
+    if (!files.length) {
+      list.innerHTML = '<div style="color:var(--muted);padding:4px;">No files found</div>';
+      return;
+    }
+    list.innerHTML = files.map((f, i) =>
+      `<div ${i === 0 ? 'class="selected"' : ''} onclick="svgSelectFile('${f.path.replace(/'/g, "\\'")}', this)">${f.path} <span style="color:var(--muted)">(${(f.size/1024).toFixed(0)} KB)</span></div>`
+    ).join('');
+    document.getElementById('svgSelFile').value = files[0].path;
+  } catch (e) { document.getElementById('svgFileList').innerHTML = `<span style="color:#e63b2e;">${e.message}</span>`; }
+}
+function svgSelectFile(path, el) {
+  document.querySelectorAll('#svgFileList div').forEach(d => d.classList.remove('selected'));
+  if (el) el.classList.add('selected');
+  document.getElementById('svgSelFile').value = path;
+}
+async function svgEncode() {
+  const path = document.getElementById('svgSelFile').value;
+  if (!path) return;
+  try {
+    const d = await api('POST', '/api/pogls/svg-encode', { path });
+    _svgData = d.svg;
+    const sizeKB = (d.svg.length / 1024).toFixed(1);
+    const ratio = (d.svg.length / d.original_size * 100).toFixed(0);
+    out('svgEncodeOut', `Encoded: ${d.original_size} bytes → ${sizeKB} KB SVG (${ratio}%)`, true);
+    document.getElementById('svgPreview').innerHTML = d.svg;
+  } catch (e) { out('svgEncodeOut', `<span style="color:#e63b2e;">${e.message}</span>`, false); }
+}
+function svgDownload() {
+  if (!_svgData) return;
+  const blob = new Blob([_svgData], { type: 'image/svg+xml' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'pogls_encoded.svg';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+let _decodedFile = null;
+function svgFileLoaded() {
+  const file = document.getElementById('svgUpload').files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => { _decodedFile = { name: file.name, data: reader.result }; };
+  reader.readAsText(file);
+}
+async function svgDecode() {
+  if (!_decodedFile) { out('svgDecodeOut', '<span style="color:#e63b2e;">Upload an SVG file first</span>', false); return; }
+  try {
+    const d = await api('POST', '/api/pogls/svg-decode', { svg: _decodedFile.data });
+    _decodedFile.decoded = d.data;
+    _decodedFile.original_name = d.original_name;
+    out('svgDecodeOut', `Decoded: ${d.original_name} (${d.size} bytes)`, true);
+  } catch (e) { out('svgDecodeOut', `<span style="color:#e63b2e;">${e.message}</span>`, false); }
+}
+function svgDownloadDecoded() {
+  if (!_decodedFile || !_decodedFile.decoded) return;
+  const raw = atob(_decodedFile.decoded);
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  const blob = new Blob([bytes]);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = _decodedFile.original_name || 'decoded_file';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ─── Auto-init ───
+document.addEventListener('DOMContentLoaded', () => {
+  encodeAddr();
+  listFiles();
+});
+</script>
+</body>
+</html>
