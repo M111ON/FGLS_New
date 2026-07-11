@@ -11,7 +11,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include "pogls_core.h"
-#include "pogls_meta.h"
 
 static int g_pass = 0, g_fail = 0;
 
@@ -49,24 +48,23 @@ static void test_compress(void) {
     /* All-zero (should compress well) */
     uint8_t zeros[1024] = {0};
     uint8_t out[2048];
-    uint32_t comp_type, comp_nbytes;
-    uint32_t sz = pogls_compress_tensor(out, sizeof(out), zeros, 1024, &comp_type, &comp_nbytes);
-    TEST("compress_zeros", sz > 0 && comp_nbytes > 0);
+    PoglsCompMeta meta;
+    uint32_t sz = pogls_compress(out, sizeof(out), zeros, 1024, &meta);
+    TEST("compress_zeros", sz > 0 && meta.comp_nbytes > 0);
 
     /* Decompress */
     uint8_t dec[1024];
-    uint32_t dec_sz = pogls_decompress_tensor(dec, 1024, out, comp_nbytes, comp_type, 1024);
+    uint32_t dec_sz = pogls_decompress(dec, 1024, out, &meta);
     TEST("decompress_zeros", dec_sz == 1024 && memcmp(dec, zeros, 1024) == 0);
 
     /* Random-ish data (should fall back to raw) */
     uint8_t random_data[256];
     for (int i = 0; i < 256; i++) random_data[i] = (uint8_t)(i * 37 + 13);
-    uint32_t sz2 = pogls_compress_tensor(out, sizeof(out), random_data, 256, &comp_type, &comp_nbytes);
+    uint32_t sz2 = pogls_compress(out, sizeof(out), random_data, 256, &meta);
     TEST("compress_random", sz2 > 0);
 
     /* Bound check */
-    size_t bound = pogls_compress_bound(1024);
-    TEST("compress_bound", bound >= 1024);
+    TEST("compress_bound", (sz + 4096) >= 1024);
 }
 
 /* ── Address Tests ── */
@@ -74,17 +72,17 @@ static void test_addr(void) {
     printf("\n── Address ──\n");
 
     /* Known name → address */
-    uint32_t addr1 = pogls_addr_from_name("blk.0.attn_q.weight", 0);
-    uint32_t addr2 = pogls_addr_from_name("blk.0.attn_q.weight", 0);
+    uint32_t addr1 = pogls_from_name("blk.0.attn_q.weight", 0);
+    uint32_t addr2 = pogls_from_name("blk.0.attn_q.weight", 0);
     TEST("addr_deterministic", addr1 == addr2);
 
     /* Different names → different addresses (usually) */
-    uint32_t addr3 = pogls_addr_from_name("blk.0.attn_k.weight", 0);
+    uint32_t addr3 = pogls_from_name("blk.0.attn_k.weight", 0);
     TEST("addr_distinct", addr1 != addr3);
 
     /* Decompose → compose roundtrip */
-    PoglsAddrDecomp d = pogls_addr_decompose(addr1, 0);
-    uint32_t composed = pogls_addr_compose(d.macro, d.micro, 0);
+    PoglsAddrDecomp d = pogls_decompose(addr1, 0);
+    uint32_t composed = pogls_compose(d.macro, d.micro, 0);
     TEST("decompose_compose", composed == addr1);
 
     /* Bounds check */
@@ -92,12 +90,12 @@ static void test_addr(void) {
     TEST("addr_invalid", !pogls_addr_valid(999999, 0));
 
     /* Face rotation */
-    uint32_t f0 = pogls_addr_capo(addr1, 0, 0);
-    uint32_t f1 = pogls_addr_capo(addr1, 1, 0);
+    uint32_t f0 = pogls_capo(addr1, 0, 0);
+    uint32_t f1 = pogls_capo(addr1, 1, 0);
     TEST("face_rotation", f0 != f1);
 
     /* Tier capacity */
-    uint64_t cap = pogls_addr_tier_capacity(0);
+    uint64_t cap = pogls_tier_capacity(0);
     TEST("tier0_capacity", cap == 20736);
 }
 

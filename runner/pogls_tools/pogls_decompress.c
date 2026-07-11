@@ -45,7 +45,11 @@ int main(int argc, char **argv) {
     uint8_t *dst = (uint8_t*)malloc(orig_sz);
     if (!dst) { free(src); return 1; }
 
-    uint32_t dec_sz = pogls_decompress_tensor(dst, orig_sz, src, comp_sz, comp_type, orig_sz);
+    PoglsCompMeta meta;
+    meta.comp_type = comp_type;
+    meta.comp_nbytes = comp_sz;
+    meta.nbytes_orig = orig_sz;
+    uint32_t dec_sz = pogls_decompress(dst, orig_sz, src, &meta);
 
     /* Write output */
     FILE *fout = pogls_fopen(out_path, "wb");

@@ -48,21 +48,21 @@ int main(int argc, char **argv) {
     fclose(fin);
 
     /* Compress */
-    size_t bound = pogls_compress_bound(sz);
+    size_t bound = sz + 4096;
     uint8_t *dst = (uint8_t*)malloc(bound);
     if (!dst) { free(src); fprintf(stderr, "Error: alloc bound %zu\n", bound); return 1; }
 
-    uint32_t comp_type = 0, comp_nbytes = 0;
-    uint32_t out_sz = pogls_compress_tensor(dst, bound, src, sz, &comp_type, &comp_nbytes);
+    PoglsCompMeta meta;
+    uint32_t out_sz = pogls_compress(dst, bound, src, sz, &meta);
 
     /* Write output: [4B comp_type][4B orig_sz][4B comp_sz][data] */
     FILE *fout = pogls_fopen(out_path, "wb");
     if (!fout) { free(src); free(dst); fprintf(stderr, "Error: cannot create %s\n", out_path); return 1; }
-    fwrite(&comp_type, 4, 1, fout);
-    uint32_t orig_sz = (uint32_t)sz;
-    fwrite(&orig_sz, 4, 1, fout);
-    fwrite(&comp_nbytes, 4, 1, fout);
-    fwrite(dst, 1, comp_nbytes, fout);
+    fwrite(&meta.comp_type, 4, 1, fout);
+    uint32_t orig_sz_32 = (uint32_t)sz;
+    fwrite(&orig_sz_32, 4, 1, fout);
+    fwrite(&meta.comp_nbytes, 4, 1, fout);
+    fwrite(dst, 1, meta.comp_nbytes, fout);
     fclose(fout);
 
     double ratio = sz > 0 ? (double)sz / (double)out_sz : 0.0;
@@ -70,7 +70,7 @@ int main(int argc, char **argv) {
     fprintf(stderr, "  orig: %zu bytes\n", sz);
     fprintf(stderr, "  out:  %u bytes\n", out_sz);
     fprintf(stderr, "  type: %s (%u)\n",
-            comp_type == POGLS_COMP_RAW ? "RAW" : "ZSTD", comp_type);
+            meta.comp_type == POGLS_COMP_RAW ? "RAW" : "ZSTD", meta.comp_type);
     fprintf(stderr, "  ratio: %.2fx\n", ratio);
 
     free(src); free(dst);

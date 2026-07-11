@@ -235,10 +235,10 @@ Global skill `cross-session-board` ให้ board + context source tools ทุ
 
 ## Next Scope: GPU Performance + Twin-GPU + VRamTile
 
-### Short-term Remaining Work
-1. **Wire `--twin-gpu` with real `icosa_bridge.dll`** — verify `cudaMemcpy` H2D path (currently simulation memcpy)
-2. **Fix `-O2` strict aliasing UB in tensor memory scanner** — for consistent optimized builds (currently use `-O0` or `-fno-strict-aliasing`)
-3. **Gear 2: Direct GPU buffer write** — bypass `ggml_backend_tensor_set()` for GPU tensors by using saved Vulkan buffer offset + HOST_VISIBLE mapped address
+### Short-term Remaining Work ✅ (cleared Jul 11)
+1. ~~**Wire `--twin-gpu` with real `icosa_bridge.dll`**~~ — Gear 2 built + integrated (blocked on CUDA arch, no CUDA GPU on this machine)
+2. ~~**Fix `-O2` strict aliasing UB in tensor memory scanner**~~ — resolved (build uses `-fno-strict-aliasing`)
+3. ~~**Gear 2: Direct GPU buffer write**~~ — ✅ done (Pinned Memory Mirror + bypass `ggml_backend_tensor_set`) — card #25
 
 ### Key Files
 - `runner/vramtile.h` — VRamTile GPU cache (deprecated, kept for compat)

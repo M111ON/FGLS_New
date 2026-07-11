@@ -12,7 +12,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include "pogls_core.h"
-#include "pogls_meta.h"
 #include "gguf_reader.h"
 
 static void usage(const char *prog) {

@@ -11,7 +11,7 @@ INCS   += -I../collection/Hfolder
 INCS   += -I../collection/rdh
 INCS   += -II:/llama.cpp/include -II:/llama.cpp/ggml/include
 INCS   += -II:/llama.cpp/src
-INCS   += -Ipogls_core
+INCS   += -Ipogls_core -Ipogls_gguf -Ipogls_geo -Ipogls_dram -Ipogls_bermuda -Ipogls_kv -Ipogls_geopixel
 CFLAGS  = -O2 -std=c11 -fno-strict-aliasing $(INCS)
 CXXFLAGS = -O2 -std=c++17 $(INCS)
 LDLIBS  = -lm
@@ -22,15 +22,52 @@ RUNNER_DLLS = ./libllama.dll ./ggml.dll ./ggml-base.dll ./ggml-cpu-x64.dll ./ggm
 
 INSTALL_DIR ?= I:/FGLS_new/tools
 
-.PHONY: all core tools test install clean help
+.PHONY: all core modules tools test test_modules install clean help
 
 # ── Default: build everything ──
-all: core tools runner
+all: core modules tools runner
 
 # ── POGLS Core Library ──
-POGLS_CORE_OBJS = pogls_core/pogls_platform.o pogls_core/pogls_compress.o pogls_core/pogls_addr.o
+POGLS_CORE_OBJS = pogls_core/pogls_platform.o pogls_core/pogls_compress.o pogls_core/pogls_addr.o pogls_core/pogls_meta.o
 
 core: pogls_core.lib
+
+# ── POGLS Standalone Modules ──
+POGLS_MODULE_OBJS = pogls_gguf/pogls_gguf.o pogls_geo/pogls_geo.o \
+                    pogls_dram/pogls_dram.o pogls_bermuda/pogls_bermuda.o \
+                    pogls_kv/pogls_kv.o pogls_geopixel/pogls_geopixel.o
+
+modules: $(POGLS_MODULE_OBJS)
+
+pogls_gguf/pogls_gguf.o: pogls_gguf/pogls_gguf.c pogls_gguf/pogls_gguf.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+pogls_geo/pogls_geo.o: pogls_geo/pogls_geo.c pogls_geo/pogls_geo.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+pogls_dram/pogls_dram.o: pogls_dram/pogls_dram.c pogls_dram/pogls_dram.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+pogls_bermuda/pogls_bermuda.o: pogls_bermuda/pogls_bermuda.c pogls_bermuda/pogls_bermuda.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+pogls_kv/pogls_kv.o: pogls_kv/pogls_kv.c pogls_kv/pogls_kv.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+pogls_geopixel/pogls_geopixel.o: pogls_geopixel/pogls_geopixel.c pogls_geopixel/pogls_geopixel.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+# ── Module Tests ──
+test_modules: core modules
+	@echo "═══ POGLS Module Tests ═══"
+	@$(CC) $(CFLAGS) -o _test_core.exe pogls_core/test_pogls_core.c $(POGLS_CORE_OBJS) $(ZSTDLIB) -lm && ./_test_core.exe && $(RM) _test_core.exe
+	@$(CC) $(CFLAGS) -o _test_gguf.exe pogls_gguf/test_pogls_gguf.c pogls_gguf/pogls_gguf.o && ./_test_gguf.exe && $(RM) _test_gguf.exe
+	@$(CC) $(CFLAGS) -o _test_geo.exe pogls_geo/test_pogls_geo.c pogls_geo/pogls_geo.o -lm && ./_test_geo.exe && $(RM) _test_geo.exe
+	@$(CC) $(CFLAGS) -o _test_dram.exe pogls_dram/test_pogls_dram.c pogls_dram/pogls_dram.o pogls_core/pogls_platform.o && ./_test_dram.exe && $(RM) _test_dram.exe
+	@$(CC) $(CFLAGS) -o _test_bermuda.exe pogls_bermuda/test_pogls_bermuda.c pogls_bermuda/pogls_bermuda.o pogls_core/pogls_platform.o && ./_test_bermuda.exe && $(RM) _test_bermuda.exe
+	@$(CC) $(CFLAGS) -o _test_kv.exe pogls_kv/test_pogls_kv.c pogls_kv/pogls_kv.o && ./_test_kv.exe && $(RM) _test_kv.exe
+	@$(CC) $(CFLAGS) -o _test_geopixel.exe pogls_geopixel/test_pogls_geopixel.c pogls_geopixel/pogls_geopixel.o -lm && ./_test_geopixel.exe && $(RM) _test_geopixel.exe
+	@echo "═══ All module tests done ═══"
 
 pogls_core.lib: $(POGLS_CORE_OBJS)
 	ar rcs $@ $^
@@ -42,6 +79,9 @@ pogls_core/pogls_compress.o: pogls_core/pogls_compress.c pogls_core/pogls_compre
 	$(CC) $(CFLAGS) -DPOGLS_USE_ZSTD -c -o $@ $<
 
 pogls_core/pogls_addr.o: pogls_core/pogls_addr.c pogls_core/pogls_addr.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+pogls_core/pogls_meta.o: pogls_core/pogls_meta.c pogls_core/pogls_meta.h pogls_core/pogls_core.h
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 # ── POGLS CLI Tools ──
@@ -79,7 +119,7 @@ dramtile_bench.exe: pogls_tools/dramtile_bench.c dramtile_store.h
 	$(CC) $(CFLAGS) -o $@ $< -lm
 
 dramtile_cli.exe: pogls_tools/dramtile_cli.c dramtile_store.h pogls_core/pogls_platform.h ../collection/geo_dram_tile.h
-	$(CC) $(CFLAGS) -o $@ $< -lm
+	$(CC) $(CFLAGS) -o $@ $< -L. -lpogls_core -lm
 
 kv_delta_bench.exe: pogls_tools/kv_delta_bench.c kv_remap.h kv_remap_diamond.h
 	$(CC) $(CFLAGS) -o $@ $< -lm
@@ -100,8 +140,8 @@ pogls_cat.exe: pogls_tools/pogls_cat.c pogls_core/pogls_core.h
 pogls_diff.exe: pogls_tools/pogls_diff.c pogls_core/pogls_core.h
 	$(CC) $(CFLAGS) -o $@ $< -L. -lpogls_core -lm
 
-pogls_test.exe: pogls_tools/pogls_test.c pogls_core/pogls_core.h pogls_meta.h
-	$(CC) $(CFLAGS) -o $@ $< -L. -lpogls_core -lm
+pogls_test.exe: pogls_tools/pogls_test.c pogls_core/pogls_core.h
+	$(CC) $(CFLAGS) -DPOGLS_USE_ZSTD -o $@ $< -L. -lpogls_core $(ZSTDLIB) -lm
 
 # ── POGLS Loader (standalone) ──
 test_pogls_loader.exe: pogls_tools/test_pogls_loader.c pogls_core/pogls_loader.h
@@ -134,8 +174,12 @@ geo_jump.o: ../collection/geo_jump_module/src/geo_jump.c
 kv_tensor_access.o: kv_tensor_access.cpp kv_tensor_access.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
+test_core: core
+	$(CC) $(CFLAGS) -o test_pogls_core.exe pogls_core/test_pogls_core.c $(POGLS_CORE_OBJS) $(ZSTDLIB) -lm
+	./test_pogls_core.exe
+
 # ── Tests ──
-test: tools
+test: tools test_modules
 	@echo "═══ Running toolchain tests ═══"
 	@./pogls_test.exe && echo "[1/7] core tests: PASS" || echo "[1/7] core tests: FAIL"
 	@./pogls_roundtrip.exe pogls_core/pogls_platform.h && echo "[2/7] roundtrip: PASS" || echo "[2/7] roundtrip: FAIL"
@@ -170,7 +214,9 @@ install: tools
 
 # ── Clean ──
 clean:
-	rm -f *.exe *.o tests/*.exe pogls_core/*.o pogls_core.lib pogls_tools/*.o
+	rm -f *.exe *.o tests/*.exe pogls_core/*.o pogls_core.lib pogls_tools/*.o \
+	      pogls_gguf/*.o pogls_geo/*.o pogls_dram/*.o \
+	      pogls_bermuda/*.o pogls_kv/*.o pogls_geopixel/*.o
 
 # ── Help ──
 help:

@@ -12,9 +12,6 @@
 #include <string.h>
 #include "pogls_core.h"
 
-/* Include the full file-format header for struct definitions */
-#include "pogls_meta.h"
-
 static void usage(const char *prog) {
     fprintf(stderr, "Usage: %s <file.pogls>\n", prog);
     fprintf(stderr, "  Dumps POGLS file header, tensor count, metadata.\n");

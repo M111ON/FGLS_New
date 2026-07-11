@@ -21,20 +21,20 @@ static void usage(const char *prog) {
 }
 
 static void resolve_name(const char *name, uint8_t tier) {
-    uint32_t addr = pogls_addr_from_name(name, tier);
-    PoglsAddrDecomp d = pogls_addr_decompose(addr, tier);
+    uint32_t addr = pogls_from_name(name, tier);
+    PoglsAddrDecomp d = pogls_decompose(addr, tier);
 
     printf("Tensor:   %s\n", name);
     printf("Address:  %u (0x%04X)\n", addr, addr);
-    printf("Tier:     %u (%s)\n", tier, pogls_addr_tier_name(tier));
-    printf("Macro:    %u / %u\n", d.macro, POGLS_ADDR_TIERS[tier].macro_slots);
-    printf("Micro:    %u / %u\n", d.micro, POGLS_ADDR_TIERS[tier].micro_slots);
+    printf("Tier:     %u (%s)\n", tier, pogls_tier_name(tier));
+    printf("Macro:    %u / %u\n", d.macro, POGLS_TIERS[tier].macro_slots);
+    printf("Micro:    %u / %u\n", d.micro, POGLS_TIERS[tier].micro_slots);
     printf("Valid:    %s\n", pogls_addr_valid(addr, tier) ? "YES" : "NO");
 
     /* Show face rotation */
     printf("\nFace rotation:\n");
     for (int f = 0; f < 6; f++) {
-        uint32_t face_addr = pogls_addr_capo(addr, (uint32_t)f, tier);
+        uint32_t face_addr = pogls_capo(addr, (uint32_t)f, tier);
         printf("  face %d: %u (0x%04X)\n", f, face_addr, face_addr);
     }
     printf("\n");
@@ -76,11 +76,11 @@ static void resolve_file(const char *path, uint8_t tier) {
     printf("═══ GGUF Address Resolution ═══\n");
     printf("File:     %s\n", path);
     printf("Tensors:  %u\n", reader.n_tensors);
-    printf("Tier:     %u (%s)\n\n", tier, pogls_addr_tier_name(tier));
+    printf("Tier:     %u (%s)\n\n", tier, pogls_tier_name(tier));
 
     for (uint32_t i = 0; i < reader.n_tensors; i++) {
-        uint32_t addr = pogls_addr_from_name(reader.names[i], tier);
-        PoglsAddrDecomp d = pogls_addr_decompose(addr, tier);
+        uint32_t addr = pogls_from_name(reader.names[i], tier);
+        PoglsAddrDecomp d = pogls_decompose(addr, tier);
 
         printf("[%4u] %-40s  addr=%5u  macro=%3u  micro=%3u  %s  %u bytes\n",
                i, reader.names[i], addr, d.macro, d.micro,

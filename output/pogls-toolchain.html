@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>POGLS Toolchain — Interactive Explorer</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0d1117;color:#c9d1d9;font-family:'Segoe UI','Courier New',monospace;padding:20px;min-height:100vh}
+header{text-align:center;padding:20px 0 10px}
+header h1{color:#58a6ff;font-size:24px}
+header p{color:#8b949e;font-size:13px;margin-top:4px}
+.maze{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;max-width:1100px;margin:20px auto;grid-auto-rows:minmax(80px,auto)}
+.mcard{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;cursor:pointer;transition:all .15s;position:relative;overflow:hidden}
+.mcard:hover{transform:translateY(-2px)}
+.mcard.core{border-color:#58a6ff}.mcard.core .mtitle{color:#58a6ff}
+.mcard.gguf{border-color:#3fb950}.mcard.gguf .mtitle{color:#3fb950}
+.mcard.geo{border-color:#d29922}.mcard.geo .mtitle{color:#d29922}
+.mcard.dram{border-color:#f0883e}.mcard.dram .mtitle{color:#f0883e}
+.mcard.bermuda{border-color:#bc8cff}.mcard.bermuda .mtitle{color:#bc8cff}
+.mcard.kv{border-color:#79c0ff}.mcard.kv .mtitle{color:#79c0ff}
+.mcard.geopixel{border-color:#ff7b72}.mcard.geopixel .mtitle{color:#ff7b72}
+.mcard .badge{position:absolute;top:8px;right:10px;font-size:10px;color:#484f58}
+.mtitle{font-size:14px;font-weight:bold;margin-bottom:3px}
+.msize{font-size:10px;color:#484f58;margin-bottom:6px}
+.mfiles{display:none;margin-top:6px;border-top:1px solid #30363d;padding-top:6px}
+.mfiles.show{display:block}
+.mfile{padding:3px 6px;margin:1px 0;border-radius:3px;font-size:11px;color:#8b949e;cursor:pointer;background:#1c2128;display:inline-block;margin-right:4px}
+.mfile:hover{background:#30363d;color:#e6edf3}
+.srcview{display:none;max-width:1100px;margin:12px auto;background:#0d1117;border:1px solid #30363d;border-radius:8px;overflow:hidden}
+.srcview.show{display:block}
+.srcview .srchead{background:#161b22;padding:8px 14px;border-bottom:1px solid #30363d;display:flex;justify-content:space-between;align-items:center}
+.srcview .srchead span{font-size:12px;color:#58a6ff}
+.srcview .srchead button{background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:3px 10px;border-radius:4px;cursor:pointer;font-size:11px}
+.srcview .srchead button:hover{background:#30363d}
+.srcview pre{margin:0;padding:12px 14px;font-size:11px;line-height:1.5;overflow-x:auto;color:#e6edf3;tab-size:4}
+.toolsection{max-width:1100px;margin:20px auto;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px}
+.toolsection h3{color:#8b949e;font-size:13px;margin-bottom:8px}
+.tooltags{display:flex;flex-wrap:wrap;gap:6px}
+.tooltags span{background:#1c2128;padding:4px 10px;border-radius:4px;font-size:11px;color:#8b949e;border:1px solid #21262d}
+.footer{text-align:center;padding:20px;color:#484f58;font-size:11px}
+</style>
+</head>
+<body>
+
+<header>
+<h1>⚡ POGLS Toolchain</h1>
+<p>7 standalone modules · 280 tests · std C11 · zero external deps · <span style="color:#3fb950">276 KB</span></p>
+</header>
+
+<div class="maze" id="maze"></div>
+
+<div class="srcview" id="srcview">
+<div class="srchead"><span id="srcpath"></span><button onclick="closeSrc()">✕</button></div>
+<pre id="srcpre"></pre>
+</div>
+
+<div class="toolsection">
+<h3>🔧 CLI Tools (14)</h3>
+<div class="tooltags">
+<span>pogls_compress</span><span>pogls_decompress</span><span>pogls_inspect</span>
+<span>pogls_roundtrip</span><span>pogls_build</span><span>pogls_cat</span>
+<span>pogls_diff</span><span>pogls_verify</span><span>pogls_test</span>
+<span>addr_resolve</span><span>gguf_dump</span><span>dramtile_dump</span>
+<span>dramtile_bench</span><span>dramtile_cli</span><span>kv_delta_bench</span>
+<span>kv_delta_test</span><span>test_pogls_loader</span><span>pogls_loader_demo</span>
+</div>
+</div>
+
+<div class="footer">
+Build: <code>mingw32-make modules</code> · Test: <code>mingw32-make test_modules</code><br>
+I:\FGLS_new\runner\pogls_*/ · Jul 2026
+</div>
+
+<script>
+const MODULES = [
+  {id:'core',label:'pogls_core',cls:'core',tests:'38/38',size:'21 KB',files:5,
+   desc:'Platform + compression + address + metadata + store contract',
+   color:'#58a6ff',deps:[],cols:1,rows:1,
+   items:[
+     {name:'pogls_platform.h',sz:855},{name:'pogls_platform.c',sz:2430},
+     {name:'pogls_compress.h',sz:951},{name:'pogls_compress.c',sz:1991},
+     {name:'pogls_addr.h',sz:1766},{name:'pogls_addr.c',sz:4240},
+     {name:'pogls_meta.h',sz:2507},{name:'pogls_meta.c',sz:4679},
+     {name:'pogls_core.h',sz:199},{name:'pogls_store.h',sz:1298},
+   ]},
+  {id:'gguf',label:'pogls_gguf',cls:'gguf',tests:'9/9',size:'10 KB',files:2,
+   desc:'GGUF reader — standalone, no llama.cpp dependency',
+   color:'#3fb950',deps:['core'],cols:1,rows:1,
+   items:[
+     {name:'pogls_gguf.h',sz:1416},{name:'pogls_gguf.c',sz:8366},
+   ]},
+  {id:'geo',label:'pogls_geo',cls:'geo',tests:'18/18',size:'4 KB',files:2,
+   desc:'Y-triangle addressing · 144²=20736 · face jump · triplet table',
+   color:'#d29922',deps:['core'],cols:1,rows:1,
+   items:[
+     {name:'pogls_geo.h',sz:1525},{name:'pogls_geo.c',sz:2711},
+   ]},
+  {id:'dram',label:'pogls_dram',cls:'dram',tests:'8/8',size:'8 KB',files:2,
+   desc:'Flat-arena geometry-addressed tensor store',
+   color:'#f0883e',deps:['core','geo'],cols:1,rows:1,
+   items:[
+     {name:'pogls_dram.h',sz:1890},{name:'pogls_dram.c',sz:6714},
+   ]},
+  {id:'bermuda',label:'pogls_bermuda',cls:'bermuda',tests:'159/159',size:'20 KB',files:2,
+   desc:'Stride-37 router · Diamond Shell 3D · RLE · shadow bonds',
+   color:'#bc8cff',deps:['core'],cols:2,rows:1,
+   items:[
+     {name:'pogls_bermuda.h',sz:3044},{name:'pogls_bermuda.c',sz:17231},
+   ]},
+  {id:'kv',label:'pogls_kv',cls:'kv',tests:'9/9',size:'13 KB',files:2,
+   desc:'KV remap · skeleton+delta · ENTROPY/GEO/REBUILD · 3-lane rail',
+   color:'#79c0ff',deps:['bermuda'],cols:2,rows:4,
+   items:[
+     {name:'pogls_kv.h',sz:2098},{name:'pogls_kv.c',sz:11470},
+   ]},
+  {id:'geopixel',label:'pogls_geopixel',cls:'geopixel',tests:'39/39',size:'21 KB',files:2,
+   desc:'64B block codec · FLAT/SMOOTH/GRADIENT/EDGE · Hilbert 2D',
+   color:'#ff7b72',deps:['geo','bermuda'],cols:3,rows:1,
+   items:[
+     {name:'pogls_geopixel.h',sz:7127},{name:'pogls_geopixel.c',sz:14497},
+   ]},
+];
+
+// Lazy-load source on first click
+const SRC_CACHE = {};
+function showSrc(mod,p) {
+  const v = document.getElementById('srcview');
+  const path = `../runner/pogls_${mod}/${p}`;
+  document.getElementById('srcpath').textContent = path;
+  const pre = document.getElementById('srcpre');
+  if (SRC_CACHE[path]) {
+    pre.textContent = SRC_CACHE[path];
+  } else {
+    pre.textContent = 'Loading...';
+    fetch(path).then(r=>{if(!r.ok)throw Error();return r.text()}).then(t=>{
+      SRC_CACHE[path]=t; pre.textContent=t;
+    }).catch(()=>{pre.textContent='// Source not available in preview'});
+  }
+  v.classList.add('show');
+}
+function closeSrc(){document.getElementById('srcview').classList.remove('show')}
+
+function build() {
+  const maze = document.getElementById('maze');
+  // Sort: core first, then by deps
+  const sorted = [...MODULES].sort((a,b)=>{
+    if(a.id==='core')return -1;if(b.id==='core')return 1;
+    return a.deps.length-b.deps.length;
+  });
+  sorted.forEach(m=>{
+    const card = document.createElement('div');
+    card.className = `mcard ${m.cls}`;
+    card.innerHTML = `<span class="badge">${m.tests}</span>
+      <div class="mtitle">${m.label}</div>
+      <div class="msize">${m.size} · ${m.files} files · ${m.desc}</div>
+      <div class="mfiles" id="mf_${m.id}"></div>`;
+    const fdiv = card.querySelector('.mfiles');
+    m.items.forEach(item=>{
+      const tag = document.createElement('span');
+      tag.className = 'mfile';
+      tag.textContent = `${item.name} (${(item.sz/1024).toFixed(1)} KB)`;
+      tag.onclick = (e)=>{e.stopPropagation();showSrc(m.id,item.name)};
+      fdiv.appendChild(tag);
+    });
+    card.onclick = ()=>{
+      const all = document.querySelectorAll('.mfiles.show');
+      all.forEach(el=>el.classList.remove('show'));
+      fdiv.classList.toggle('show');
+    };
+    maze.appendChild(card);
+  });
+}
+document.addEventListener('DOMContentLoaded',build);
+</script>
+</body>
+</html>

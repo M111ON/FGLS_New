@@ -46,14 +46,14 @@ int main(int argc, char **argv) {
     fclose(fin);
 
     /* Compress */
-    size_t bound = pogls_compress_bound(sz);
+    size_t bound = sz + 4096;
     uint8_t *comp = (uint8_t*)malloc(bound);
-    uint32_t comp_type = 0, comp_nbytes = 0;
-    uint32_t comp_sz = pogls_compress_tensor(comp, bound, orig, sz, &comp_type, &comp_nbytes);
+    PoglsCompMeta meta;
+    uint32_t comp_sz = pogls_compress(comp, bound, orig, sz, &meta);
 
     /* Decompress */
     uint8_t *decomp = (uint8_t*)malloc(sz > 0 ? sz : 1);
-    uint32_t dec_sz = pogls_decompress_tensor(decomp, sz, comp, comp_sz, comp_type, (uint32_t)sz);
+    uint32_t dec_sz = pogls_decompress(decomp, sz, comp, &meta);
 
     /* Compare */
     int pass = (dec_sz == (uint32_t)sz) && (memcmp(orig, decomp, sz) == 0);
@@ -61,7 +61,7 @@ int main(int argc, char **argv) {
     printf("═══ Roundtrip Test ═══\n");
     printf("File:    %s\n", path);
     printf("Size:    %zu bytes\n", sz);
-    printf("Type:    %s\n", comp_type == POGLS_COMP_RAW ? "RAW" : "ZSTD");
+    printf("Type:    %s\n", meta.comp_type == POGLS_COMP_RAW ? "RAW" : "ZSTD");
     printf("Comp:    %u → %u bytes (%.2fx)\n",
            (uint32_t)sz, comp_sz,
            sz > 0 ? (double)sz / (double)comp_sz : 0.0);

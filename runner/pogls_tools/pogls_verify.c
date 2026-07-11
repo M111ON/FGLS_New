@@ -11,7 +11,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include "pogls_core.h"
-#include "pogls_meta.h"
 
 static void usage(const char *prog) {
     fprintf(stderr, "Usage: %s <file.pogls>\n", prog);
