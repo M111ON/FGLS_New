@@ -1,212 +1,726 @@
 <!DOCTYPE html>
-<html lang="en">
+<html class="dark" lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PROSE — Project Source Explorer</title>
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=block" rel="stylesheet">
+<script async src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{background:#0d1117;color:#c9d1d9;font-family:'Segoe UI','Courier New',monospace;padding:20px}
-header{text-align:center;padding:16px 0 8px}
-header h1{color:#58a6ff;font-size:22px}
-header p{color:#8b949e;font-size:12px;margin-top:2px}
-#topbar{display:flex;max-width:1100px;margin:10px auto;gap:10px;align-items:center}
-#topbar input{flex:1;background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:6px 12px;color:#c9d1d9;font-size:12px;outline:none}
-#topbar input:focus{border-color:#58a6ff}
-#topbar #count{color:#484f58;font-size:11px}
-#topbar button{background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:10px}
-#topbar button:hover{background:#30363d}
-#export-btn{background:#1f6feb;border:none;color:#fff;padding:4px 16px;border-radius:4px;cursor:pointer;font-size:11px}
-#export-btn:hover{background:#388bfd}
-.maze{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;max-width:1100px;margin:12px auto}
-@media(max-width:900px){.maze{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:600px){.maze{grid-template-columns:1fr}}
-.mcard{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;cursor:pointer;transition:all .1s;position:relative}
-.mcard:hover{transform:translateY(-1px)}
-.mcard .mtitle{font-size:13px;font-weight:bold;margin-bottom:2px}
-.mcard .mrole{font-size:9px;color:#484f58;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:1px}
-.mcard .msize{font-size:10px;color:#484f58;margin-bottom:4px}
-.mcard .badge{position:absolute;top:8px;right:10px;font-size:10px;color:#484f58}
-.mcard .doclink{position:absolute;top:8px;right:42px;font-size:10px;color:#8b949e;cursor:pointer;text-decoration:none;padding:1px 6px;border-radius:3px;background:#1c2128;display:none}
-.mcard .doclink:hover{background:#30363d;color:#58a6ff}
-.mcard .doclink.show{display:block}
-.mfiles{display:none;margin-top:5px;border-top:1px solid #30363d;padding-top:5px}
-.mfiles.show{display:block}
-.mfile{padding:4px 8px;margin:2px 0;border-radius:4px;font-size:10px;cursor:pointer;background:#1c2128;display:flex;flex-direction:column;gap:2px;transition:all .1s}
-.mfile:hover{background:#30363d}
-.mfile .fname{color:#e6edf3;font-weight:bold}
-.mfile .fpurpose{color:#8b949e;font-size:9px;line-height:1.4}
-#src-area{display:none;max-width:1100px;margin:12px auto;background:#0d1117;border:1px solid #30363d;border-radius:8px;overflow:hidden}
-#src-area.show{display:block}
-#src-area .head{background:#161b22;padding:6px 14px;border-bottom:1px solid #30363d;display:flex;justify-content:space-between;align-items:center}
-#src-area .head .path{font-size:11px;color:#58a6ff}
-#src-area .head .purpose{font-size:10px;color:#484f58;margin-left:10px}
-#src-area .head button{background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:2px 10px;border-radius:4px;cursor:pointer;font-size:10px}
-#src-area pre{margin:0;padding:12px 14px;font-size:11px;line-height:1.5;overflow:auto;max-height:50vh;color:#e6edf3;tab-size:4}
-#doc-modal{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:100}
-#doc-modal.show{display:flex;align-items:center;justify-content:center}
-#doc-modal .box{background:#0d1117;border:1px solid #30363d;border-radius:8px;width:80%;max-width:800px;max-height:80vh;overflow:hidden;display:flex;flex-direction:column}
-#doc-modal .head{background:#161b22;padding:10px 16px;border-bottom:1px solid #30363d;display:flex;justify-content:space-between;align-items:center}
-#doc-modal .head span{font-size:13px;color:#58a6ff}
-#doc-modal .head button{background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:2px 10px;border-radius:4px;cursor:pointer}
-#doc-modal .body{padding:16px;overflow-y:auto;font-size:13px;line-height:1.7;color:#e6edf3}
-#doc-modal .body h1{color:#58a6ff;font-size:18px;margin:0 0 8px}
-#doc-modal .body h2{color:#79c0ff;font-size:15px;margin:16px 0 6px;border-bottom:1px solid #21262d;padding-bottom:4px}
-#doc-modal .body h3{color:#8b949e;font-size:13px;margin:12px 0 4px}
-#doc-modal .body code{background:#1c2128;padding:1px 5px;border-radius:3px;font-size:12px;color:#e6edf3}
-#doc-modal .body pre{background:#1c2128;padding:10px 14px;border-radius:6px;overflow-x:auto;font-size:11px;margin:8px 0}
-#doc-modal .body table{border-collapse:collapse;margin:8px 0;font-size:12px}
-#doc-modal .body th{background:#161b22;color:#8b949e;padding:4px 10px;border:1px solid #30363d;text-align:left}
-#doc-modal .body td{padding:4px 10px;border:1px solid #30363d}
-#doc-modal .body strong{color:#e6edf3}
-.footer{text-align:center;padding:16px;color:#484f58;font-size:10px}
+.module-card{position:relative;background:rgba(255,255,255,0.03);transition:all 0.3s cubic-bezier(0.4,0,0.2,1);border:1px solid rgba(255,255,255,0.1)}
+.module-card:hover{border-color:transparent;transform:translateY(-2px);box-shadow:0 10px 30px -10px rgba(0,0,0,0.5)}
+.module-card::before{content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1px;background:linear-gradient(90deg,transparent 0%,transparent 40%,rgba(255,158,128,0.5) 50%,transparent 60%,transparent 100%);background-size:200% 100%;-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;opacity:0;transition:opacity 0.3s;pointer-events:none}
+.module-card:hover::before{opacity:1;animation:shimmer-linear 2s linear infinite}
+@keyframes shimmer-linear{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.status-dot-pulse{animation:pulse-linear 2s linear infinite}
+@keyframes pulse-linear{0%{transform:scale(1);opacity:1}50%{transform:scale(1.3);opacity:0.5}100%{transform:scale(1);opacity:1}}
+.mfile{display:none}
+.mfile.show{display:flex}
+.module-card.active-glow{box-shadow:0 0 20px 4px rgba(255,158,128,0.3);border-color:#FF9E80}
+.module-card.active-glow::before{opacity:1;animation:shimmer-linear 1.5s linear infinite}
+.mfile.active-glow{background:rgba(255,158,128,0.12)!important}
+.mfile.active-glow .fdot{box-shadow:0 0 6px 2px rgba(255,158,128,0.6)}
+#maze>:not(.module-card){display:none}
 </style>
+<style>
+body{font-family:Inter,ui-sans-serif,system-ui,sans-serif;font-size:14px;line-height:1.5;margin:0;padding:0}
+aside{width:280px;position:fixed;left:0;top:0;height:100vh;background:rgba(22,27,34,0.85);backdrop-filter:blur(12px);border-right:1px solid rgba(255,255,255,0.12);z-index:50;padding:16px 0}
+header.fixed{position:fixed;top:0;right:0;left:280px;height:64px;background:rgba(22,27,34,0.85);backdrop-filter:blur(12px);border-bottom:1px solid rgba(255,255,255,0.12);display:flex;align-items:center;justify-content:space-between;padding:0 16px;z-index:40}
+main{display:block!important;margin-left:280px;padding-top:80px;padding-left:32px;padding-right:32px;min-height:100vh}
+</style>
+<title>PROSE — POGLS Toolchain</title>
 </head>
-<body>
-<header>
-  <h1>POGLS Toolchain</h1>
-  <p>Project Source Explorer · <span id="total">0</span> files</p>
-</header>
-<div id="topbar">
-  <input type="text" id="search" placeholder="Search files or purpose..." oninput="filterFiles()"/>
-  <span id="count">0</span>
-  <button id="export-btn" onclick="exportFiles()"> Export</button>
+<body class="font-body-md text-body-md selection:bg-rose-gold/30" style="background:#10141a;color:#dfe2eb">
+<aside class="w-sidebar-width h-screen fixed left-0 top-0 bg-glass-surface backdrop-blur-md border-r border-glass-border flex flex-col py-gutter z-50">
+<div class="px-6 mb-10">
+<div class="font-headline-md text-headline-md font-bold text-primary flex items-center gap-2">
+<span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1;">architecture</span> Toolchain
 </div>
-<div class="maze" id="maze"></div>
-<div id="src-area"><div class="head"><span><span class="path" id="src-path"></span><span class="purpose" id="src-purpose"></span></span><button onclick="closeSrc()">x</button></div><iframe id="src-frame" style="width:100%;height:50vh;border:none;background:#0d1117;"></iframe></div>
-<div class="footer">Ctrl+F search · Esc close source · doc button on each module</div>
-<div id="doc-modal"><div class="box">
-  <div class="head"><span id="doc-title">Documentation</span><button onclick="closeDoc()">x</button></div>
-  <div class="body" id="doc-body"></div>
-</div></div>
+<div class="font-body-sm text-body-sm text-on-surface-variant opacity-60">PROSE Project Source Explorer</div>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 px-6 py-3 border-l-2 border-rose-gold bg-rose-gold/10 text-rose-gold font-bold transition-colors" href="#" onclick="event.preventDefault();document.getElementById('search').focus()">
+<span class="material-symbols-outlined">view_module</span>
+<span class="font-body-md text-body-md">Modules</span>
+</a>
+<a class="flex items-center gap-3 px-6 py-3 text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-colors duration-200" href="#" onclick="event.preventDefault();showAllFiles()">
+<span class="material-symbols-outlined">folder</span>
+<span class="font-body-md text-body-md">Files</span>
+</a>
+<a class="flex items-center gap-3 px-6 py-3 text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-colors duration-200" href="#" onclick="event.preventDefault();document.getElementById('export-btn').click()">
+<span class="material-symbols-outlined">description</span>
+<span class="font-body-md text-body-md">Export</span>
+</a>
+</nav>
+<div class="mt-auto px-2 space-y-1">
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-colors duration-200" href="#" onclick="event.preventDefault();openDoc('geofield')">
+<span class="material-symbols-outlined">menu_book</span>
+<span class="font-body-md text-body-md">GeoField Docs</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-colors duration-200" href="#" onclick="event.preventDefault();openDoc('geopixel-codec')">
+<span class="material-symbols-outlined">grid_view</span>
+<span class="font-body-md text-body-md">Geopixel Docs</span>
+</a>
+</div>
+</aside>
+<header class="fixed top-0 right-0 w-[calc(100%-280px)] h-16 bg-glass-surface backdrop-blur-lg border-b border-glass-border flex items-center justify-between px-gutter z-40">
+<div class="flex items-center gap-6 flex-1">
+<div class="relative max-w-md w-full">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm">search</span>
+<input class="w-full bg-surface-container-lowest/50 border border-glass-border rounded-lg pl-10 pr-4 py-1.5 font-body-sm text-body-sm focus:outline-none focus:ring-2 focus:ring-rose-gold/50 transition-all" id="search" placeholder="Search modules, files, docs..." oninput="filterFiles()">
+</div>
+<div class="flex items-center gap-4 text-on-surface-variant font-label-caps text-label-caps tracking-widest uppercase opacity-70">
+<div class="flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-success status-dot-pulse"></span>
+Total Files: <span id="total">0</span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-rose-gold status-dot-pulse"></span>
+<span id="version">v2.0</span>
+</div>
+<div class="flex items-center gap-1.5">
+<span id="monitor-status" class="w-1.5 h-1.5 rounded-full" style="background:#8b919d;color:#8b919d">○</span>
+<span class="font-label-caps">MON</span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-white/5 transition-colors" id="export-btn" onclick="exportFiles()" title="Export matching files">
+<span class="material-symbols-outlined">download</span>
+</button>
+<div class="h-8 w-[1px] bg-glass-border mx-2"></div>
+<div class="flex items-center gap-3 pl-2">
+<div class="text-right hidden sm:block">
+<div class="font-label-caps text-label-caps text-on-surface"><span id="module-count">0</span> modules</div>
+<div class="text-[10px] text-on-surface-variant opacity-60"><span id="visible-count">0</span> visible</div>
+</div>
+</div>
+</div>
+</header>
+<main class="ml-sidebar-width pt-20 p-8 min-h-screen">
+<header class="mb-10">
+<h1 class="font-headline-lg text-headline-lg text-on-surface mb-2">Module Explorer</h1>
+<p class="text-on-surface-variant max-w-2xl font-body-md text-body-md">Index of all registered POGLS toolchain modules. Navigate through architectural layers, view source documentation, and track integration coverage.</p>
+</header>
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6" id="maze"></div>
+<section class="mt-16" id="src-area" style="display:none">
+<div class="flex items-center justify-between mb-6">
+<h2 class="font-headline-md text-headline-md text-on-surface">Source Inspector</h2>
+<div class="flex items-center gap-2 px-3 py-1 bg-surface-container rounded-full border border-glass-border">
+<span class="w-2 h-2 rounded-full bg-rose-gold status-dot-pulse"></span>
+<span class="text-xs font-code-sm text-on-surface-variant">Viewing: <span id="src-path"></span></span>
+</div>
+</div>
+<div class="glass-panel rounded-xl overflow-hidden flex flex-col h-[500px] border border-glass-border bg-surface-container/30 backdrop-blur-md">
+<div class="flex items-center justify-between px-6 py-4 bg-white/5 border-b border-glass-border">
+<div class="flex items-center gap-4">
+<span class="material-symbols-outlined text-rose-gold">description</span>
+<div>
+<div class="text-sm font-bold text-on-surface" id="src-filename">file</div>
+<div class="text-[10px] text-on-surface-variant uppercase"><span id="src-module-name"></span> <span id="src-purpose"></span></div>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<button class="px-3 py-1.5 rounded bg-rose-gold/20 border border-rose-gold/30 text-rose-gold text-xs font-bold hover:bg-rose-gold/30 transition-colors" onclick="closeSrc()">Close</button>
+</div>
+</div>
+<pre id="src-content" class="dark" style="margin:0;padding:16px;font:11px/1.5 'JetBrains Mono',monospace;overflow:auto;flex:1;color:#e6edf3;background:#0d1117;tab-size:4;white-space:pre-wrap"></pre>
+</div>
+</section>
+</main>
+<div class="fixed inset-0 z-50 bg-slate-deep/90 backdrop-blur-2xl hidden flex items-center justify-center p-8" id="doc-modal">
+<div class="glass-panel w-full max-w-5xl max-h-full rounded-2xl flex flex-col shadow-2xl border border-glass-border bg-surface/60 overflow-hidden">
+<div class="p-6 border-b border-glass-border flex items-center justify-between bg-white/5">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded-xl bg-rose-gold/20 flex items-center justify-center text-rose-gold">
+<span class="material-symbols-outlined text-3xl">auto_stories</span>
+</div>
+<div>
+<h2 class="font-headline-md text-headline-md text-on-surface" id="doc-title">Documentation</h2>
+<p class="text-sm text-on-surface-variant" id="doc-subtitle"></p>
+</div>
+</div>
+<button class="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center transition-colors" onclick="closeDoc()">
+<span class="material-symbols-outlined">close</span>
+</button>
+</div>
+<div class="flex-1 overflow-y-auto p-10 prose prose-invert max-w-none" id="doc-body"></div>
+</div>
+</div>
+<button class="fixed bottom-8 right-8 w-14 h-14 bg-rose-gold text-on-primary rounded-full shadow-2xl flex items-center justify-center hover:scale-110 active:scale-95 transition-all z-40" onclick="allDocs()">
+<span class="material-symbols-outlined text-3xl">menu_book</span>
+</button>
 <script>var PROSE_JSON ={
  "project": "POGLS Toolchain",
- "version": "1.0",
+ "version": "2.0",
  "root": "runner",
  "modules": [
-  {"name":"core","label":"pogls_core","role":"Foundation Layer","desc":"Platform abstraction, compression API, 144 address space, v2 metadata format","tests":38,"doc":"pogls-core","files":[
-   {"path":"pogls_core/pogls_platform.h","purpose":"Platform: VirtualAlloc/mmap, 64-bit file I/O, xorshift32 PRNG"},
-   {"path":"pogls_core/pogls_platform.c","purpose":"Platform impl: Win32/POSIX branches"},
-   {"path":"pogls_core/pogls_compress.h","purpose":"Compression API: ZSTD + RAW fallback"},
-   {"path":"pogls_core/pogls_compress.c","purpose":"Compression impl: guarded by POGLS_USE_ZSTD"},
-   {"path":"pogls_core/pogls_addr.h","purpose":"144 address space: tier0-3, FNV-1a hash, capo rotation"},
-   {"path":"pogls_core/pogls_addr.c","purpose":"Address space impl: macro micro decompose"},
-   {"path":"pogls_core/pogls_meta.h","purpose":"POGLS v2 format: header tensor meta model meta"},
-   {"path":"pogls_core/pogls_meta.c","purpose":"Format read/write: binary search by addr or name"},
-   {"path":"pogls_core/pogls_core.h","purpose":"Umbrella include: single include for all sub-headers"},
-   {"path":"pogls_core/pogls_store.h","purpose":"Store contract: put/get/foreach lifecycle"}]},
-  {"name":"gguf","label":"pogls_gguf","role":"GGUF Reader Layer","desc":"Standalone GGUF file parser no llama.cpp dep","tests":9,"doc":"pogls-gguf","files":[
-   {"path":"pogls_gguf/pogls_gguf.h","purpose":"Public API: reader index structs open read close"},
-   {"path":"pogls_gguf/pogls_gguf.c","purpose":"Full GGUF parser: 31-type table KV skip tensor index"}]},
-  {"name":"geo","label":"pogls_geo","role":"Geometric Addressing Layer","desc":"Y-triangle coordinate system: 144 face jump triplet","tests":18,"doc":"pogls-geo","files":[
-   {"path":"pogls_geo/pogls_geo.h","purpose":"Geo API: decompose compose jump name hash triplet"},
-   {"path":"pogls_geo/pogls_geo.c","purpose":"Geo impl: FNV-1a hash 12-face pentagon triplet table"}]},
-  {"name":"dram","label":"pogls_dram","role":"Memory Store Layer","desc":"Flat-arena DRamTile: put/get by addr or name","tests":8,"doc":"pogls-dram","files":[
-   {"path":"pogls_dram/pogls_dram.h","purpose":"DRamTile API: open close put get name free save"},
-   {"path":"pogls_dram/pogls_dram.c","purpose":"DRamTile impl: flat arena KV flag bit 31 masking"}]},
-  {"name":"bermuda","label":"pogls_bermuda","role":"Routing + Compression Layer","desc":"Stride-37 router Diamond Shell 3D RLE shadow","tests":159,"doc":"pogls-bermuda","files":[
-   {"path":"pogls_bermuda/pogls_bermuda.h","purpose":"Bermuda API: route face scores diamond RLE shadow"},
-   {"path":"pogls_bermuda/pogls_bermuda.c","purpose":"Bermuda impl: Stride-37 Diamond Shell RLE ring buffer"}]},
-  {"name":"kv","label":"pogls_kv","role":"KV Cache Layer","desc":"Adaptive KV remap: ENTROPY GEO REBUILD 3-lane rail","tests":9,"doc":"pogls-kv","files":[
-   {"path":"pogls_kv/pogls_kv.h","purpose":"KV API: skeleton classify encode decode rail"},
-   {"path":"pogls_kv/pogls_kv.c","purpose":"KV impl: RLE GEO range delta 3-lane rail scanner"}]},
-  {"name":"geopixel","label":"pogls_geopixel","role":"Pixel Compression Layer","desc":"64B block codec: FLAT SMOOTH GRADIENT EDGE Hilbert","tests":39,"doc":"pogls-geopixel","files":[
-   {"path":"pogls_geopixel/pogls_geopixel.h","purpose":"Geopixel API: encode decode block tensor Hilbert session"},
-   {"path":"pogls_geopixel/pogls_geopixel.c","purpose":"Geopixel impl: classify variance Hilbert 2D session feed"}]},
-  {"name":"tools","label":"pogls_tools","role":"CLI Tools","desc":"14 command-line utilities for build inspect test debug","tests":0,"doc":"pogls-tools","files":[
-   {"path":"pogls_tools/pogls_compress.c","purpose":"CLI compress tensor data"},
-   {"path":"pogls_tools/pogls_decompress.c","purpose":"CLI decompress tensor data"},
-   {"path":"pogls_tools/pogls_inspect.c","purpose":"CLI inspect .pogls"},
-   {"path":"pogls_tools/pogls_roundtrip.c","purpose":"CLI roundtrip verify"},
-   {"path":"pogls_tools/pogls_build.c","purpose":"CLI build .pogls from GGUF"},
-   {"path":"pogls_tools/pogls_cat.c","purpose":"CLI concatenate .pogls"},
-   {"path":"pogls_tools/pogls_diff.c","purpose":"CLI diff .pogls"},
-   {"path":"pogls_tools/pogls_verify.c","purpose":"CLI verify .pogls"},
-   {"path":"pogls_tools/pogls_test.c","purpose":"CLI test runner"},
-   {"path":"pogls_tools/addr_resolve.c","purpose":"CLI name to address"},
-   {"path":"pogls_tools/gguf_dump.c","purpose":"CLI dump GGUF"},
-   {"path":"pogls_tools/dramtile_dump.c","purpose":"CLI dump DRamTile"},
-   {"path":"pogls_tools/dramtile_bench.c","purpose":"CLI bench DRamTile"},
-   {"path":"pogls_tools/kv_delta_bench.c","purpose":"CLI bench KV delta"}]}
+  {
+   "name": "core",
+   "label": "pogls_core",
+   "role": "Foundation Layer",
+   "desc": "Platform abstraction, compression API, 144\u00b2 address space, v2 metadata format",
+   "tests": 1,
+   "files": [
+    {
+     "path": "pogls_core/pogls_addr.c",
+     "purpose": "core module \u2014 pogls_addr.c"
+    },
+    {
+     "path": "pogls_core/pogls_addr.h",
+     "purpose": "\u2500\u2500 Core Geometry Constants \u2500\u2500"
+    },
+    {
+     "path": "pogls_core/pogls_compress.c",
+     "purpose": "core module \u2014 pogls_compress.c"
+    },
+    {
+     "path": "pogls_core/pogls_compress.h",
+     "purpose": "Compression flags (per-tensor)"
+    },
+    {
+     "path": "pogls_core/pogls_core.h",
+     "purpose": "core module \u2014 pogls_core.h"
+    },
+    {
+     "path": "pogls_core/pogls_loader.h",
+     "purpose": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
+    },
+    {
+     "path": "pogls_core/pogls_meta.c",
+     "purpose": "core module \u2014 pogls_meta.c"
+    },
+    {
+     "path": "pogls_core/pogls_meta.h",
+     "purpose": "core module \u2014 pogls_meta.h"
+    },
+    {
+     "path": "pogls_core/pogls_platform.c",
+     "purpose": "core module \u2014 pogls_platform.c"
+    },
+    {
+     "path": "pogls_core/pogls_platform.h",
+     "purpose": "\u2500\u2500 Memory Mapping \u2500\u2500"
+    },
+    {
+     "path": "pogls_core/pogls_store.h",
+     "purpose": "Forward declaration \u2014 implementation owns the struct layout"
+    }
+   ],
+   "dirs": [
+    "runner/pogls_core"
+   ]
+  },
+  {
+   "name": "gguf",
+   "label": "pogls_gguf",
+   "role": "GGUF Reader Layer",
+   "desc": "Standalone GGUF file parser \u2014 no llama.cpp dep",
+   "tests": 1,
+   "files": [
+    {
+     "path": "pogls_gguf/pogls_gguf.c",
+     "purpose": "gguf module \u2014 pogls_gguf.c"
+    },
+    {
+     "path": "pogls_gguf/pogls_gguf.h",
+     "purpose": "gguf module \u2014 pogls_gguf.h"
+    }
+   ],
+   "dirs": [
+    "runner/pogls_gguf"
+   ]
+  },
+  {
+   "name": "geo",
+   "label": "pogls_geo",
+   "role": "Geometric Addressing Layer",
+   "desc": "Y-triangle coordinate system: 144\u00b2 tower, jump, triplet",
+   "tests": 1,
+   "files": [
+    {
+     "path": "pogls_geo/pogls_geo.c",
+     "purpose": "geo module \u2014 pogls_geo.c"
+    },
+    {
+     "path": "pogls_geo/pogls_geo.h",
+     "purpose": "geo module \u2014 pogls_geo.h"
+    }
+   ],
+   "dirs": [
+    "runner/pogls_geo"
+   ]
+  },
+  {
+   "name": "dram",
+   "label": "pogls_dram",
+   "role": "Memory Store Layer",
+   "desc": "Flat-arena DRamTile: put/get by addr or name",
+   "tests": 1,
+   "files": [
+    {
+     "path": "pogls_dram/pogls_dram.c",
+     "purpose": "DirEntry is internal \u2014 not exposed in the public header"
+    },
+    {
+     "path": "pogls_dram/pogls_dram.h",
+     "purpose": "\u2500\u2500 Store structure (fields are internal, access via API only) \u2500\u2500"
+    }
+   ],
+   "dirs": [
+    "runner/pogls_dram"
+   ]
+  },
+  {
+   "name": "bermuda",
+   "label": "pogls_bermuda",
+   "role": "Routing + Compression Layer",
+   "desc": "Stride-37 router, Diamond Shell, 3D RLE, shadow bond",
+   "tests": 1,
+   "files": [
+    {
+     "path": "pogls_bermuda/pogls_bermuda.c",
+     "purpose": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
+    },
+    {
+     "path": "pogls_bermuda/pogls_bermuda.h",
+     "purpose": "\u2500\u2500 Constants \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+    }
+   ],
+   "dirs": [
+    "runner/pogls_bermuda"
+   ]
+  },
+  {
+   "name": "kv",
+   "label": "pogls_kv",
+   "role": "KV Cache Layer",
+   "desc": "Adaptive KV remap: ENTROPY/GEO/REBUILD, 3-lane rail",
+   "tests": 1,
+   "files": [
+    {
+     "path": "pogls_kv/pogls_kv.c",
+     "purpose": "kv module \u2014 pogls_kv.c"
+    },
+    {
+     "path": "pogls_kv/pogls_kv.h",
+     "purpose": "kv module \u2014 pogls_kv.h"
+    }
+   ],
+   "dirs": [
+    "runner/pogls_kv"
+   ]
+  },
+  {
+   "name": "geopixel",
+   "label": "pogls_geopixel",
+   "role": "Pixel Compression Layer",
+   "desc": "64B block codec: FLAT/SMOOTH/GRADIENT/EDGE, Hilbert",
+   "tests": 1,
+   "files": [
+    {
+     "path": "pogls_geopixel/pogls_geopixel.c",
+     "purpose": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
+    },
+    {
+     "path": "pogls_geopixel/pogls_geopixel.h",
+     "purpose": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
+    }
+   ],
+   "dirs": [
+    "runner/pogls_geopixel"
+   ],
+   "doc": "pogls-geopixel"
+  },
+  {
+   "name": "tools",
+   "label": "pogls_tools",
+   "role": "CLI Tools",
+   "desc": "14 CLI utilities for build, inspect, test, debug",
+   "tests": 2,
+   "files": [
+    {
+     "path": "pogls_tools/addr_resolve.c",
+     "purpose": "Show face rotation"
+    },
+    {
+     "path": "pogls_tools/dramtile_bench.c",
+     "purpose": "Init"
+    },
+    {
+     "path": "pogls_tools/dramtile_cli.c",
+     "purpose": "Command: create"
+    },
+    {
+     "path": "pogls_tools/dramtile_dump.c",
+     "purpose": "Just init an anonymous store for inspection"
+    },
+    {
+     "path": "pogls_tools/gguf_dump.c",
+     "purpose": "Get file size"
+    },
+    {
+     "path": "pogls_tools/kv_delta_bench.c",
+     "purpose": "Allocate"
+    },
+    {
+     "path": "pogls_tools/kv_delta_test.c",
+     "purpose": "Fill with deterministic pattern"
+    },
+    {
+     "path": "pogls_tools/pogls_build.c",
+     "purpose": "Minimal GGUF \u2192 POGLS: read header + tensor info, write .pogls"
+    },
+    {
+     "path": "pogls_tools/pogls_cat.c",
+     "purpose": "tools module \u2014 pogls_cat.c"
+    },
+    {
+     "path": "pogls_tools/pogls_compress.c",
+     "purpose": "Read input"
+    },
+    {
+     "path": "pogls_tools/pogls_decompress.c",
+     "purpose": "Read input header"
+    },
+    {
+     "path": "pogls_tools/pogls_diff.c",
+     "purpose": "Compare byte by byte"
+    },
+    {
+     "path": "pogls_tools/pogls_inspect.c",
+     "purpose": "Read file \u2014 try v2 first, fallback to raw read"
+    },
+    {
+     "path": "pogls_tools/pogls_loader_demo.c",
+     "purpose": "Open POGLS file"
+    },
+    {
+     "path": "pogls_tools/pogls_roundtrip.c",
+     "purpose": "Read input"
+    },
+    {
+     "path": "pogls_tools/pogls_test.c",
+     "purpose": "\u2500\u2500 Platform Tests \u2500\u2500"
+    },
+    {
+     "path": "pogls_tools/pogls_verify.c",
+     "purpose": "Read raw header"
+    }
+   ],
+   "dirs": [
+    "runner/pogls_tools"
+   ]
+  },
+  {
+   "name": "geopixel-codec",
+   "label": "geopixel-codec",
+   "role": "Standalone Geopixel Codec",
+   "desc": "Full tile codec: v21 encoder/decoder, Hamburger classify, GPX decode, Hilbert curve",
+   "tests": 0,
+   "files": [
+    {
+     "path": "geopixel/src/geo_jump.c",
+     "purpose": "geopixel-codec module \u2014 geo_jump.c"
+    },
+    {
+     "path": "geopixel/src/geopixel_v21_o25.c",
+     "purpose": "grad mode counters (thread-safe) \u2014 reset before encode, read after"
+    },
+    {
+     "path": "geopixel/include/geo_frame_seek.h",
+     "purpose": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
+    },
+    {
+     "path": "geopixel/include/geo_frame_seek_wang.h",
+     "purpose": "\u2500\u2500 Fib 2&7 chord functions \u2500\u2500"
+    },
+    {
+     "path": "geopixel/include/geo_jump.h",
+     "purpose": "always-available helpers (not dependent on GEO_JUMP_INLINE)"
+    },
+    {
+     "path": "geopixel/include/hex_tile.h",
+     "purpose": "geopixel-codec module \u2014 hex_tile.h"
+    },
+    {
+     "path": "geopixel/include/pogls_hilbert64_encoder.h",
+     "purpose": "\u2500\u2500 Constants \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+    },
+    {
+     "path": "geopixel/include/pogls_to_geopixel.h",
+     "purpose": "\u2500\u2500 Header (16B) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+    }
+   ],
+   "dirs": [
+    "geopixel/src",
+    "geopixel/include"
+   ],
+   "doc": "pogls-geopixel-codec"
+  },
+  {
+   "name": "geofield",
+   "label": "geofield",
+   "role": "GeoField Topology & Routing",
+   "desc": "Goldberg sphere GpAddr, Metatron 4-route, FrustumBlock/DiamondBlock, Trit decomposition",
+   "tests": 2,
+   "files": [
+    {
+     "path": "collection/geopixel/geofield/fabric_wire.h",
+     "purpose": "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 frozen constants \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+    },
+    {
+     "path": "collection/geopixel/geofield/fabric_wire_drain.h",
+     "purpose": "\u2500\u2500 drain_state bit masks \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+    },
+    {
+     "path": "collection/geopixel/geofield/frustum_gcfs.h",
+     "purpose": "\u2500\u2500 file constants \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+    },
+    {
+     "path": "collection/geopixel/geofield/frustum_layout_v2.h",
+     "purpose": "\u2500\u2500 frozen constants \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+    },
+    {
+     "path": "collection/geopixel/geofield/frustum_slot64.h",
+     "purpose": "\u2500\u2500 constants \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+    },
+    {
+     "path": "collection/geopixel/geofield/frustum_trit.h",
+     "purpose": "\u2500\u2500 constants \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+    },
+    {
+     "path": "collection/geopixel/geofield/geo_field_bridge.c",
+     "purpose": "\u2500\u2500 Geofield headers \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+    },
+    {
+     "path": "collection/geopixel/geofield/geo_field_core.h",
+     "purpose": "\u2500\u2500 Dependencies \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+    },
+    {
+     "path": "collection/geopixel/geofield/geo_field_core_2.h",
+     "purpose": "\u2500\u2500 Dependencies \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+    },
+    {
+     "path": "collection/geopixel/geofield/geo_field_core_3.h",
+     "purpose": "\u2500\u2500 Dependencies \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+    },
+    {
+     "path": "collection/geopixel/geofield/geo_field_main.c",
+     "purpose": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
+    },
+    {
+     "path": "collection/geopixel/geofield/geo_flow_chunker_v8.h",
+     "purpose": "One content-driven segment \u2014 v8: 64-bit for large file support"
+    },
+    {
+     "path": "collection/geopixel/geofield/geo_flow_chunker_v8_1.h",
+     "purpose": "One content-driven segment \u2014 v8: 64-bit for large file support"
+    },
+    {
+     "path": "collection/geopixel/geofield/geo_goldberg_sphere.h",
+     "purpose": "\u2500\u2500 Constants \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+    },
+    {
+     "path": "collection/geopixel/geofield/geo_gp_frustum_bridge.h",
+     "purpose": "\u2500\u2500 Slot mapping result \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+    },
+    {
+     "path": "collection/geopixel/geofield/geo_metatron_route.h",
+     "purpose": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
+    },
+    {
+     "path": "collection/geopixel/geofield/geo_reshape_junction.h",
+     "purpose": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
+    },
+    {
+     "path": "collection/geopixel/geofield/geo_temporal_lut.h",
+     "purpose": "geofield module \u2014 geo_temporal_lut.h"
+    },
+    {
+     "path": "collection/geopixel/geofield/geo_tring_walk.h",
+     "purpose": "\u2500\u2500 enc: tile i \u2192 TRing position 0..719 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+    },
+    {
+     "path": "collection/geopixel/geofield/geometry_store_reader.h",
+     "purpose": "geofield module \u2014 geometry_store_reader.h"
+    },
+    {
+     "path": "collection/geopixel/geofield/goldberg_shutter.h",
+     "purpose": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
+    },
+    {
+     "path": "collection/geopixel/geofield/heptagon_fence.h",
+     "purpose": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
+    },
+    {
+     "path": "collection/geopixel/geofield/pogls_1440.h",
+     "purpose": "\u2500\u2500 constants \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+    },
+    {
+     "path": "collection/geopixel/geofield/pogls_atomic_reshape.h",
+     "purpose": "\u2500\u2500 result codes \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+    },
+    {
+     "path": "collection/geopixel/geofield/pogls_fold.h",
+     "purpose": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
+    },
+    {
+     "path": "collection/geopixel/geofield/pogls_rotation.h",
+     "purpose": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
+    },
+    {
+     "path": "collection/geopixel/geofield/skeleton_index.h",
+     "purpose": "\u2500\u2500 Constants \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+    },
+    {
+     "path": "collection/geopixel/geofield/tring.h",
+     "purpose": "\u2500\u2500 Node \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+    }
+   ],
+   "dirs": [
+    "collection/geopixel/geofield"
+   ],
+   "doc": "geofield"
+  }
  ]
-}
+};
 </script>
 <script>
-let PROSE = PROSE_JSON;
-const SRC_CACHE = {};
-let openFiles = null;
+var PROSE = PROSE_JSON;
+const MOD_COLORS = {
+  'core':'#58a6ff','gguf':'#3fb950','geo':'#d29922',
+  'dram':'#f0883e','bermuda':'#bc8cff','kv':'#79c0ff',
+  'geopixel':'#ff7b72','tools':'#8b949e',
+  'geopixel-codec':'#ffa657','geofield':'#79c0ff'
+};
+const MOD_ICONS = {
+  'core':'database','gguf':'neurology','geo':'public',
+  'dram':'memory','bermuda':'waves','kv':'key',
+  'geopixel':'grid_view','tools':'build',
+  'geopixel-codec':'grid_on','geofield':'language'
+};
+const MOD_COLOR_BG = {
+  'core':'bg-primary/5','gguf':'bg-tertiary/5','geo':'bg-secondary/5',
+  'dram':'bg-error/5','bermuda':'bg-primary-container/5','kv':'bg-accent-blue/5',
+  'geopixel':'bg-tertiary-fixed/5','tools':'bg-on-surface-variant/5',
+  'geopixel-codec':'bg-rose-gold/5','geofield':'bg-accent-blue/5'
+};
 
 document.getElementById('total').textContent = (()=>{
   let n=0;PROSE.modules.forEach(m=>n+=(m.files||[]).length);return n;
 })();
-
-const MOD_COLORS = {
-  'core':'#58a6ff','gguf':'#3fb950','geo':'#d29922',
-  'dram':'#f0883e','bermuda':'#bc8cff','kv':'#79c0ff',
-  'geopixel':'#ff7b72','tools':'#8b949e'
-};
+document.getElementById('module-count').textContent = PROSE.modules.length;
+document.getElementById('version').textContent = 'v'+PROSE.version;
 
 function render(){
-  document.getElementById('maze').innerHTML = '';
+  const maze = document.getElementById('maze');
+  maze.innerHTML = '';
   PROSE.modules.forEach(m => {
     const files = m.files || [];
+    const color = MOD_COLORS[m.name]||'#8b949e';
+    const icon = MOD_ICONS[m.name]||'code';
+    const bg = MOD_COLOR_BG[m.name]||'bg-white/5';
+    const badge = m.role.split(' ')[0].toUpperCase();
+    const hasDoc = m.doc ? '1' : '';
+
     const card = document.createElement('div');
-    card.className = 'mcard';
-    card.style.borderColor = MOD_COLORS[m.name]||'#30363d';
-    card.innerHTML = `<span class="badge">${m.tests||'—'}</span>
-      <a class="doclink${m.doc?' show':''}" onclick="event.stopPropagation();openDoc('${m.name}')"> doc</a>
-      <div class="mrole">${m.role||''}</div>
-      <div class="mtitle" style="color:${MOD_COLORS[m.name]||'#c9d1d9'}">${m.label||m.name}</div>
-      <div class="msize">${files.length} files · ${m.desc||''}</div>
-      <div class="mfiles" id="mf_${m.name}"></div>`;
-    const fdiv = card.querySelector('.mfiles');
+    card.className = 'module-card rounded-xl overflow-hidden group cursor-pointer focus:outline-none focus:ring-2 focus:ring-rose-gold/50';
+    card.setAttribute('role','button');
+    card.setAttribute('tabindex','0');
+
+    let filesHtml = '';
     files.forEach(f => {
-      const el = document.createElement('div');
-      el.className = 'mfile';
-      el.dataset.path = f.path;
-      el.dataset.purpose = f.purpose;
-      el.innerHTML = `<span class="fname">${f.path.split('/').pop()}</span>
-        <span class="fpurpose">${f.purpose}</span>`;
-      el.title = f.purpose;
-      el.onclick = (e)=>{e.stopPropagation();showSrc(m.name,f);};
-      fdiv.appendChild(el);
+      const p = f.path.split('/').pop();
+      filesHtml += `<div class="mfile flex items-center gap-2 py-1.5 px-2 rounded hover:bg-white/5 transition-colors cursor-pointer" data-path="${f.path}" data-purpose="${f.purpose}" onclick="event.stopPropagation();showSrc('${m.name}','${f.path}','${p}','${f.purpose.replace(/'/g,"\\'")}')">`;
+      filesHtml += `<span class="w-1 h-1 rounded-full fdot" style="background:${color}"></span>`;
+      filesHtml += `<span class="font-code-sm text-code-sm" style="color:${color}">${p}</span>`;
+      filesHtml += `</div>`;
     });
-    card.onclick = ()=>{
-      openFiles = openFiles === m.name ? null : m.name;
-      document.querySelectorAll('.mfiles.show').forEach(el=>el.classList.remove('show'));
-      if(openFiles) document.getElementById('mf_'+openFiles).classList.add('show');
+
+    card.innerHTML = `
+      <div class="p-5 border-b border-glass-border ${bg}">
+        <div class="flex justify-between items-start mb-4">
+          <div class="w-10 h-10 rounded-lg" style="background:${color}20;display:flex;align-items:center;justify-content:center;color:${color}">
+            <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1;">${icon}</span>
+          </div>
+          <span class="px-2 py-0.5 rounded font-label-caps text-[10px]" style="background:${color};color:#000">${badge}</span>
+        </div>
+        <h3 class="font-headline-sm text-headline-sm text-on-surface transition-colors group-hover:text-rose-gold">${m.label||m.name}</h3>
+        <p class="text-on-surface-variant text-body-sm mb-4">${m.desc||''}</p>
+        <div class="flex gap-4">
+          <div class="text-center">
+            <div class="font-bold text-on-surface">${files.length}</div>
+            <div class="text-[10px] text-on-surface-variant uppercase tracking-tighter">Files</div>
+          </div>
+          <div class="text-center">
+            <div class="font-bold text-on-surface">${m.tests||'—'}</div>
+            <div class="text-[10px] text-on-surface-variant uppercase tracking-tighter">Tests</div>
+          </div>
+          ${hasDoc ? `<div class="text-center"><button class="px-2 py-0.5 rounded font-label-caps text-[10px]" style="background:${color}30;color:${color}" onclick="event.stopPropagation();openDoc('${m.name}')">DOCS</button></div>` : ''}
+        </div>
+      </div>
+      <div class="hidden px-5 py-4 bg-black/20" id="expand-${m.name}">
+        ${filesHtml}
+      </div>
+    `;
+
+    card.onclick = () => {
+      const el = document.getElementById('expand-'+m.name);
+      if(el) el.classList.toggle('hidden');
     };
-    document.getElementById('maze').appendChild(card);
+    maze.appendChild(card);
   });
-  document.getElementById('count').textContent = (()=>{let n=0;PROSE.modules.forEach(m=>n+=(m.files||[]).length);return n;})();
+
+  document.getElementById('visible-count').textContent = PROSE.modules.length;
 }
 
 function filterFiles(){
   const q = document.querySelector('#search').value.toLowerCase();
   let vis = 0;
-  document.querySelectorAll('.mcard').forEach(c=>{
+  document.querySelectorAll('.module-card').forEach(c => {
     let show = false;
-    c.querySelectorAll('.mfile').forEach(f=>{
-      const match = !q || f.dataset.path.toLowerCase().includes(q) || f.dataset.purpose.toLowerCase().includes(q);
+    const label = c.querySelector('h3').textContent.toLowerCase();
+    const desc = c.querySelector('p').textContent.toLowerCase();
+    let fileMatch = false;
+    c.querySelectorAll('.mfile').forEach(f => {
+      const path = f.dataset.path.toLowerCase();
+      const purpose = f.dataset.purpose.toLowerCase();
+      const match = !q || path.includes(q) || purpose.includes(q);
       f.style.display = match ? 'flex' : 'none';
-      if(match) show = true;
+      if(match) fileMatch = true;
     });
+    show = !q || label.includes(q) || desc.includes(q) || fileMatch;
     c.style.display = show ? 'block' : 'none';
     if(show) vis++;
   });
-  const total = (()=>{let n=0;PROSE.modules.forEach(m=>n+=(m.files||[]).length);return n;})();
-  document.getElementById('count').textContent = vis+'/'+total;
+  document.getElementById('visible-count').textContent = vis;
 }
 
-function showSrc(mod, file){
-  const area = document.getElementById('src-area');
-  document.getElementById('src-path').textContent = 'runner/'+file.path;
-  document.getElementById('src-purpose').textContent = file.purpose;
-  const ifr = document.getElementById('src-frame');
-  ifr.src = '../runner/'+file.path;
-  area.classList.add('show');
+function showSrc(modName, path, filename, purpose){
+  const runnerMods=['core','gguf','geo','dram','bermuda','kv','geopixel','tools'];
+  const src = '../'+(runnerMods.includes(modName)?'runner/':'')+path;
+  fetch(src).then(r=>{if(!r.ok)throw Error();return r.text()}).then(t=>{
+    const area = document.getElementById('src-area');
+    document.getElementById('src-path').textContent = path;
+    document.getElementById('src-filename').textContent = filename;
+    document.getElementById('src-module-name').textContent = modName+':';
+    document.getElementById('src-purpose').textContent = purpose||'';
+    document.getElementById('src-content').textContent = t;
+    area.style.display = 'block';
+    area.scrollIntoView({behavior:'smooth'});
+  }).catch(()=>{});
 }
-function closeSrc(){document.getElementById('src-area').classList.remove('show')}
+
+function closeSrc(){
+  document.getElementById('src-area').style.display = 'none';
+}
+
+function showAllFiles(){
+  document.getElementById('search').value = '';
+  filterFiles();
+  document.getElementById('search').focus();
+}
 
 let DOC_CACHE = {};
 function openDoc(modName){
@@ -215,53 +729,63 @@ function openDoc(modName){
   const modal = document.getElementById('doc-modal');
   const body = document.getElementById('doc-body');
   document.getElementById('doc-title').textContent = mod.label+' — '+mod.role;
-  modal.classList.add('show');
-  // Show inline data immediately
-  let h = '<h1>'+mod.label+'</h1><p><em>'+mod.role+'</em></p>';
-  h += '<p>'+mod.desc+'</p>';
+  document.getElementById('doc-subtitle').textContent = mod.desc||'';
+  modal.classList.remove('hidden');
+  let h = '<div class="space-y-8"><section><h3 class="text-2xl font-bold text-rose-gold mb-4 border-b border-glass-border pb-2">Overview</h3>';
+  h += '<p class="text-on-surface-variant leading-relaxed">'+mod.desc+'</p>';
   if(mod.design_note) h += '<h2>Design Note</h2><p>'+mod.design_note+'</p>';
-  h += '<h2>Files</h2><ul>';
-  (mod.files||[]).forEach(f=>h += '<li><code>'+f.path.split('/').pop()+'</code> — '+f.purpose+'</li>');
-  h += '</ul>';
+  h += '<h4 class="text-lg font-bold mt-6 mb-2">Files ('+(mod.files||[]).length+')</h4><ul>';
+  (mod.files||[]).forEach(f => h += '<li><code class="bg-white/5 px-1.5 py-0.5 rounded text-rose-gold">'+f.path.split('/').pop()+'</code> <span class="text-on-surface-variant">— '+f.purpose+'</span></li>');
+  h += '</ul></section></div>';
   body.innerHTML = h;
-  // Try to load .md for richer view
   if(mod.doc && !DOC_CACHE[mod.doc]){
     fetch('../docs/'+mod.doc+'.md').then(r=>{if(!r.ok)throw Error();return r.text()}).then(md=>{
       DOC_CACHE[mod.doc] = renderMD(md);
-      if(modal.classList.contains('show')) body.innerHTML = DOC_CACHE[mod.doc];
-    }).catch(()=>{/*inline view is sufficient*/});
-  } else if(mod.doc && DOC_CACHE[mod.doc] && modal.classList.contains('show')){
+      if(!modal.classList.contains('hidden')) body.innerHTML = DOC_CACHE[mod.doc];
+  }).catch(()=>{
+    document.getElementById('src-area').style.display = 'none';
+  });
+  } else if(mod.doc && DOC_CACHE[mod.doc] && !modal.classList.contains('hidden')){
     body.innerHTML = DOC_CACHE[mod.doc];
   }
 }
+
+function allDocs(){
+  const list = PROSE.modules.filter(m=>m.doc).map(m=>m.name);
+  if(list.length===0) return;
+  openDoc(list[0]);
+}
+
 function renderMD(md){
-  let h = '';
+  let h = '<div class="space-y-8">';
+  let inSection = false;
   md.split('\n').forEach(line=>{
-    if(line.startsWith('# ')) h += '<h1>'+line.slice(2)+'</h1>';
-    else if(line.startsWith('## ')) h += '<h2>'+line.slice(3)+'</h2>';
-    else if(line.startsWith('### ')) h += '<h3>'+line.slice(4)+'</h3>';
-    else if(line.startsWith('- ')) h += '<p>\u2022 '+line.slice(2)+'</p>';
+    if(line.startsWith('# ')){h+='<section><h3 class="text-2xl font-bold text-rose-gold mb-4 border-b border-glass-border pb-2">'+line.slice(2)+'</h3>';inSection=true;}
+    else if(line.startsWith('## ')){h+='<h4 class="text-lg font-bold text-on-surface mt-6 mb-2">'+line.slice(3)+'</h4>';inSection=true;}
+    else if(line.startsWith('### ')){h+='<h5 class="text-base font-bold text-on-surface-variant mt-4 mb-1">'+line.slice(4)+'</h5>';inSection=true;}
     else if(line.startsWith('| ')){}
-    else if(line.trim()==='') h += '<br>';
-    else h += '<p>'+line.replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')+'</p>';
+    else if(line.trim()===''){h+='<br>';}
+    else if(line.startsWith('- ')){h+='<p class="text-on-surface-variant leading-relaxed pl-4">\u2022 '+line.slice(2).replace(/`([^`]+)`/g,'<code class="bg-white/5 px-1 rounded text-rose-gold">$1</code>').replace(/\*\*(.+?)\*\*/g,'<strong class="text-on-surface">$1</strong>')+'</p>';}
+    else{h+='<p class="text-on-surface-variant leading-relaxed">'+line.replace(/`([^`]+)`/g,'<code class="bg-white/5 px-1 rounded text-rose-gold">$1</code>').replace(/\*\*(.+?)\*\*/g,'<strong class="text-on-surface">$1</strong>')+'</p>';}
   });
+  h += '</div>';
   return h;
 }
-function closeDoc(){document.getElementById('doc-modal').classList.remove('show')}
+
+function closeDoc(){document.getElementById('doc-modal').classList.add('hidden');}
 
 async function exportFiles(){
   const q = document.querySelector('#search').value.toLowerCase();
   const all = [];
-  PROSE.modules.forEach(m=>(m.files||[]).forEach(f=>{
-    const path = 'runner/'+f.path;
-    if(!q || path.toLowerCase().includes(q) || f.purpose.toLowerCase().includes(q)) all.push({path,purpose:f.purpose});
+  PROSE.modules.forEach(m => (m.files||[]).forEach(f => {
+    const path = '../'+f.path;
+    if(!q || path.toLowerCase().includes(q) || f.purpose.toLowerCase().includes(q)) all.push({path, purpose:f.purpose});
   }));
   if(all.length===0) return;
-  // PowerShell script (Windows)
   let ps = '# PROSE export — '+all.length+' files\n';
   ps += '$DEST = "prose-export"\n';
   ps += 'if(!(Test-Path $DEST)) { New-Item -ItemType Directory -Path $DEST | Out-Null }\n\n';
-  all.forEach(f=>{
+  all.forEach(f => {
     const dir = f.path.substring(0, f.path.lastIndexOf('/'));
     ps += 'if(!(Test-Path "$DEST/'+dir+'")) { New-Item -ItemType Directory -Path "$DEST/'+dir+'" | Out-Null }\n';
     ps += 'Copy-Item "'+f.path+'" "$DEST/'+f.path+'"\n';
@@ -270,19 +794,121 @@ async function exportFiles(){
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([ps],{type:'text/plain'}));
   a.download = 'prose-export.ps1'; a.click();
-  // manifest
   const a2 = document.createElement('a');
   a2.href = URL.createObjectURL(new Blob([all.map(f=>f.path).join('\n')],{type:'text/plain'}));
   a2.download = 'prose-manifest.txt'; a2.click();
   URL.revokeObjectURL(a.href); URL.revokeObjectURL(a2.href);
 }
 
-document.addEventListener('keydown',e=>{
+document.addEventListener('keydown', e => {
   if(e.key==='Escape'){closeSrc();closeDoc()}
   if(e.ctrlKey&&e.key==='f'){e.preventDefault();document.getElementById('search').focus()}
 });
 
+function computeDirs(){
+  PROSE.modules.forEach(m => {
+    if(!m.dirs && m.files && m.files.length){
+      const s = new Set();
+      m.files.forEach(f => { const d = f.path.substring(0, f.path.lastIndexOf('/')); if(d) s.add(d); });
+      m.dirs = [...s];
+    }
+  });
+}
+
+function initMonitorSync(){
+  const wsUrl = 'ws://localhost:8765';
+  let ws = null;
+  let reconnectTimer = null;
+  let monitorFiles = {};
+
+  function connect(){
+    try{
+      if(typeof WebSocket==='undefined'){reconnectTimer=setTimeout(connect,5000);return}
+      ws = new WebSocket(wsUrl);
+      ws.onopen = () => { document.getElementById('monitor-status').textContent = '●'; document.getElementById('monitor-status').style.color = '#3fb950'; };
+      ws.onclose = () => { document.getElementById('monitor-status').textContent = '○'; document.getElementById('monitor-status').style.color = '#8b919d'; reconnectTimer = setTimeout(connect, 5000); };
+      ws.onerror = () => { ws.close(); };
+      ws.onmessage = e => {
+        try{
+          const d = JSON.parse(e.data);
+          if(d.type === 'project_index' && d.tree) syncTree(d.tree);
+          else if(d.type === 'update' && d.tree) syncTree(d.tree);
+          else if(d.type === 'activity_event') highlightPath(d.path);
+          else if(d.type === 'file_progress' && d.path) highlightPath(d.path);
+        }catch(_){}
+      };
+    }catch(_){reconnectTimer = setTimeout(connect, 5000);}
+  }
+
+  function syncTree(node){
+    if(!node || !node.children) return;
+    const found = {};
+    walkTree(node, '', found);
+    for(const mod of PROSE.modules){
+      const known = new Set((mod.files||[]).map(f => f.path));
+      const dirs = (mod.dirs||[]);
+      for(const [path, purpose] of Object.entries(found)){
+        if(known.has(path)) continue;
+        if(dirs.length && !dirs.some(d => path.startsWith(d))) continue;
+        if(!mod.files) mod.files = [];
+        mod.files.push({path, purpose});
+      }
+    }
+    render();
+  }
+
+  function walkTree(node, prefix, out){
+    if(!node) return;
+    const name = node.name || '';
+    const path = prefix ? prefix+'/'+name : name;
+    if(node.type === 'file'){
+      const ext = name.split('.').pop();
+      if(ext === 'c' || ext === 'h') out[path] = 'Monitor: '+name;
+    }
+    if(node.children) node.children.forEach(c => walkTree(c, path, out));
+  }
+
+  function highlightPath(path){
+    if(!path) return;
+    const filename = path.split('/').pop();
+    if(!filename) return;
+    clearHighlights();
+    let found = false;
+    document.querySelectorAll('.mfile').forEach(f => {
+      const fPath = f.dataset.path || '';
+      const fName = fPath.split('/').pop();
+      if(fPath === path || fName === filename){
+        f.classList.add('active-glow');
+        const parentExpand = f.closest('[id^="expand-"]');
+        if(parentExpand) parentExpand.classList.remove('hidden');
+        const card = f.closest('.module-card');
+        if(card){
+          card.classList.add('active-glow');
+          card.scrollIntoView({behavior:'smooth', block:'nearest'});
+        }
+        found = true;
+      }
+    });
+  }
+
+  function clearHighlights(){
+    document.querySelectorAll('.module-card.active-glow').forEach(c => c.classList.remove('active-glow'));
+    document.querySelectorAll('.mfile.active-glow').forEach(f => f.classList.remove('active-glow'));
+  }
+
+  document.addEventListener('keydown', e => { if(e.key==='Escape') clearHighlights(); });
+  connect();
+}
+
+initMonitorSync();
 render();
+</script>
+<script>
+function applyTailwind(){
+  if(typeof tailwind==='undefined'){setTimeout(applyTailwind,20);return}
+  try{tailwind.config={darkMode:"class",theme:{extend:{colors:{"surface-container":"#1c2026","error":"#ffb4ab","tertiary-container":"#40ba51","surface-dim":"#10141a","surface-container-lowest":"#0a0e14","surface":"#10141a","surface-container-highest":"#31353c","slate-deep":"#0d1117","on-primary":"#00315c","on-tertiary-fixed":"#002105","inverse-surface":"#dfe2eb","primary-container":"#58a6ff","emerald-success":"#3fb950","glass-border":"rgba(255, 255, 255, 0.12)","surface-container-high":"#262a31","secondary-container":"#0064e0","navy-layer":"#161b22","tertiary-fixed-dim":"#67df70","on-tertiary":"#00390d","secondary-fixed":"#d9e2ff","on-background":"#dfe2eb","on-surface-variant":"#c0c7d4","primary":"#a2c9ff","on-primary-container":"#003a6b","on-secondary-fixed":"#001944","on-error-container":"#ffdad6","primary-fixed-dim":"#a2c9ff","secondary-fixed-dim":"#afc6ff","on-surface":"#dfe2eb","primary-fixed":"#d3e4ff","outline-variant":"#414752","tertiary":"#67df70","error-container":"#93000a","on-secondary-fixed-variant":"#004299","surface-variant":"#31353c","tertiary-fixed":"#83fc89","outline":"#8b919d","on-secondary":"#002d6d","on-tertiary-container":"#004411","surface-bright":"#353940","surface-tint":"#a2c9ff","background":"#10141a","inverse-primary":"#0060aa","on-secondary-container":"#e7ebff","inverse-on-surface":"#2d3137","accent-blue":"#58a6ff","on-error":"#690005","on-tertiary-fixed-variant":"#005317","secondary":"#afc6ff","on-primary-fixed-variant":"#004882","glass-surface":"rgba(22, 27, 34, 0.7)","on-primary-fixed":"#001c38","surface-container-low":"#181c22","rose-gold":"#FF9E80","salmon-gold":"#E0A0A0"},borderRadius:{DEFAULT:"0.25rem",lg:"0.5rem",xl:"0.75rem",full:"9999px"},spacing:{"card-gap":"12px","container-max":"1280px","sidebar-width":"280px",gutter:"16px",unit:"4px"},fontFamily:{"code-sm":["JetBrains Mono"],"headline-lg":["Inter"],"headline-sm":["Inter"],"body-lg":["Inter"],"label-caps":["Inter"],"body-md":["Inter"],"code-md":["JetBrains Mono"],"body-sm":["Inter"],"headline-md":["Inter"]},fontSize:{"code-sm":["11px",{"lineHeight":"1.4","fontWeight":"400"}],"headline-lg":["32px",{"lineHeight":"1.2","letterSpacing":"-0.02em","fontWeight":"700"}],"headline-sm":["18px",{"lineHeight":"1.4","fontWeight":"600"}],"body-lg":["16px",{"lineHeight":"1.6","fontWeight":"400"}],"label-caps":["11px",{"lineHeight":"1","letterSpacing":"0.05em","fontWeight":"700"}],"body-md":["14px",{"lineHeight":"1.5","fontWeight":"400"}],"code-md":["13px",{"lineHeight":"1.5","fontWeight":"400"}],"body-sm":["13px",{"lineHeight":"1.5","fontWeight":"400"}],"headline-md":["24px",{"lineHeight":"1.3","fontWeight":"600"}]},animation:{"continuous-shimmer":"shimmer-linear 4s linear infinite","continuous-pulse":"pulse-linear 3s linear infinite"},keyframes:{"shimmer-linear":{"0%":{"background-position":"200% 0"},"100%":{"background-position":"-200% 0"}},"pulse-linear":{"0%":{"opacity":"0.3"},"50%":{"opacity":"0.7"},"100%":{"opacity":"0.3"}}}}}}}catch(_e){}
+}
+applyTailwind();
 </script>
 </body>
 </html>
