@@ -91,6 +91,15 @@ def cmd_list(args):
     print(f"\n{len(entries)} files")
 
 
+def cmd_fingerprint(args):
+    src = Path(args.source)
+    codec = _resolve_codec(getattr(args, 'codec', 'zlib'))
+    pack = BermudaPack(codec)
+    out = Path(args.output) if args.output else src.with_suffix('.fingerprint.png')
+    pack.fingerprint(src, out, args.size)
+    print(f"Fingerprint → {out}  ({args.size}x{args.size})")
+
+
 def cmd_cat(args):
     src = Path(args.source)
     codec = _resolve_codec(args.codec)
@@ -122,6 +131,12 @@ def main():
     p_unpack.add_argument("--verify-only", action="store_true",
                           help="Check xxh64 without writing files")
     p_unpack.set_defaults(func=cmd_unpack)
+
+    p_fp = sub.add_parser("fingerprint", help="Generate visual fingerprint PNG")
+    p_fp.add_argument("source", help="Input .bpack path")
+    p_fp.add_argument("--output", "-o", default=None, help="Output PNG path (default: {source}.fingerprint.png)")
+    p_fp.add_argument("--size", type=int, default=512, help="Image size in pixels (default: 512)")
+    p_fp.set_defaults(func=cmd_fingerprint)
 
     p_list = sub.add_parser("list", help="List files in pack")
     p_list.add_argument("source", help="Input .bpack path")

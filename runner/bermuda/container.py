@@ -149,6 +149,12 @@ class BermudaPack:
         return results
 
     # ─── Cat ─────────────────────────────────────────────────────────
+    def fingerprint(self, pack_path: Path, out_path: Path, img_size: int = 512):
+        """Generate unique visual fingerprint PNG from pack contents."""
+        entries = self._load_manifest(pack_path)
+        from .fingerprint import generate_fingerprint
+        generate_fingerprint(entries, out_path, img_size)
+
     def cat(self, pack_path: Path, file_path: str) -> bytes:
         """Read a single file from pack without extracting everything.
 
