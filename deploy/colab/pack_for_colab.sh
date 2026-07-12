@@ -27,15 +27,19 @@ cp_if() {
     cp -a "$src" "$dst"
 }
 
-# ── 1. Runner source files (27 files) ──
+# ── 1. Runner source files ──
 echo "[runner] copying source files..."
 for f in \
+    runner/Makefile \
+    runner/build.sh \
     runner/llama_pogls_runner_sid_v2.c \
     runner/kv_tensor_access.cpp \
     runner/kv_tensor_access.h \
     runner/gguf_index.h \
+    runner/gguf_reader.h \
     runner/sid_cache.h \
     runner/sid_loader.h \
+    runner/sid_page_table.h \
     runner/sid_delta_ring.h \
     runner/sid_timetravel.h \
     runner/bond_discovery.h \
@@ -44,26 +48,64 @@ for f in \
     runner/goldberg_sid.h \
     runner/cosplay.h \
     runner/session_profile.h \
+    runner/capture_radial.h \
+    runner/geo_radial_capture.h \
     runner/dramtile_store.h \
     runner/dramtile_container.h \
+    runner/vramtile.h \
+    runner/capo_store.h \
     runner/kv_sid_evict.h \
     runner/kv_page_store.h \
     runner/kv_swap.h \
     runner/kv_remap.h \
     runner/kv_remap_rail.h \
+    runner/kv_remap_diamond.h \
+    runner/gear_shift.h \
     runner/capture_pipeline.h \
     runner/geo_addr.h \
     runner/gear_lock.h \
+    runner/gear2.h \
     runner/pogls_v3_framestore.h \
+    runner/pogls_v3_geopixel.h \
+    runner/pogls_v3_geoframe.h \
+    runner/pogls_store.h \
     runner/gguf_to_pogls_v3_framestore.c \
     runner/addr_space.h; do
     cp_if "$f"
 done
 
-# ── 2. Collection headers (transitive deps, 30 files) ──
-echo "[collection] copying headers..."
-# root
+# ── 1b. POGLS CLI toolchain (pogls_core + pogls_tools + modules) ──
+echo "[pogls] copying POGLS toolchain..."
 for f in \
+    runner/pogls_core/pogls_core.h \
+    runner/pogls_core/pogls_platform.h runner/pogls_core/pogls_platform.c \
+    runner/pogls_core/pogls_addr.h runner/pogls_core/pogls_addr.c \
+    runner/pogls_core/pogls_compress.h runner/pogls_core/pogls_compress.c \
+    runner/pogls_core/pogls_meta.h runner/pogls_core/pogls_meta.c \
+    runner/pogls_core/pogls_loader.h runner/pogls_core/pogls_store.h \
+    runner/pogls_gguf/pogls_gguf.h runner/pogls_gguf/pogls_gguf.c \
+    runner/pogls_geo/pogls_geo.h runner/pogls_geo/pogls_geo.c \
+    runner/pogls_dram/pogls_dram.h runner/pogls_dram/pogls_dram.c \
+    runner/pogls_kv/pogls_kv.h runner/pogls_kv/pogls_kv.c \
+    runner/pogls_geopixel/pogls_geopixel.h runner/pogls_geopixel/pogls_geopixel.c; do
+    if [ -f "$ROOT/$f" ]; then cp_if "$f"; fi
+done
+
+# All CLI tool sources
+echo "[pogls_tools] copying CLI tool sources..."
+for f in runner/pogls_tools/*.c; do
+    cp_if "${f#$ROOT/}"
+done
+
+# ── 2. Collection headers (transitive deps) ──
+echo "[collection] copying headers..."
+for f in \
+    collection/pogls_bond.h \
+    collection/pogls_pipeline.h \
+    collection/pogls_config.h \
+    collection/pogls_bond_chain.h \
+    collection/pogls_bond_export.h \
+    collection/pogls_geofield_export.h \
     collection/coord_spine.h \
     collection/geo_dram_tile.h \
     collection/geo_frame_seek.h \
@@ -74,27 +116,26 @@ for f in \
     collection/tw_bridge.h \
     collection/tw_capture_int.h \
     collection/tw_face_bridge.h \
+    collection/tw_rewind_bridge.h \
     collection/tw_tensor_capture.h \
     collection/zone_card_sid.h \
     collection/goldberg_sid.h \
     collection/hex_codec.h \
-    collection/sid.h \
-    collection/pogls_pipeline.h \
-    collection/pogls_bond.h; do
-    cp_if "$f"
+    collection/sid.h; do
+    if [ -f "$ROOT/$f" ]; then cp_if "$f"; fi
 done
 
-# core
+# core/
 for f in \
     collection/core/core/pogls_platform.h \
     collection/core/core/pogls_fold.h; do
-    cp_if "$f"
+    if [ -f "$ROOT/$f" ]; then cp_if "$f"; fi
 done
 
-# rdh
+# rdh/
 for f in \
     collection/rdh/rdh_addr.h; do
-    cp_if "$f"
+    if [ -f "$ROOT/$f" ]; then cp_if "$f"; fi
 done
 
 # geo_jump_module
@@ -114,10 +155,10 @@ for f in \
     collection/geo_jump_module/include/weight_bond_codec.h \
     collection/geo_jump_module/include/zone_card.h \
     collection/geo_jump_module/src/geo_jump.c; do
-    cp_if "$f"
+    if [ -f "$ROOT/$f" ]; then cp_if "$f"; fi
 done
 
-# src (collection/src)
+# src/
 for f in \
     collection/src/tensor_memory.h \
     collection/src/icosa_bridge_loader.h \
@@ -160,7 +201,7 @@ for f in \
     collection/src/geo_gpx_anim.h \
     collection/src/hex_tile.h \
     collection/src/heptagon_fence.h; do
-    cp_if "$f"
+    if [ -f "$ROOT/$f" ]; then cp_if "$f"; fi
 done
 
 # diamond/dgls
@@ -172,19 +213,22 @@ for f in \
     if [ -f "$ROOT/$f" ]; then cp_if "$f"; fi
 done
 
-# Also check geopixel path for shell codec (older location)
+# Geopixel shell codecs (alternative paths)
 for f in \
-    collection/geopixel/binary_shell_codec.h \
     collection/geopixel/hbv_bundle/Diamond_decode_hamburger/diamond_shell_codec.h \
     collection/geopixel/hbv_bundle/Diamond_shell_encoder/diamond_shell_v2.h \
     collection/geopixel/hbv_bundle/Diamond_shell_encoder/pogls_fold.h; do
     if [ -f "$ROOT/$f" ]; then cp_if "$f"; fi
 done
 
-# ── 3. Build + run script ──
-echo "[script] copying build_runner.sh..."
-cp "$ROOT/deploy/colab/build_runner.sh" "$OUTDIR/build_runner.sh"
-chmod +x "$OUTDIR/build_runner.sh"
+# ── 3. Build + run scripts ──
+echo "[scripts] copying deploy scripts..."
+for s in build_runner.sh build_cli.sh build_colab.sh; do
+    if [ -f "$ROOT/deploy/colab/$s" ]; then
+        cp "$ROOT/deploy/colab/$s" "$OUTDIR/"
+        chmod +x "$OUTDIR/$s"
+    fi
+done
 
 # ── 4. Create tarball ──
 echo ""
