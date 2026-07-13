@@ -69,6 +69,7 @@
 #define POGLS_RAIL_USE_POGTIME
 #include "kv_remap_rail.h"
 #include "pogls_store.h"
+#include "pogls_compress.h"
 #include "pogls_meta.h"
 #include "pogls_v3_geopixel.h"
 #include "pogls_v3_framestore.h"

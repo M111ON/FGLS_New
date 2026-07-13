@@ -6,6 +6,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#ifndef _WIN32
+#include <unistd.h>
+#ifndef _fseeki64
+#define _fseeki64(f,o,w) fseeko(f,(off_t)(o),w)
+#endif
+#ifndef __int64
+#define __int64 long long
+#endif
+#endif
+
 #define GGUF_MAGIC   0x46554747u
 #define GGUF_ALIGN   32u
 

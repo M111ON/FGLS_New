@@ -7,10 +7,15 @@
 #include <stdio.h>
 
 /* Portable 64-bit file seek */
-#if defined(__MINGW32__)
-  #define pogls_fseek64 fseeko64
-#else
+#ifdef _WIN32
+  #include <windows.h>
   #define pogls_fseek64 _fseeki64
+#else
+  #include <unistd.h>
+  #define pogls_fseek64(f,o,w) fseeko(f,(off_t)(o),w)
+  #ifndef __int64
+  #define __int64 long long
+  #endif
 #endif
 
 #define POGLS_STORE_MAGIC     0x53474F50

@@ -1,0 +1,196 @@
+- generic [active] [ref=f44e1]:
+  - complementary [ref=f44e2]:
+    - generic [ref=f44e3]:
+      - generic [ref=f44e4]:
+        - generic [ref=f44e5]: architecture
+        - text: Toolchain
+      - generic [ref=f44e6]: PROSE Project Source Explorer
+    - navigation [ref=f44e7]:
+      - link "view_module Modules" [ref=f44e8] [cursor=pointer]:
+        - /url: "#"
+        - generic [ref=f44e9]: view_module
+        - generic [ref=f44e10]: Modules
+      - link "folder Files" [ref=f44e11] [cursor=pointer]:
+        - /url: "#"
+        - generic [ref=f44e12]: folder
+        - generic [ref=f44e13]: Files
+      - link "description Export" [ref=f44e14] [cursor=pointer]:
+        - /url: "#"
+        - generic [ref=f44e15]: description
+        - generic [ref=f44e16]: Export
+    - generic [ref=f44e17]:
+      - link "menu_book GeoField Docs" [ref=f44e18] [cursor=pointer]:
+        - /url: "#"
+        - generic [ref=f44e19]: menu_book
+        - generic [ref=f44e20]: GeoField Docs
+      - link "grid_view Geopixel Docs" [ref=f44e21] [cursor=pointer]:
+        - /url: "#"
+        - generic [ref=f44e22]: grid_view
+        - generic [ref=f44e23]: Geopixel Docs
+  - banner [ref=f44e24]:
+    - generic [ref=f44e25]:
+      - generic [ref=f44e26]:
+        - generic [ref=f44e27]: search
+        - textbox "Search modules, files, docs..." [ref=f44e28]
+      - generic [ref=f44e29]:
+        - generic [ref=f44e30]:
+          - text: "Total Files:"
+          - generic [ref=f44e32]: "76"
+        - generic [ref=f44e33]: v2.0
+        - generic [ref=f44e36]:
+          - generic [ref=f44e37]: ●
+          - generic [ref=f44e38]: MON
+    - generic [ref=f44e39]:
+      - button "download" [ref=f44e40] [cursor=pointer]
+      - generic [ref=f44e44]:
+        - generic [ref=f44e45]: 10 modules
+        - generic [ref=f44e46]: 10 visible
+  - main [ref=f44e47]:
+    - generic [ref=f44e48]:
+      - heading "Module Explorer" [level=1] [ref=f44e49]
+      - paragraph [ref=f44e50]: Index of all registered POGLS toolchain modules. Navigate through architectural layers, view source documentation, and track integration coverage.
+    - generic [ref=f44e51]:
+      - button "database FOUNDATION pogls_core Platform abstraction, compression API, 144² address space, v2 metadata format 11 Files 1 Tests" [ref=f44e210] [cursor=pointer]:
+        - generic [ref=f44e211]:
+          - generic [ref=f44e212]:
+            - generic [ref=f44e213]: database
+            - generic [ref=f44e215]: FOUNDATION
+          - heading "pogls_core" [level=3] [ref=f44e216]
+          - paragraph [ref=f44e217]: Platform abstraction, compression API, 144² address space, v2 metadata format
+          - generic [ref=f44e218]:
+            - generic [ref=f44e219]:
+              - generic [ref=f44e220]: "11"
+              - generic [ref=f44e221]: Files
+            - generic [ref=f44e222]:
+              - generic [ref=f44e223]: "1"
+              - generic [ref=f44e224]: Tests
+      - button "neurology GGUF pogls_gguf Standalone GGUF file parser — no llama.cpp dep 2 Files 1 Tests" [ref=f44e225] [cursor=pointer]:
+        - generic [ref=f44e226]:
+          - generic [ref=f44e227]:
+            - generic [ref=f44e228]: neurology
+            - generic [ref=f44e230]: GGUF
+          - heading "pogls_gguf" [level=3] [ref=f44e231]
+          - paragraph [ref=f44e232]: Standalone GGUF file parser — no llama.cpp dep
+          - generic [ref=f44e233]:
+            - generic [ref=f44e234]:
+              - generic [ref=f44e235]: "2"
+              - generic [ref=f44e236]: Files
+            - generic [ref=f44e237]:
+              - generic [ref=f44e238]: "1"
+              - generic [ref=f44e239]: Tests
+      - 'button "public GEOMETRIC pogls_geo Y-triangle coordinate system: 144² tower, jump, triplet 2 Files 1 Tests" [ref=f44e240] [cursor=pointer]':
+        - generic [ref=f44e241]:
+          - generic [ref=f44e242]:
+            - generic [ref=f44e243]: public
+            - generic [ref=f44e245]: GEOMETRIC
+          - heading "pogls_geo" [level=3] [ref=f44e246]
+          - paragraph [ref=f44e247]: "Y-triangle coordinate system: 144² tower, jump, triplet"
+          - generic [ref=f44e248]:
+            - generic [ref=f44e249]:
+              - generic [ref=f44e250]: "2"
+              - generic [ref=f44e251]: Files
+            - generic [ref=f44e252]:
+              - generic [ref=f44e253]: "1"
+              - generic [ref=f44e254]: Tests
+      - 'button "memory MEMORY pogls_dram Flat-arena DRamTile: put/get by addr or name 2 Files 1 Tests" [ref=f44e255] [cursor=pointer]':
+        - generic [ref=f44e256]:
+          - generic [ref=f44e257]:
+            - generic [ref=f44e258]: memory
+            - generic [ref=f44e260]: MEMORY
+          - heading "pogls_dram" [level=3] [ref=f44e261]
+          - paragraph [ref=f44e262]: "Flat-arena DRamTile: put/get by addr or name"
+          - generic [ref=f44e263]:
+            - generic [ref=f44e264]:
+              - generic [ref=f44e265]: "2"
+              - generic [ref=f44e266]: Files
+            - generic [ref=f44e267]:
+              - generic [ref=f44e268]: "1"
+              - generic [ref=f44e269]: Tests
+      - button "waves ROUTING pogls_bermuda Stride-37 router, Diamond Shell, 3D RLE, shadow bond 2 Files 1 Tests" [ref=f44e270] [cursor=pointer]:
+        - generic [ref=f44e271]:
+          - generic [ref=f44e272]:
+            - generic [ref=f44e273]: waves
+            - generic [ref=f44e275]: ROUTING
+          - heading "pogls_bermuda" [level=3] [ref=f44e276]
+          - paragraph [ref=f44e277]: Stride-37 router, Diamond Shell, 3D RLE, shadow bond
+          - generic [ref=f44e278]:
+            - generic [ref=f44e279]:
+              - generic [ref=f44e280]: "2"
+              - generic [ref=f44e281]: Files
+            - generic [ref=f44e282]:
+              - generic [ref=f44e283]: "1"
+              - generic [ref=f44e284]: Tests
+      - 'button "key KV pogls_kv Adaptive KV remap: ENTROPY/GEO/REBUILD, 3-lane rail 2 Files 1 Tests" [ref=f44e285] [cursor=pointer]':
+        - generic [ref=f44e286]:
+          - generic [ref=f44e287]:
+            - generic [ref=f44e288]: key
+            - generic [ref=f44e290]: KV
+          - heading "pogls_kv" [level=3] [ref=f44e291]
+          - paragraph [ref=f44e292]: "Adaptive KV remap: ENTROPY/GEO/REBUILD, 3-lane rail"
+          - generic [ref=f44e293]:
+            - generic [ref=f44e294]:
+              - generic [ref=f44e295]: "2"
+              - generic [ref=f44e296]: Files
+            - generic [ref=f44e297]:
+              - generic [ref=f44e298]: "1"
+              - generic [ref=f44e299]: Tests
+      - 'button "grid_view PIXEL pogls_geopixel 64B block codec: FLAT/SMOOTH/GRADIENT/EDGE, Hilbert 2 Files 1 Tests DOCS" [ref=f44e300] [cursor=pointer]':
+        - generic [ref=f44e301]:
+          - generic [ref=f44e302]:
+            - generic [ref=f44e303]: grid_view
+            - generic [ref=f44e305]: PIXEL
+          - heading "pogls_geopixel" [level=3] [ref=f44e306]
+          - paragraph [ref=f44e307]: "64B block codec: FLAT/SMOOTH/GRADIENT/EDGE, Hilbert"
+          - generic [ref=f44e308]:
+            - generic [ref=f44e309]:
+              - generic [ref=f44e310]: "2"
+              - generic [ref=f44e311]: Files
+            - generic [ref=f44e312]:
+              - generic [ref=f44e313]: "1"
+              - generic [ref=f44e314]: Tests
+            - button "DOCS" [ref=f44e316]
+      - button "build CLI pogls_tools 14 CLI utilities for build, inspect, test, debug 17 Files 2 Tests" [ref=f44e317] [cursor=pointer]:
+        - generic [ref=f44e318]:
+          - generic [ref=f44e319]:
+            - generic [ref=f44e320]: build
+            - generic [ref=f44e322]: CLI
+          - heading "pogls_tools" [level=3] [ref=f44e323]
+          - paragraph [ref=f44e324]: 14 CLI utilities for build, inspect, test, debug
+          - generic [ref=f44e325]:
+            - generic [ref=f44e326]:
+              - generic [ref=f44e327]: "17"
+              - generic [ref=f44e328]: Files
+            - generic [ref=f44e329]:
+              - generic [ref=f44e330]: "2"
+              - generic [ref=f44e331]: Tests
+      - 'button "grid_on STANDALONE geopixel-codec Full tile codec: v21 encoder/decoder, Hamburger classify, GPX decode, Hilbert curve 8 Files — Tests DOCS" [ref=f44e332] [cursor=pointer]':
+        - generic [ref=f44e333]:
+          - generic [ref=f44e334]:
+            - generic [ref=f44e335]: grid_on
+            - generic [ref=f44e337]: STANDALONE
+          - heading "geopixel-codec" [level=3] [ref=f44e338]
+          - paragraph [ref=f44e339]: "Full tile codec: v21 encoder/decoder, Hamburger classify, GPX decode, Hilbert curve"
+          - generic [ref=f44e340]:
+            - generic [ref=f44e341]:
+              - generic [ref=f44e342]: "8"
+              - generic [ref=f44e343]: Files
+            - generic [ref=f44e344]:
+              - generic [ref=f44e345]: —
+              - generic [ref=f44e346]: Tests
+            - button "DOCS" [ref=f44e348]
+      - button "language GEOFIELD geofield Goldberg sphere GpAddr, Metatron 4-route, FrustumBlock/DiamondBlock, Trit decomposition 28 Files 2 Tests DOCS" [ref=f44e349] [cursor=pointer]:
+        - generic [ref=f44e350]:
+          - generic [ref=f44e351]:
+            - generic [ref=f44e352]: language
+            - generic [ref=f44e354]: GEOFIELD
+          - heading "geofield" [level=3] [ref=f44e355]
+          - paragraph [ref=f44e356]: Goldberg sphere GpAddr, Metatron 4-route, FrustumBlock/DiamondBlock, Trit decomposition
+          - generic [ref=f44e357]:
+            - generic [ref=f44e358]:
+              - generic [ref=f44e359]: "28"
+              - generic [ref=f44e360]: Files
+            - generic [ref=f44e361]:
+              - generic [ref=f44e362]: "2"
+              - generic [ref=f44e363]: Tests
+            - button "DOCS" [ref=f44e365]
+  - button "menu_book" [ref=f44e208] [cursor=pointer]

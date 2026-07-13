@@ -6,5 +6,8 @@
       "command": ["python", "I:/FGLS_new/inbox_mcp_server.py"],
       "enabled": true
     }
+  },
+  "env": {
+    "NVIDIA_NIM_API_KEY": "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"
   }
 }

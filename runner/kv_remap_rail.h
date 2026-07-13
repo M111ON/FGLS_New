@@ -20,6 +20,12 @@
 #include <stddef.h>
 #include <string.h>
 #include <stdio.h>
+#ifndef _WIN32
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+#include <time.h>
+#endif
 
 #include "kv_remap.h"
 

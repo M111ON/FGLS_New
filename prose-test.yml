@@ -1,0 +1,52 @@
+- generic [active] [ref=f40e1]:
+  - complementary [ref=f40e2]:
+    - generic [ref=f40e3]:
+      - generic [ref=f40e4]:
+        - generic [ref=f40e5]: architecture
+        - text: Toolchain
+      - generic [ref=f40e6]: PROSE Project Source Explorer
+    - navigation [ref=f40e7]:
+      - link "view_module Modules" [ref=f40e8] [cursor=pointer]:
+        - /url: "#"
+        - generic [ref=f40e9]: view_module
+        - generic [ref=f40e10]: Modules
+      - link "folder Files" [ref=f40e11] [cursor=pointer]:
+        - /url: "#"
+        - generic [ref=f40e12]: folder
+        - generic [ref=f40e13]: Files
+      - link "description Export" [ref=f40e14] [cursor=pointer]:
+        - /url: "#"
+        - generic [ref=f40e15]: description
+        - generic [ref=f40e16]: Export
+    - generic [ref=f40e17]:
+      - link "menu_book GeoField Docs" [ref=f40e18] [cursor=pointer]:
+        - /url: "#"
+        - generic [ref=f40e19]: menu_book
+        - generic [ref=f40e20]: GeoField Docs
+      - link "grid_view Geopixel Docs" [ref=f40e21] [cursor=pointer]:
+        - /url: "#"
+        - generic [ref=f40e22]: grid_view
+        - generic [ref=f40e23]: Geopixel Docs
+  - banner [ref=f40e24]:
+    - generic [ref=f40e25]:
+      - generic [ref=f40e26]:
+        - generic [ref=f40e27]: search
+        - textbox "Search modules, files, docs..." [ref=f40e28]
+      - generic [ref=f40e29]:
+        - generic [ref=f40e30]:
+          - text: "Total Files:"
+          - generic [ref=f40e32]: "0"
+        - generic [ref=f40e33]: v2.0
+        - generic [ref=f40e36]:
+          - generic [ref=f40e37]: ○
+          - generic [ref=f40e38]: MON
+    - generic [ref=f40e39]:
+      - button "download" [ref=f40e40] [cursor=pointer]
+      - generic [ref=f40e44]:
+        - generic [ref=f40e45]: 0 modules
+        - generic [ref=f40e46]: 0 visible
+  - main [ref=f40e47]:
+    - generic [ref=f40e48]:
+      - heading "Module Explorer" [level=1] [ref=f40e49]
+      - paragraph [ref=f40e50]: Index of all registered POGLS toolchain modules. Navigate through architectural layers, view source documentation, and track integration coverage.
+  - button "menu_book" [ref=f40e51] [cursor=pointer]

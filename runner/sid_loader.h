@@ -8,6 +8,14 @@
 #include "gguf_index.h"
 #include "sid_cache.h"
 
+#ifdef _WIN32
+  #define SID_FSEEK64(f,o,w) fseeko64(f,(__int64)(o),w)
+#else
+  #include <unistd.h>
+  #define _FILE_OFFSET_BITS 64
+  #define SID_FSEEK64(f,o,w) fseeko(f,(off_t)(o),w)
+#endif
+
 #define SID_LOADER_NAME_MAX  256
 
 typedef struct {
@@ -50,7 +58,7 @@ static int64_t sid_loader_find(SIDLoaderCtx *ctx, const char *name) {
 static int sid_loader_read(SIDLoaderCtx *ctx, uint64_t ti, uint8_t *buf) {
     if(ti>=ctx->idx.n_tensors) return -1;
     uint64_t off=gguf_idx_tensor_abs_offset(&ctx->idx, ti), sz=ctx->idx.sizes[ti];
-    if (fseeko64(ctx->gguf_file, (__int64)off, SEEK_SET) != 0) return -1;
+    if (SID_FSEEK64(ctx->gguf_file, off, SEEK_SET) != 0) return -1;
     if(fread(buf,1,sz,ctx->gguf_file)!=sz) return -1;
     ctx->bytes_read+=sz; ctx->file_hits++; return 0;
 }
@@ -76,7 +84,7 @@ static int sid_loader_load(SIDLoaderCtx *ctx, const char *name, uint8_t *read_bu
     if(sid_cache_get(ctx->cache,name,&c,&cs)==0){*data=c;*size=cs;ctx->cache_hits++;return 0;}
     int64_t ti=sid_loader_find(ctx,name); if(ti<0) return -1;
     uint64_t sz=ctx->idx.sizes[ti], off=gguf_idx_tensor_abs_offset(&ctx->idx, (uint64_t)ti);
-    if (fseeko64(ctx->gguf_file, (__int64)off, SEEK_SET) != 0) return -1; if(fread(read_buf,1,sz,ctx->gguf_file)!=sz) return -1;
+    if (SID_FSEEK64(ctx->gguf_file, off, SEEK_SET) != 0) return -1; if(fread(read_buf,1,sz,ctx->gguf_file)!=sz) return -1;
     ctx->bytes_read+=sz; ctx->file_hits++; *data=read_buf; *size=(size_t)sz;
     if(!sid_loader_is_norm(name)) sid_cache_put_compressed(ctx->cache,name,0,read_buf,(size_t)sz);
     return 0;

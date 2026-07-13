@@ -315,14 +315,93 @@ POGLS ทำให้:
 
 ---
 
-## 6. สรุป
+## 6. Physical Proof: Reconfigurable Materials
+
+### 6.1 Ferrofluid — Minimal Input, Deterministic Shape
+
+```
+Ferrofluid = magnetic nanoparticles แขวนอยู่ใน liquid
+
+ไม่มี magnetic field → ไม่มี shape (liquid ปกติ)
+มี magnetic field → สร้าง spike ทันที
+
+ spike shape ถูกกำหนด bởi:
+ ├── Magnetic field direction (ทิศทาง)
+ ├── Magnetic field strength (ความแรง)
+ ├── Surface tension (แรงตึงผิว)
+ └── Gravity (แรงโน้มถ่วง)
+
+ ไม่ต้อง "สร้าง" spike → spike สร้างตัวเอง
+ ไม่ต้อง disassemble → แค่เปลี่ยน magnetic field
+ Shape = deterministic ถ้ารู้ constraints
+```
+
+### 6.2 Shape-Memory Polymer — Trigger → Unfold
+
+```
+Shape-memory polymer:
+ ├── แช่น้ำ → คืนรูปเดิม
+ ├── โดนความร้อน → trigger change
+ ├── ไม่ต้อง disassemble → แค่ expose condition
+ └── Molecular structure = seed → shape = deterministic
+
+ เปรียบเทียบกับ network:
+ ├── Seed = molecular structure (minimal information)
+ ├── Trigger = environmental condition (heat, water)
+ ├── Unfold = deterministic reconfiguration
+ └── ไม่ต้องส่ง material ทั้งหมด → แค่ส่ง seed + trigger
+```
+
+### 6.3 Connection to POGLS
+
+```
+Ferrofluid:
+  Magnetic field (minimal input) → Spike shape (full structure)
+  = Constraint → Deterministic output
+
+POGLS:
+  Geometric seed (minimal input) → Full model (deterministic reconstruction)
+  = Geometry constraint → Deterministic output
+
+Network:
+  Delta seed (5MB) → Full model (500GB reconstructed)
+  = Geometric constraint → Bandwidth ลด 100x
+
+Physical proof:
+  Ferrofluid ไม่ต้องส่ง spike ทั้งหมด → แค่ส่ง magnetic field
+  POGLS ไม่ต้องส่ง model ทั้งหมด → แค่ส่ง delta seed
+  = Same principle: minimal trigger → deterministic reconstruction
+```
+
+### 6.4 Why This Matters for Network
+
+```
+Traditional network:
+  ส่ง data ทั้งหมด (500GB)
+  = ส่ง spike ทั้งหมดของ ferrofluid (ไม่จำเป็น)
+
+Geometric network:
+  ส่ง seed + trigger (5MB)
+  = ส่ง magnetic field (minimal input)
+  = receiver สร้าง shape เอง (deterministic)
+
+Ferrofluid proof:
+  ไม่ต้องส่ง liquid ทั้งหมด → แค่เปลี่ยน magnetic field
+  ไม่ต้องส่ง polymer ทั้งหมด → แค่แช่น้ำ/โดนความร้อน
+  ไม่ต้องส่ง model ทั้งหมด → แค่ส่ง geometric seed
+```
+
+---
+
+## 7. สรุป
 
 ```
 ปัญหา: Network latency = physical limit, TCP/IP = flat paradigm
 แนวคิด: Shift ไป geometric protocol (เหมือน POGLS shift compute)
+Physical proof: Ferrofluid + shape-memory material = minimal input → deterministic shape
 มีแล้ว: 80% (POGLS + DRamTile + SID)
 ขาดอีก: 20% (network integration)
-เป็นไปได้: สูง (geometry predict ได้จริง)
+เป็นไปได้: สูง (geometry predict ได้จริง, physical proof มีแล้ว)
 ผลลัพธ์: Bandwidth ลด 100-1000x, Latency ซ่อน 80-90%
 ```
 

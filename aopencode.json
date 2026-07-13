@@ -13,6 +13,11 @@
       "command": ["python", "I:/FGLS_new/inbox_mcp_server.py"],
       "enabled": true
     },
+    "pogls": {
+      "type": "local",
+      "command": ["python", "I:/FGLS_new/pogls_mcp_server.py"],
+      "enabled": true
+    },
     "gdb": {
       "type": "local",
       "command": ["npx", "-y", "@vividcodeai/embedded-gdb-mcp"],

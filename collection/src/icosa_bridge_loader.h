@@ -2,6 +2,8 @@
 #define ICOSA_BRIDGE_LOADER_H
 
 #include <stdint.h>
+
+#ifdef _WIN32
 #include <windows.h>
 
 /* Bermuda GPU route entry (matches device struct) */
@@ -66,4 +68,49 @@ static inline void icosa_bridge_unload(IcosaBridge *br) {
     memset(br, 0, sizeof(*br));
 }
 
+#else /* Linux stub — GPU bridge unavailable */
+
+#include <string.h>
+
+typedef struct {
+    uint16_t idx_in;
+    uint16_t idx_out;
+    uint8_t  zone;
+    uint8_t  pole;
+    uint8_t  shape;
+    uint8_t  polarity;
+    uint16_t tring_slot;
+} BermudaRouteEntry;
+
+typedef struct {
+    void    *dll;
+    void   *(*create)(uint64_t gen2, uint64_t gen3);
+    void    (*destroy)(void *ctx);
+    int     (*valid)(void *ctx);
+    int     (*dispatch)(void *ctx, const uint64_t *addrs, const uint64_t *values,
+                        uint32_t n, uint64_t gen3, uint32_t c144_tag,
+                        uint64_t baseline, uint64_t *out_routes, uint8_t *out_events);
+    void   *(*alloc)(void *ctx, size_t size);
+    int     (*free)(void *ctx, void *ptr);
+    int     (*memcpy_h2d)(void *ctx, void *dst, const void *src, size_t size);
+    int     (*sync)(void *ctx);
+    int     (*batch_memcpy_h2d)(void *ctx, void *const *dst, const void *const *src, const size_t *sizes, int n);
+    int     (*batch_memcpy_d2h)(void *ctx, void *const *dst, const void *const *src, const size_t *sizes, int n);
+    int     (*pin_host)(void *ctx, void **ptr, size_t size);
+    int     (*unpin_host)(void *ctx, void *ptr);
+    int     (*bermuda_dispatch)(void *ctx, const uint16_t *idxs_in,
+                                BermudaRouteEntry *out, uint8_t gear, uint8_t mode, uint32_t n);
+} IcosaBridge;
+
+static inline int icosa_bridge_load(IcosaBridge *br, const char *dll_path) {
+    (void)dll_path;
+    memset(br, 0, sizeof(*br));
+    return -1; /* not available on Linux */
+}
+
+static inline void icosa_bridge_unload(IcosaBridge *br) {
+    (void)br;
+}
+
+#endif /* _WIN32 */
 #endif /* ICOSA_BRIDGE_LOADER_H */

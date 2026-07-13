@@ -27,7 +27,11 @@
   #define WIN32_LEAN_AND_MEAN
   #include <windows.h>
 #else
+  #ifndef _GNU_SOURCE
+  #define _GNU_SOURCE
+  #endif
   #include <sys/mman.h>
+  #include <sys/stat.h>
   #include <unistd.h>
   #include <fcntl.h>
 #endif
