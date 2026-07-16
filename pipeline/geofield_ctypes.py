@@ -8,7 +8,15 @@ import ctypes
 import os
 import struct
 
-DLL_PATH = os.path.join(os.path.dirname(__file__), "geofield_pipeline.dll")
+DLL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "geofield_pipeline.dll")
+
+if hasattr(os, 'add_dll_directory'):
+    _dll_dir = os.path.dirname(DLL_PATH)
+    os.add_dll_directory(_dll_dir)
+    # Also add mingw64 bin for libgcc_s_seh-1.dll
+    _mingw = r"C:\msys64\mingw64\bin"
+    if os.path.isdir(_mingw):
+        os.add_dll_directory(_mingw)
 
 _lib = ctypes.CDLL(DLL_PATH)
 
@@ -449,6 +457,14 @@ _lib.geofield_dt_get_segs.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c
                                        ctypes.c_uint32]
 _lib.geofield_dt_get_segs.restype = None
 
+# ── Compressed store/restore ─────────────────────────────────
+
+_lib.geofield_dt_store_compressed.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint64]
+_lib.geofield_dt_store_compressed.restype = ctypes.c_int
+
+_lib.geofield_dt_restore_compressed.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint64]
+_lib.geofield_dt_restore_compressed.restype = ctypes.c_int
+
 
 # ════════════════════════════════════════════════════════════════
 # GearShift (Phase 4) — Priority routing
@@ -475,11 +491,44 @@ _lib.geofield_dt_gs_flush.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c
                                        ctypes.c_uint32]
 _lib.geofield_dt_gs_flush.restype = ctypes.c_uint32
 
+# ── Per-block encode/decode (Phase 6c: Diamond Shell block ops) ─
+
+_lib.geofield_block_enc.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+_lib.geofield_block_enc.restype = ctypes.c_uint32
+
+_lib.geofield_block_dec.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+_lib.geofield_block_dec.restype = ctypes.c_uint32
+
+_lib.geofield_block_enc_sz.argtypes = [ctypes.c_void_p]
+_lib.geofield_block_enc_sz.restype = ctypes.c_uint32
+
+
+def ds_classify_block(block64_bytes):
+    """Classify one 64B block → Diamond Shell structured output bytes.
+    Returns (classified_bytes, n_written).
+    FLAT → 1B, non-FLAT → 3B + N*8B (N = 1..8 sub-blocks)."""
+    out = (ctypes.c_uint8 * 80)()
+    in_buf = (ctypes.c_uint8 * 64).from_buffer_copy(block64_bytes[:64].ljust(64, b'\x00'))
+    n = _lib.geofield_block_enc(out, in_buf)
+    return bytes(out[:n]), n
+
+
+def ds_decode_block(classified_bytes):
+    """Decode Diamond Shell structured block → 64B output.
+    Returns (decoded_64B, bytes_consumed).
+    classified_bytes should be at least 67 bytes (worst case)."""
+    sz = len(classified_bytes)
+    in_buf = (ctypes.c_uint8 * sz).from_buffer_copy(classified_bytes)
+    out = (ctypes.c_uint8 * 64)()
+    n = _lib.geofield_block_dec(out, in_buf)
+    return bytes(out[:64]), n
+
+
 # ════════════════════════════════════════════════════════════════
 # Full encode — single C call (Phase 5b)
 # ════════════════════════════════════════════════════════════════
 
-class GFEncodeStats(ctypes.Structure):
+class GFStructureStats(ctypes.Structure):
     _fields_ = [
         ('n_segments', ctypes.c_uint32),
         ('n_blocks', ctypes.c_uint32),
@@ -487,14 +536,136 @@ class GFEncodeStats(ctypes.Structure):
         ('skel_hits', ctypes.c_uint32 * 6),
         ('diamond_hits', ctypes.c_uint8 * 3),
         ('xxh64', ctypes.c_uint64),
-        ('encode_ms', ctypes.c_double),
+        ('orig_size', ctypes.c_uint64),
+        ('struct_size', ctypes.c_uint64),
+        ('structure_ms', ctypes.c_double),
+        ('wall_ms', ctypes.c_double),
+        ('ratio', ctypes.c_double),
+    ]
+
+_lib.geofield_full_structure.argtypes = [ctypes.c_void_p, ctypes.c_uint64,
+                                       ctypes.c_uint32, ctypes.c_uint32,
+                                       ctypes.c_void_p, ctypes.c_uint64,
+                                       ctypes.POINTER(GFStructureStats)]
+_lib.geofield_full_structure.restype = ctypes.c_int
+
+_lib.geofield_full_structure_stats.argtypes = [ctypes.c_void_p, ctypes.c_uint64,
+                                              ctypes.c_uint32, ctypes.c_uint32,
+                                              ctypes.POINTER(GFStructureStats)]
+_lib.geofield_full_structure_stats.restype = ctypes.c_int
+
+_lib.geofield_full_decode.argtypes = [ctypes.c_void_p, ctypes.c_uint64,
+                                       ctypes.c_void_p, ctypes.c_uint64,
+                                       ctypes.POINTER(ctypes.c_uint64)]
+_lib.geofield_full_decode.restype = ctypes.c_int
+
+_lib.gfds_get_info.argtypes = [ctypes.c_void_p, ctypes.c_uint64,
+                                ctypes.POINTER(ctypes.c_uint64),
+                                ctypes.POINTER(ctypes.c_uint32)]
+_lib.gfds_get_info.restype = ctypes.c_int
+
+
+# ════════════════════════════════════════════════════════════════
+# Full compress/decompress — codebook dedup (Phase 6b)
+# ════════════════════════════════════════════════════════════════
+
+class GFCSStats(ctypes.Structure):
+    _fields_ = [
+        ('n_segments', ctypes.c_uint32),
+        ('n_blocks', ctypes.c_uint32),
+        ('n_patterns', ctypes.c_uint32),
+        ('skel_hits', ctypes.c_uint32 * 6),
+        ('diamond_hits', ctypes.c_uint8 * 3),
+        ('xxh64', ctypes.c_uint64),
+        ('orig_size', ctypes.c_uint64),
+        ('comp_size', ctypes.c_uint64),
+        ('total_out', ctypes.c_uint64),
+        ('structure_ms', ctypes.c_double),
         ('wall_ms', ctypes.c_double),
     ]
 
-_lib.geofield_full_encode.argtypes = [ctypes.c_void_p, ctypes.c_uint64,
-                                       ctypes.c_uint32, ctypes.c_uint32,
-                                       ctypes.POINTER(GFEncodeStats)]
-_lib.geofield_full_encode.restype = ctypes.c_int
+_lib.geofield_full_compress.argtypes = [ctypes.c_void_p, ctypes.c_uint64,
+                                         ctypes.c_uint32, ctypes.c_uint32,
+                                         ctypes.c_void_p, ctypes.c_uint64,
+                                         ctypes.POINTER(GFCSStats)]
+_lib.geofield_full_compress.restype = ctypes.c_int
+
+_lib.geofield_full_decompress.argtypes = [ctypes.c_void_p, ctypes.c_uint64,
+                                           ctypes.c_void_p, ctypes.c_uint64,
+                                           ctypes.POINTER(ctypes.c_uint64)]
+_lib.geofield_full_decompress.restype = ctypes.c_int
+
+
+def full_compress(data, min_chunk=32, max_chunk=4096):
+    """Compress data via GFCS codebook-dedup compression.
+    Returns (compressed_bytes, stats) on success, or (None, error) on failure.
+    Stats is a GFCSStats object with .total_out, .comp_size, .n_patterns, .ratio, etc."""
+    stats = GFCSStats()
+    in_buf = (ctypes.c_uint8 * len(data)).from_buffer_copy(data)
+    # Dry run
+    rc = _lib.geofield_full_compress(in_buf, len(data), min_chunk, max_chunk,
+                                      None, 0, ctypes.byref(stats))
+    if rc != 0:
+        return None, stats
+    # Compress
+    buf = (ctypes.c_uint8 * stats.total_out)()
+    rc = _lib.geofield_full_compress(in_buf, len(data), min_chunk, max_chunk,
+                                      buf, stats.total_out, ctypes.byref(stats))
+    if rc != 0:
+        return None, stats
+    return bytes(buf[:stats.total_out]), stats
+
+
+def full_decompress(compressed, out_size=None):
+    """Decompress GFCS data. Returns (data, xxh64) on success, or None on failure.
+    If out_size is None, reads orig_size from GFCS header."""
+    import struct
+    # Parse header to get orig_size if not provided
+    if out_size is None:
+        magic = struct.unpack_from('<I', compressed, 0)[0]
+        if magic != 0x53434647:  # "GFCS"
+            return None
+        out_size = struct.unpack_from('<Q', compressed, 18)[0]
+    # Use ctypes array for input buffer (ensure proper buffer protocol)
+    in_buf = (ctypes.c_uint8 * len(compressed)).from_buffer_copy(compressed)
+    out_buf = (ctypes.c_uint8 * out_size)()
+    got_xxh = ctypes.c_uint64()
+    rc = _lib.geofield_full_decompress(in_buf, len(compressed),
+                                        out_buf, out_size,
+                                        ctypes.byref(got_xxh))
+    if rc != 0:
+        return None
+    return bytes(out_buf[:out_size]), got_xxh.value
+
+
+def dt_store_compressed(dt_handle, data):
+    """Compress and store data in DRamTile as single GFCS blob.
+    Returns 0 on success."""
+    in_buf = (ctypes.c_uint8 * len(data)).from_buffer_copy(data)
+    return _lib.geofield_dt_store_compressed(dt_handle, in_buf, len(data))
+
+
+def dt_restore_compressed(dt_handle, out_size):
+    """Restore data from compressed blob in DRamTile.
+    Returns (data, 0) on success, or (None, errcode) on failure."""
+    out_buf = (ctypes.c_uint8 * out_size)()
+    rc = _lib.geofield_dt_restore_compressed(dt_handle, out_buf, out_size)
+    if rc != 0:
+        return None, rc
+    return bytes(out_buf), rc
+
+
+# ════════════════════════════════════════════════════════════════
+# pogls_geopixel — spatial coherence block compression
+# ════════════════════════════════════════════════════════════════
+
+_lib.pogls_geopixel_encode_block.argtypes = [ctypes.c_void_p, ctypes.c_size_t,
+                                              ctypes.c_void_p, ctypes.c_size_t]
+_lib.pogls_geopixel_encode_block.restype = ctypes.c_uint32
+
+_lib.pogls_geopixel_decode_block.argtypes = [ctypes.c_void_p, ctypes.c_size_t,
+                                              ctypes.c_void_p, ctypes.c_size_t]
+_lib.pogls_geopixel_decode_block.restype = ctypes.c_uint32
 
 
 # ════════════════════════════════════════════════════════════════

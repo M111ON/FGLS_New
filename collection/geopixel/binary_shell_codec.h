@@ -11,6 +11,9 @@
 #define BIN_FLAG_FLAT       0u
 #define BIN_FLAG_SPARSE     1u
 #define BIN_FLAG_DENSE      2u
+#define BIN_FLAG_RAW        3u  /* fallback: store raw rotated 64B */
+
+#define BIN_CHUNK_SZ 64u
 
 typedef struct {
     uint8_t  flag;
@@ -139,6 +142,16 @@ static inline uint32_t bin_encode_chunk(uint8_t *out,
     }
 
     if ((uint32_t)best_nz <= BIN_SPARSE_THRESH) {
+        uint32_t sparse_total = 3 + (uint32_t)best_nz * 2;
+        if (sparse_total >= BIN_CHUNK_SZ) {
+            /* SPARSE would expand -> fallback to RAW */
+            out[0] = BIN_FLAG_RAW;
+            out[1] = best_rot;
+            memcpy(out + 2, best_buf, BIN_CHUNK_SZ);
+            r->flag = BIN_FLAG_RAW;
+            r->enc_size = BIN_CHUNK_SZ + 2;
+            return r->enc_size;
+        }
         out[0] = BIN_FLAG_SPARSE;
         out[1] = best_rot;
         out[2] = (uint8_t)best_nz;
@@ -162,12 +175,17 @@ static inline uint32_t bin_encode_chunk(uint8_t *out,
     out[0] = BIN_FLAG_DENSE;
     out[1] = best_rot;
 
-    size_t bound = ZSTD_compressBound(64);
-    size_t csz = ZSTD_compress(out + 6, bound, best_buf, 64, 3);
+    size_t bound = ZSTD_compressBound(BIN_CHUNK_SZ);
+    size_t csz = ZSTD_compress(out + 6, bound, best_buf, BIN_CHUNK_SZ, 3);
 
-    if (ZSTD_isError(csz) || csz >= 64) {
-        memcpy(out + 6, best_buf, 64);
-        csz = 64;
+    if (ZSTD_isError(csz) || csz >= BIN_CHUNK_SZ) {
+        /* ZSTD failed or would expand -> fallback to RAW */
+        out[0] = BIN_FLAG_RAW;
+        out[1] = best_rot;
+        memcpy(out + 2, best_buf, BIN_CHUNK_SZ);
+        r->flag = BIN_FLAG_RAW;
+        r->enc_size = BIN_CHUNK_SZ + 2;
+        return r->enc_size;
     }
 
     uint32_t csz32 = (uint32_t)csz;
@@ -176,11 +194,21 @@ static inline uint32_t bin_encode_chunk(uint8_t *out,
     out[4] = (uint8_t)(csz32 >> 16);
     out[5] = (uint8_t)(csz32 >> 24);
 
-    uint32_t total = 6 + csz32;
+    uint32_t dense_total = 6 + csz32;
+    if (dense_total >= BIN_CHUNK_SZ + 2) {
+        /* DENSE with header would expand -> fallback to RAW */
+        out[0] = BIN_FLAG_RAW;
+        out[1] = best_rot;
+        memcpy(out + 2, best_buf, BIN_CHUNK_SZ);
+        r->flag = BIN_FLAG_RAW;
+        r->enc_size = BIN_CHUNK_SZ + 2;
+        return r->enc_size;
+    }
+
     r->flag     = BIN_FLAG_DENSE;
     r->nz_count = (uint32_t)best_nz;
-    r->enc_size = total;
-    return total;
+    r->enc_size = dense_total;
+    return dense_total;
 }
 
 static inline uint32_t bin_decode_chunk(const uint8_t *in,
@@ -192,6 +220,13 @@ static inline uint32_t bin_decode_chunk(const uint8_t *in,
     if (flag == BIN_FLAG_FLAT) {
         memset(chunk_out, 0, 64);
         return 2;
+    }
+
+    if (flag == BIN_FLAG_RAW) {
+        uint8_t rotbuf[64];
+        memcpy(rotbuf, in + 2, 64);
+        _shell_inverse_rotate64(chunk_out, rotbuf, rot);
+        return BIN_CHUNK_SZ + 2;
     }
 
     uint8_t rotbuf[64];

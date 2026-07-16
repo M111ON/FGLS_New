@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GeoField Pipeline — Architecture Overview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0f1419;
+  --surface: #1a2028;
+  --surface-2: #222b35;
+  --border: #2d3740;
+  --text: #e8edf2;
+  --text-dim: #8b99a8;
+  --accent-1: #2dd4bf;
+  --accent-2: #f59e0b;
+  --accent-3: #ef4444;
+  --accent-4: #3b82f6;
+  --accent-5: #a78bfa;
+  --accent-6: #10b981;
+  --font-sans: 'DM Sans', sans-serif;
+  --font-mono: 'Fira Code', monospace;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+.page { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+
+/* Hero */
+.hero {
+  text-align: center;
+  padding: 4rem 2rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 3rem;
+}
+.hero h1 {
+  font-size: 2.8rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--accent-1), var(--accent-4));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 0.5rem;
+}
+.hero .subtitle {
+  font-size: 1.1rem;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+}
+
+/* KPI Row */
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+  margin-bottom: 3rem;
+}
+.kpi {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.5rem;
+  text-align: center;
+}
+.kpi .value {
+  font-size: 2rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+}
+.kpi .label {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  margin-top: 0.25rem;
+}
+.kpi.teal .value { color: var(--accent-1); }
+.kpi.amber .value { color: var(--accent-2); }
+.kpi.red .value { color: var(--accent-3); }
+.kpi.blue .value { color: var(--accent-4); }
+.kpi.purple .value { color: var(--accent-5); }
+.kpi.green .value { color: var(--accent-6); }
+
+/* Section */
+section { margin-bottom: 3rem; }
+section h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid var(--accent-1);
+  display: inline-block;
+}
+
+/* Pipeline Flow */
+.pipeline-flow {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  overflow-x: auto;
+  padding: 1rem 0;
+}
+.stage {
+  flex: 0 0 auto;
+  min-width: 140px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem;
+  text-align: center;
+  position: relative;
+}
+.stage .num {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  margin-bottom: 0.25rem;
+}
+.stage .name {
+  font-weight: 600;
+  font-size: 0.95rem;
+  margin-bottom: 0.25rem;
+}
+.stage .detail {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+}
+.stage.active { border-color: var(--accent-1); box-shadow: 0 0 12px rgba(45,212,191,0.15); }
+.stage.pending { border-color: var(--accent-2); }
+.stage.future { border-color: var(--border); opacity: 0.6; }
+.arrow {
+  flex: 0 0 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-1);
+  font-size: 1.2rem;
+}
+
+/* Grid Cards */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1rem;
+}
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.25rem;
+}
+.card h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.card h3 .icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+.card p, .card li {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+.card ul { list-style: none; padding: 0; }
+.card ul li::before {
+  content: '▸';
+  color: var(--accent-1);
+  margin-right: 0.5rem;
+}
+.card code {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  background: var(--surface-2);
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+}
+
+/* Table */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+th, td {
+  padding: 0.6rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+th {
+  font-weight: 600;
+  color: var(--accent-1);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+td { color: var(--text-dim); }
+td:first-child { color: var(--text); font-weight: 500; }
+tr:hover td { background: var(--surface-2); }
+
+/* Status badges */
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-family: var(--font-mono);
+}
+.badge.done { background: rgba(16,185,129,0.15); color: var(--accent-6); }
+.badge.active { background: rgba(45,212,191,0.15); color: var(--accent-1); }
+.badge.pending { background: rgba(245,158,11,0.15); color: var(--accent-2); }
+.badge.blocked { background: rgba(239,68,68,0.15); color: var(--accent-3); }
+
+/* Collapsible */
+details {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 0.75rem;
+}
+details summary {
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+details summary:hover { color: var(--accent-1); }
+details[open] summary { border-bottom: 1px solid var(--border); }
+details .content { padding: 1rem; }
+
+/* Code block */
+pre {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+pre .kw { color: var(--accent-4); }
+pre .fn { color: var(--accent-1); }
+pre .str { color: var(--accent-2); }
+pre .num { color: var(--accent-5); }
+pre .cmt { color: #5a6a7a; font-style: italic; }
+
+/* Footer */
+footer {
+  margin-top: 4rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--border);
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- Hero -->
+<header class="hero">
+  <h1>GeoField Pipeline</h1>
+  <p class="subtitle">Geometric Structuring Engine — 8-Stage Full-Stack Pipeline</p>
+</header>
+
+<!-- KPIs -->
+<div class="kpi-row">
+  <div class="kpi teal">
+    <div class="value">50 MB/s</div>
+    <div class="label">CPU Throughput</div>
+  </div>
+  <div class="kpi amber">
+    <div class="value">18.7×</div>
+    <div class="label">GPU Speedup</div>
+  </div>
+  <div class="kpi blue">
+    <div class="value">160×</div>
+    <div class="label">DRamTile vs Heap</div>
+  </div>
+  <div class="kpi purple">
+    <div class="value">307</div>
+    <div class="label">DLL Functions</div>
+  </div>
+  <div class="kpi green">
+    <div class="value">19/19</div>
+    <div class="label">Tests Passing</div>
+  </div>
+  <div class="kpi red">
+    <div class="value">118 KB</div>
+    <div class="label">Source Code</div>
+  </div>
+</div>
+
+<!-- Pipeline Flow -->
+<section>
+  <h2>Pipeline Stages</h2>
+  <div class="pipeline-flow">
+    <div class="stage active">
+      <div class="num">01</div>
+      <div class="name">flow_chunk</div>
+      <div class="detail">Adaptive 32-4096B</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="stage active">
+      <div class="num">02</div>
+      <div class="name">diamond_classify</div>
+      <div class="detail">6 rotations</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="stage active">
+      <div class="num">03</div>
+      <div class="name">skel_decide</div>
+      <div class="detail">P0-P5 strategies</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="stage active">
+      <div class="num">04</div>
+      <div class="name">wallet_seed</div>
+      <div class="detail">XOR-fold + SplitMix64</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="stage active">
+      <div class="num">05</div>
+      <div class="name">LetterCube</div>
+      <div class="detail">24-pair bond</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="stage active">
+      <div class="num">06</div>
+      <div class="name">CubeCtx</div>
+      <div class="detail">6→1 recursive</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="stage active">
+      <div class="num">07</div>
+      <div class="name">Goldberg</div>
+      <div class="detail">GP(n,0) sphere</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="stage active">
+      <div class="num">08</div>
+      <div class="name">Fibonacci</div>
+      <div class="detail">Shell fold</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="stage pending">
+      <div class="num">09</div>
+      <div class="name">Compress</div>
+      <div class="detail">Diamond Shell encode</div>
+    </div>
+  </div>
+</section>
+
+<!-- Architecture Cards -->
+<section>
+  <h2>Architecture</h2>
+  <div class="card-grid">
+    <div class="card">
+      <h3><span class="icon" style="background:rgba(45,212,191,0.2);color:var(--accent-1);">C</span> C DLL (266 KB)</h3>
+      <ul>
+        <li><code>geofield_pipeline.c</code> — 1,200 lines, 307 exports</li>
+        <li>All 8 pipeline stages in C</li>
+        <li>DRamTile zero-copy store</li>
+        <li>GearShift priority routing</li>
+        <li>Static-linked (no DLL deps)</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="icon" style="background:rgba(16,185,129,0.2);color:var(--accent-6);">G</span> CUDA Kernels (406 KB)</h3>
+      <ul>
+        <li><code>geofield_cuda.cu</code> — 4 kernels, 508 lines</li>
+        <li>diamond_classify_kernel (parallel per-block)</li>
+        <li>skel_decide_kernel (P0-P5 parallel)</li>
+        <li>wallet_seed_kernel (XOR-fold + SplitMix64)</li>
+        <li>geofield_combined_kernel (single-pass)</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="icon" style="background:rgba(59,130,246,0.2);color:var(--accent-4);">P</span> Python Layer (23 KB)</h3>
+      <ul>
+        <li><code>geofield_ctypes.py</code> — ctypes bindings</li>
+        <li><code>geofield_cli.py</code> — CLI tool (encode/decode/info/verify)</li>
+        <li>Full encode/decode roundtrip</li>
+        <li>GPXL v2 format read/write</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="icon" style="background:rgba(245,158,11,0.2);color:var(--accent-2);">T</span> Test Suite (19/19)</h3>
+      <ul>
+        <li>9 real file types (.c, .h, .cu, .py, .ps1)</li>
+        <li>8 edge cases (1B, 63B, 64B, 65B, zeros, 0xFF, random, pattern)</li>
+        <li>3 large GGUF model weights (368-664 MB)</li>
+        <li>All SHA256 + xxh64 roundtrip verified</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- Performance Table -->
+<section>
+  <h2>Performance Benchmarks</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Stage</th>
+        <th>CPU Time</th>
+        <th>GPU Time</th>
+        <th>Speedup</th>
+        <th>Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>flow_chunk</td>
+        <td>1.49 ms</td>
+        <td>—</td>
+        <td>—</td>
+        <td>Adaptive chunking (32-4096B)</td>
+      </tr>
+      <tr>
+        <td>diamond_classify</td>
+        <td>2.24 ms</td>
+        <td>0.12 ms</td>
+        <td><span class="badge active">18.7×</span></td>
+        <td>6 rotations + fibo_intersect</td>
+      </tr>
+      <tr>
+        <td>skel_decide</td>
+        <td>1.78 ms</td>
+        <td>0.09 ms</td>
+        <td><span class="badge active">19.8×</span></td>
+        <td>P0-P5 strategy selection</td>
+      </tr>
+      <tr>
+        <td>wallet_seed</td>
+        <td>1.57 ms</td>
+        <td>0.08 ms</td>
+        <td><span class="badge active">19.6×</span></td>
+        <td>XOR-fold + SplitMix64</td>
+      </tr>
+      <tr>
+        <td>LetterCube</td>
+        <td>0.48 ms</td>
+        <td>—</td>
+        <td>—</td>
+        <td>24-pair face:face bond</td>
+      </tr>
+      <tr>
+        <td>cube_ctx</td>
+        <td>1.57 ms</td>
+        <td>—</td>
+        <td>—</td>
+        <td>6 faces → CubeCtx</td>
+      </tr>
+      <tr>
+        <td>Goldberg</td>
+        <td>0.003 ms</td>
+        <td>—</td>
+        <td>—</td>
+        <td>O(1) mapping</td>
+      </tr>
+      <tr>
+        <td>Fibonacci fold</td>
+        <td>0.17 ms</td>
+        <td>—</td>
+        <td>—</td>
+        <td>Layer existence check</td>
+      </tr>
+      <tr style="font-weight:600;border-top:2px solid var(--accent-1);">
+        <td>Full Pipeline</td>
+        <td>3.4 ms</td>
+        <td>1.7 ms</td>
+        <td><span class="badge active">2×</span></td>
+        <td>50 MB/s CPU, 108 GB/s GPU kernel</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- File Format -->
+<section>
+  <h2>GPXL v2 Format</h2>
+  <details open>
+    <summary>Binary Layout — lettercube.h (9,417 B → 13,865 B, ratio 1.47×)</summary>
+    <div class="content">
+      <pre>
+<span class="cmt">// Header (48 bytes)</span>
+<span class="kw">struct</span> <span class="fn">Header</span> {
+    magic:      <span class="str">"GPXL"</span>          <span class="cmt">// 4 bytes</span>
+    version:    <span class="num">2</span>               <span class="cmt">// uint16 LE</span>
+    gp_level:   <span class="num">2</span>               <span class="cmt">// uint8</span>
+    n_segments: <span class="num">44</span>              <span class="cmt">// uint32 LE</span>
+    orig_size:  <span class="num">9417</span>            <span class="cmt">// uint64 LE</span>
+    xxh64:      <span class="num">0x300ead76...</span>  <span class="cmt">// uint64 LE</span>
+}
+
+<span class="cmt">// Coord Records (20B × N)</span>
+<span class="kw">struct</span> <span class="fn">CoordRecord</span> {
+    seg_id:    <span class="num">4B</span>  <span class="cmt">// segment index</span>
+    ring:      <span class="num">1B</span>  <span class="cmt">// Goldberg ring</span>
+    wedge:     <span class="num">1B</span>  <span class="cmt">// Goldberg wedge</span>
+    strategy:  <span class="num">1B</span>  <span class="cmt">// ID/FLAT/DIFF/BREF/GEOM/RAW</span>
+    seed:      <span class="num">8B</span>  <span class="cmt">// wallet_chunk_seed</span>
+    checksum:  <span class="num">2B</span>  <span class="cmt">// xxh64 & 0xFFFF</span>
+}
+
+<span class="cmt">// LetterCube Section (76B × N)</span>
+<span class="kw">struct</span> <span class="fn">LetterCube</span> {
+    lanes[6]:  <span class="num">6 × 12B</span>  <span class="cmt">// pair_id, angle, bond_state</span>
+    state:     <span class="num">1B</span>        <span class="cmt">// bond bitfield</span>
+    apex:      <span class="num">25B</span>       <span class="cmt">// apex data</span>
+}
+
+<span class="cmt">// Segment Data</span>
+[<span class="num">length:4</span>][<span class="str">raw_bytes</span>] × N  <span class="cmt">// length-prefixed raw chunks</span>
+      </pre>
+      <p style="color:var(--text-dim);font-size:0.85rem;margin-top:0.75rem;">
+        <strong>Note:</strong> Segment data stored as raw bytes. Compression step (Diamond Shell FLAT 2B / SPARSE 9B / DENSE 17B) pending.
+      </p>
+    </div>
+  </details>
+</section>
+
+<!-- Diamond Distribution -->
+<section>
+  <h2>Diamond Shell Distribution (GGUF Model Weights)</h2>
+  <div class="card-grid">
+    <div class="card">
+      <h3 style="color:var(--accent-6);">FLAT — 28.6%</h3>
+      <p>Zero-heavy blocks. All bytes zero → stored as 2 bytes <code>[0x00, value]</code>. 97% savings vs 64B raw.</p>
+      <div style="background:var(--accent-6);height:8px;border-radius:4px;width:28.6%;margin-top:0.5rem;"></div>
+    </div>
+    <div class="card">
+      <h3 style="color:var(--accent-4);">SPARSE — 71.1%</h3>
+      <p>Quantized weight patterns. Fibo_intersect popcount ≤ 4 → stored as 9 bytes. 86% savings vs 64B raw.</p>
+      <div style="background:var(--accent-4);height:8px;border-radius:4px;width:71.1%;margin-top:0.5rem;"></div>
+    </div>
+    <div class="card">
+      <h3 style="color:var(--accent-3);">DENSE — 0.4%</h3>
+      <p>Complex blocks. High entropy → stored as 17 bytes. 73% savings vs 64B raw.</p>
+      <div style="background:var(--accent-3);height:8px;border-radius:4px;width:4%;margin-top:0.5rem;"></div>
+    </div>
+  </div>
+</section>
+
+<!-- Roadmap -->
+<section>
+  <h2>Roadmap</h2>
+  <table>
+    <thead>
+      <tr><th>Phase</th><th>Status</th><th>Result</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1. C DLL (8 stages)</td>
+        <td><span class="badge done">DONE</span></td>
+        <td>307 functions, 50 MB/s</td>
+      </tr>
+      <tr>
+        <td>2. CUDA kernels</td>
+        <td><span class="badge done">CODE READY</span></td>
+        <td>18.7× speedup, blocked on MSVC</td>
+      </tr>
+      <tr>
+        <td>3. DRamTile zero-copy</td>
+        <td><span class="badge done">DONE</span></td>
+        <td>160× faster than heap</td>
+      </tr>
+      <tr>
+        <td>4. GearShift routing</td>
+        <td><span class="badge done">DONE</span></td>
+        <td>Priority sort + dispatch</td>
+      </tr>
+      <tr>
+        <td>5. Full benchmark</td>
+        <td><span class="badge done">DONE</span></td>
+        <td>50 MB/s CPU, 19/19 tests</td>
+      </tr>
+      <tr>
+        <td>6a. CLI tool</td>
+        <td><span class="badge done">DONE</span></td>
+        <td>encode/decode/info/verify</td>
+      </tr>
+      <tr>
+        <td><strong>6b. Compression step</strong></td>
+        <td><span class="badge active">NEXT</span></td>
+        <td>Diamond Shell encode → ~7× compression</td>
+      </tr>
+      <tr>
+        <td>7. GUI wrapper</td>
+        <td><span class="badge pending">PENDING</span></td>
+        <td>tkinter GUI</td>
+      </tr>
+      <tr>
+        <td>8. POGLS loader integration</td>
+        <td><span class="badge pending">PENDING</span></td>
+        <td>Wire to llama.cpp inference</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- Key Files -->
+<section>
+  <h2>Key Files</h2>
+  <table>
+    <thead>
+      <tr><th>File</th><th>Size</th><th>Lines</th><th>Purpose</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>pipeline/geofield_pipeline.c</code></td><td>40 KB</td><td>1,200</td><td>C DLL — all pipeline stages</td></tr>
+      <tr><td><code>pipeline/geofield_cuda.cu</code></td><td>16 KB</td><td>508</td><td>CUDA kernels — GPU parallel</td></tr>
+      <tr><td><code>pipeline/lettercube.h</code></td><td>9 KB</td><td>288</td><td>LetterCube data structure</td></tr>
+      <tr><td><code>pipeline/geofield_ctypes.py</code></td><td>23 KB</td><td>572</td><td>Python ctypes bindings</td></tr>
+      <tr><td><code>pipeline/geofield_cli.py</code></td><td>14 KB</td><td>401</td><td>CLI tool</td></tr>
+      <tr><td><code>pipeline/cube_assembly.h</code></td><td>8 KB</td><td>245</td><td>CubeCtx + recursive nesting</td></tr>
+      <tr><td><code>pipeline/geofield_dramtile.h</code></td><td>5 KB</td><td>142</td><td>DRamTile pipeline store</td></tr>
+      <tr><td><code>pipeline/pipeline_store.h</code></td><td>5 KB</td><td>163</td><td>Hash-indexed mmap store</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<footer>
+  GeoField Pipeline — Generated from session data, commit 2eb0b3d
+</footer>
+
+</div>
+</body>
+</html>

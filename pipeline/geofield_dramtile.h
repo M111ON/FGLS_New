@@ -24,7 +24,7 @@ typedef struct {
     int           initialized;
     uint32_t      n_stored;       /* segments stored */
     size_t        total_bytes;    /* total bytes stored */
-    double        encode_time_ms; /* last encode time */
+    double        structure_time_ms; /* last structure time */
 } GeoFieldDT;
 
 /* ── Segment naming ─────────────────────────────────────── */

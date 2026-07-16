@@ -467,7 +467,12 @@ def prose_update() -> str:
         html, count=1, flags=re.DOTALL
     )
     if new_html == html:
-        return "err  regex replace failed — PROSE_JSON pattern not matched"
+        # Check if regex actually matched (replacement produced same content = already up to date)
+        import re as _re2
+        if _re2.search(r'var PROSE_JSON\s*=\s*\{.*?\};', html, _re2.DOTALL):
+            n_files = sum(len(m["files"]) for m in modules)
+            return f"ok  prose.html already current — {len(modules)} modules, {n_files} files"
+        return "err  PROSE_JSON pattern not found in prose.html"
 
     with open(prose_html, "w", encoding="utf-8") as f:
         f.write(new_html)

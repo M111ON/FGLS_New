@@ -2,7 +2,7 @@
  * geofield_pipeline.c — DLL wrapper for GeoField Pipeline
  *
  * Compiles all header-only components into a shared library.
- * Python ctypes can call these functions for encode/decode/verify.
+ * Python ctypes can call these functions for structure/decode/verify.
  *
  * Build: gcc -O2 -std=c11 -shared -o geofield_pipeline.dll geofield_pipeline.c
  */
@@ -28,6 +28,9 @@
 
 /* LetterCube — 24-pair face:face bond */
 #include "lettercube.h"
+
+/* Geopixel spatial coherence compression + Hilbert curve */
+#include "pogls_geopixel.h"
 
 /* ════════════════════════════════════════════════════════════════
    LAYER 1: Spec functions (immutable, deterministic)
@@ -216,7 +219,7 @@ GEO_JUMP_API SkelDecision geofield_skel_decide(const uint8_t chunk[64],
         }
     }
 
-    /* P5: GEOM (structured but uncompressible) */
+    /* P5: GEOM (structured but non-classifiable) */
     sd.strategy = SKEL_GEOM;
     return sd;
 }
@@ -1008,27 +1011,339 @@ GEO_JUMP_API void geofield_gs_stats(void *handle) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   Phase 5b: Full pipeline in one C call — no Python↔DLL overhead
+   Phase 6: Diamond Shell Compression (lossless roundtrip)
+   ═══════════════════════════════════════════════════════════════
+   Wire format per 64B block:
+     FLAT   [flag:1][rot:1]                            =  2B
+     SPARSE [flag:1][rot:1][rotated_64B:64]            = 66B
+     DENSE  [flag:1][rot:1][rotated_64B:64]            = 66B
+   All non-FLAT blocks store full rotated 64B for lossless decode.
    ═══════════════════════════════════════════════════════════════ */
+
+#define DS_FLAG_FLAT    0
+#define DS_FLAG_SPARSE  1
+#define DS_FLAG_DENSE   2
+
+#define DS_SUB_N        8   /* sub-blocks per 64B block */
+#define DS_SUB_SZ       8   /* bytes per sub-block */
+
+/* ── Hierarchical classify: unfold 64B → 8×8B, fold each ──────── */
+
+/* Classify one 64B block using sub-block hierarchy.
+ * Format: [flag:1][rot:1][sub_flags:1][sub_data:variable]
+ *   flag: DS_FLAG_FLAT(0) or 0xFF(non-FLAT)
+ *   rot: rotation applied before sub-block split (only valid when flag=0xFF)
+ *   sub_flags: 1 byte bitmap, bit i = 0 → FLAT sub-block (0 bytes)
+ *              bit i = 1 → non-FLAT sub-block (stores 8 bytes raw)
+ * Returns bytes written. */
+static inline uint32_t geofield_ds_classify_block(uint8_t *out,
+                                                 const uint8_t block[64])
+{
+    /* Check if truly all-zero → FLAT */
+    int is_zero = 1;
+    for (int i = 0; i < 64; i++) { if (block[i]) { is_zero = 0; break; } }
+    if (is_zero) {
+        out[0] = DS_FLAG_FLAT;
+        return 1;
+    }
+
+    /* Find best rotation for the full block */
+    DiamondClassify dc = geofield_diamond_classify(block);
+    uint8_t rotbuf[64];
+    geofield_rotate64(rotbuf, block, dc.best_rot);
+
+    /* Split rotated data into 8 sub-blocks of 8B, classify each */
+    uint8_t sub_flags = 0;
+    for (int s = 0; s < DS_SUB_N; s++) {
+        int has_nonzero = 0;
+        for (int j = 0; j < DS_SUB_SZ; j++) {
+            if (rotbuf[s * DS_SUB_SZ + j]) { has_nonzero = 1; break; }
+        }
+        if (has_nonzero) sub_flags |= (1u << s);
+    }
+
+    out[0] = 0xFF;          /* non-FLAT marker */
+    out[1] = dc.best_rot;   /* rotation index 0-5 */
+    out[2] = sub_flags;     /* which sub-blocks have data */
+
+    uint32_t pos = 3;
+    for (int s = 0; s < DS_SUB_N; s++) {
+        if (sub_flags & (1u << s)) {
+            memcpy(out + pos, rotbuf + s * DS_SUB_SZ, DS_SUB_SZ);
+            pos += DS_SUB_SZ;
+        }
+    }
+    return pos;
+}
+
+/* Decode one structured block → 64B output.
+ * Returns bytes consumed from `in`, or 0 on error. */
+static inline uint32_t geofield_ds_decode_block(uint8_t out[64],
+                                                 const uint8_t *in)
+{
+    uint8_t flag = in[0];
+
+    if (flag == DS_FLAG_FLAT) {
+        memset(out, 0, 64);
+        return 1;
+    }
+
+    /* flag == 0xFF: non-FLAT with sub-block encoding */
+    uint8_t rot = in[1];
+    uint8_t sub_flags = in[2];
+
+    uint8_t rotbuf[64];
+    memset(rotbuf, 0, 64);
+
+    uint32_t pos = 3;
+    for (int s = 0; s < DS_SUB_N; s++) {
+        if (sub_flags & (1u << s)) {
+            memcpy(rotbuf + s * DS_SUB_SZ, in + pos, DS_SUB_SZ);
+            pos += DS_SUB_SZ;
+        }
+    }
+
+    /* Inverse rotation: rotbuf → out */
+    for (int nz = 0; nz < 4; nz++) {
+        for (int ny = 0; ny < 4; ny++) {
+            for (int nx = 0; nx < 4; nx++) {
+                int x, y, z;
+                switch (rot % 6) {
+                    case 0: x=nx;   y=ny;   z=nz;   break;
+                    case 1: x=nz;   y=nx;   z=ny;   break;
+                    case 2: x=ny;   y=nz;   z=nx;   break;
+                    case 3: x=3-nx; y=ny;   z=nz;   break;
+                    case 4: x=nx;   y=3-ny; z=nz;   break;
+                    case 5: x=nx;   y=ny;   z=3-nz; break;
+                    default: x=nx; y=ny; z=nz; break;
+                }
+                out[x + y*4 + z*16] = rotbuf[nx + ny*4 + nz*16];
+            }
+        }
+    }
+    return pos;
+}
+
+/* Structured block size: 1 (FLAT) or 3 + popcount(sub_flags)*8 */
+static inline uint32_t geofield_ds_block_size(const uint8_t *in)
+{
+    if (in[0] == DS_FLAG_FLAT) return 1u;
+    int n = 0;
+    for (int s = 0; s < DS_SUB_N; s++)
+        if (in[2] & (1u << s)) n++;
+    return 3u + (uint32_t)n * DS_SUB_SZ;
+}
+
+/* ── Exported wrappers for per-block classify/decode ─────── */
+
+GEO_JUMP_API uint32_t geofield_block_enc(uint8_t *out, const uint8_t *block)
+{
+    return geofield_ds_classify_block(out, block);
+}
+
+GEO_JUMP_API uint32_t geofield_block_dec(uint8_t *out, const uint8_t *in)
+{
+    return geofield_ds_decode_block(out, in);
+}
+
+GEO_JUMP_API uint32_t geofield_block_enc_sz(const uint8_t *in)
+{
+    return geofield_ds_block_size(in);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Phase 6b: Compression — codebook dedup + pattern indices
+   ═══════════════════════════════════════════════════════════════
+   After classification, build a codebook of unique fold patterns:
+     FLAT pattern:     {rot:0, sub_flags:0x00} → 1B per block (index only)
+     Non-FLAT pattern: {rot:N, sub_flags:M}    → 1B index + sub_data
+
+   Compression format (GFCS v2):
+     [header: 32B]  magic "GFCS", version, n_segs, n_blocks,
+                    codebook_count, orig_size, xxh64
+     [codebook: N×2B]  rot(1) + sub_flags(1)
+     [segment index: n_segs × 12B]
+     [compressed blocks: variable]
+       FLAT:     1B (codebook index only, sub_data = 0)
+       Non-FLAT: 1B index + popcount(sub_flags) × 8B sub_data
+   ═══════════════════════════════════════════════════════════════ */
+
+#define GFCS_MAGIC    0x53434647  /* "GFCS" little-endian */
+#define GFCS_VERSION  2
+#define GFCS_HDR_SZ   36
+#define GFCS_IDX_ENTRY_SZ 12
+#define GFCS_MAX_CODEBOOK 256  /* max unique patterns (1B index) */
+
+/* Codebook entry: one unique fold pattern */
+typedef struct {
+    uint8_t rot;
+    uint8_t sub_flags;
+} GCFSPattern;
+
+/* Build codebook from data. Returns number of unique patterns.
+ * patterns[] must be >= GFCS_MAX_CODEBOOK entries.
+ * block_patterns[i] = codebook index for block i. */
+static inline uint32_t gfcs_build_codebook(
+    const uint8_t *data, uint64_t data_size,
+    GCFSPattern *patterns, uint32_t *block_patterns)
+{
+    uint32_t n_patterns = 0;
+    uint32_t total_blocks = (uint32_t)((data_size + 63) / 64);
+    uint8_t block[64];
+    uint8_t tmp_out[80];
+
+    for (uint32_t bi = 0; bi < total_blocks; bi++) {
+        uint64_t off = (uint64_t)bi * 64;
+        uint64_t bsz = (data_size - off > 64) ? 64 : (data_size - off);
+        memset(block, 0, 64);
+        memcpy(block, data + off, (size_t)bsz);
+
+        /* Classify block to get rot + sub_flags */
+        geofield_ds_classify_block(tmp_out, block);
+
+        uint8_t rot, sub_flags;
+        if (tmp_out[0] == DS_FLAG_FLAT) {
+            rot = 0;
+            sub_flags = 0;
+        } else {
+            rot = tmp_out[1];
+            sub_flags = tmp_out[2];
+        }
+
+        /* Find or insert pattern in codebook */
+        uint32_t idx;
+        for (idx = 0; idx < n_patterns; idx++) {
+            if (patterns[idx].rot == rot && patterns[idx].sub_flags == sub_flags)
+                break;
+        }
+        if (idx >= n_patterns && n_patterns < GFCS_MAX_CODEBOOK) {
+            patterns[n_patterns].rot = rot;
+            patterns[n_patterns].sub_flags = sub_flags;
+            n_patterns++;
+        }
+        block_patterns[bi] = idx;
+    }
+    return n_patterns;
+}
+
+/* Compute compressed size for a block given its codebook pattern. */
+static inline uint32_t gfcs_block_csize(const GCFSPattern *pat)
+{
+    if (pat->sub_flags == 0) return 1;  /* FLAT: index only */
+    int n_sub = 0;
+    for (int s = 0; s < DS_SUB_N; s++)
+        if (pat->sub_flags & (1u << s)) n_sub++;
+    return 1u + (uint32_t)n_sub * DS_SUB_SZ;
+}
+
+/* Write GFCS header (32 bytes). */
+static inline void gfcs_write_header(uint8_t *buf, uint32_t n_segs,
+                                      uint32_t n_blocks, uint32_t n_patterns,
+                                      uint64_t orig_size, uint64_t xxh64)
+{
+    memset(buf, 0, GFCS_HDR_SZ);
+    uint32_t magic = GFCS_MAGIC;
+    uint16_t ver = GFCS_VERSION;
+    memcpy(buf + 0,  &magic, 4);
+    memcpy(buf + 4,  &ver, 2);
+    memcpy(buf + 6,  &n_segs, 4);
+    memcpy(buf + 10, &n_blocks, 4);
+    memcpy(buf + 14, &n_patterns, 4);
+    memcpy(buf + 18, &orig_size, 8);
+    memcpy(buf + 26, &xxh64, 8);
+}
+
+/* Read GFCS header. Returns 0 on success. */
+static inline int gfcs_read_header(const uint8_t *buf, uint32_t *n_segs,
+                                    uint32_t *n_blocks, uint32_t *n_patterns,
+                                    uint64_t *orig_size, uint64_t *xxh64)
+{
+    uint32_t magic = 0;
+    uint16_t ver = 0;
+    memcpy(&magic, buf + 0, 4);
+    memcpy(&ver, buf + 4, 2);
+    if (magic != GFCS_MAGIC || ver != GFCS_VERSION) return -1;
+    memcpy(n_segs,    buf + 6,  4);
+    memcpy(n_blocks,  buf + 10, 4);
+    memcpy(n_patterns, buf + 14, 4);
+    memcpy(orig_size, buf + 18, 8);
+    memcpy(xxh64,     buf + 26, 8);
+    return 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Phase 5b: Full pipeline — structuring + Diamond Shell classify
+   ═══════════════════════════════════════════════════════════════
+   Output layout (out_buf):
+     [header: 32B]
+       magic "GFDS" (4B), version (1B), n_segments (4B),
+       n_blocks (4B), orig_size (8B), xxh64 (8B), reserved (3B)
+     [segment index: n_segments × 8B]
+       offset (4B, relative to comp_data start), n_blocks (4B)
+     [structured blocks: variable]
+       concatenated DS-classified blocks
+   ═══════════════════════════════════════════════════════════════ */
+
+#define GFDS_MAGIC    0x53444647  /* "GFDS" little-endian */
+#define GFDS_VERSION  1
+#define GFDS_HDR_SZ   32
+#define GFDS_IDX_ENTRY_SZ 12  /* offset(4) + n_blocks(2) + start_chunk(4) + flags(2) */
 
 typedef struct {
     uint32_t n_segments;
     uint32_t n_blocks;
     uint32_t lc_verified;
-    uint32_t skel_hits[6];   /* ID/FLAT/DIFF/BREF/GEOM/RAW */
+    uint32_t skel_hits[6];    /* ID/FLAT/DIFF/BREF/GEOM/RAW */
     uint8_t  diamond_hits[3]; /* FLAT/SPARSE/DENSE */
     uint64_t xxh64;
-    double   encode_ms;
-    double   wall_ms;        /* high-res wall time */
-} GFEncodeStats;
+    uint64_t orig_size;
+    uint64_t struct_size;       /* compressed data size (excl header+index) */
+    double   structure_ms;
+    double   wall_ms;
+    double   ratio;           /* orig_size / (GFDS_HDR_SZ + idx + comp) */
+} GFStructureStats;
 
-GEO_JUMP_API int geofield_full_encode(
+/* Write GFDS header into buf (32 bytes). */
+static inline void gfds_write_header(uint8_t *buf, uint32_t n_segs,
+                                      uint32_t n_blocks, uint64_t orig_size,
+                                      uint64_t xxh64)
+{
+    memset(buf, 0, GFDS_HDR_SZ);
+    uint32_t magic = GFDS_MAGIC;
+    memcpy(buf + 0,  &magic, 4);
+    buf[4] = GFDS_VERSION;
+    memcpy(buf + 5,  &n_segs, 4);
+    memcpy(buf + 9,  &n_blocks, 4);
+    memcpy(buf + 13, &orig_size, 8);
+    memcpy(buf + 21, &xxh64, 8);
+}
+
+/* Read GFDS header. Returns 0 on success. */
+static inline int gfds_read_header(const uint8_t *buf, uint32_t *n_segs,
+                                    uint32_t *n_blocks, uint64_t *orig_size,
+                                    uint64_t *xxh64)
+{
+    uint32_t magic = 0;
+    uint8_t  version = 0;
+    memcpy(&magic, buf + 0, 4);
+    memcpy(&version, buf + 4, 1);
+    if (magic != GFDS_MAGIC || version != GFDS_VERSION) return -1;
+    memcpy(n_segs,   buf + 5,  4);
+    memcpy(n_blocks, buf + 9,  4);
+    memcpy(orig_size, buf + 13, 8);
+    memcpy(xxh64,    buf + 21, 8);
+    return 0;
+}
+
+GEO_JUMP_API int geofield_full_structure(
     const uint8_t *data, uint64_t data_size,
     uint32_t min_chunk, uint32_t max_chunk,
-    GFEncodeStats *out_stats)
+    uint8_t *out_buf, uint64_t out_buf_sz,
+    GFStructureStats *out_stats)
 {
     if (!data || data_size == 0 || !out_stats) return -1;
     memset(out_stats, 0, sizeof(*out_stats));
+    out_stats->orig_size = data_size;
 
 #ifdef _WIN32
     LARGE_INTEGER freq, t0, t1;
@@ -1042,76 +1357,317 @@ GEO_JUMP_API int geofield_full_encode(
     out_stats->xxh64 = geofield_xxh64(data, data_size);
 
     /* Step 1: flow_chunk */
-    uint32_t max_segs = (uint32_t)(data_size / min_chunk) + 256;
+    uint32_t max_segs = (uint32_t)(data_size / (min_chunk ? min_chunk : 32)) + 256;
     uint64_t *offsets = (uint64_t *)malloc(max_segs * sizeof(uint64_t));
     uint64_t *lengths = (uint64_t *)malloc(max_segs * sizeof(uint64_t));
     if (!offsets || !lengths) { free(offsets); free(lengths); return -1; }
 
-    uint32_t n_segs = geofield_flow_chunk(data, data_size, min_chunk, max_chunk,
+    uint32_t n_segs = geofield_flow_chunk(data, data_size,
+                                           min_chunk ? min_chunk : 32,
+                                           max_chunk ? max_chunk : 4096,
                                            offsets, lengths, max_segs);
     out_stats->n_segments = n_segs;
 
-    /* Step 2: per-block classify + skeleton */
+    /* Step 2: per-block classify + skeleton + Diamond Shell encode
+     * Encode ALL blocks linearly (0..n_blocks-1) for full coverage.
+     * Segments are used only for structuring metadata, not for classify scope. */
     uint8_t block[64];
     uint8_t zeros[64];
     memset(zeros, 0, 64);
-    uint32_t total_blocks = 0;
+    uint32_t total_blocks = (uint32_t)((data_size + 63) / 64);
 
-    for (uint32_t si = 0; si < n_segs; si++) {
-        uint64_t seg_off = offsets[si];
-        uint64_t seg_len = lengths[si];
-
-        for (uint64_t bi = 0; bi < seg_len; bi += 64) {
-            uint64_t bsz = (seg_len - bi > 64) ? 64 : (seg_len - bi);
-            memset(block, 0, 64);
-            memcpy(block, data + seg_off + bi, (size_t)bsz);
-
-            /* Diamond classify */
-            DiamondClassify dc = geofield_diamond_classify(block);
-            out_stats->diamond_hits[dc.flag]++;
-
-            /* Skeleton decide */
-            SkelDecision sd = geofield_skel_decide(block, zeros, 0);
-            out_stats->skel_hits[sd.strategy]++;
-
-            total_blocks++;
-        }
+    /* Pre-calculate total structured size using actual classify */
+    uint8_t tmp_out[80]; /* worst case: 1 + 1 + 1 + 64 = 67 */
+    uint64_t total_struct = 0;
+    for (uint32_t bi = 0; bi < total_blocks; bi++) {
+        uint64_t off = (uint64_t)bi * 64;
+        uint64_t bsz = (data_size - off > 64) ? 64 : (data_size - off);
+        memset(block, 0, 64);
+        memcpy(block, data + off, (size_t)bsz);
+        total_struct += geofield_ds_classify_block(tmp_out, block);
     }
+
+    /* Check output buffer size: header + segment index + structured data */
+    uint64_t needed = GFDS_HDR_SZ + (uint64_t)n_segs * GFDS_IDX_ENTRY_SZ + total_struct;
+    if (out_buf && needed > out_buf_sz) {
+        free(offsets); free(lengths);
+        return -2; /* buffer too small */
+    }
+
     out_stats->n_blocks = total_blocks;
+    out_stats->struct_size = total_struct;
 
-    /* Step 3: LetterCube + CubeCtx per segment */
-    uint8_t lc_bufs[CC_FACES][LC_SERIALIZED_SZ];
-    uint8_t cube_buf[CC_CTX_SZ];
-    uint32_t lc_ok = 0;
+    if (!out_buf) {
+        /* Dry run: just return stats */
+        free(offsets); free(lengths);
+        return 0;
+    }
 
+    /* Step 3: write header + segment index + structured blocks */
+    uint8_t *cur = out_buf;
+
+    /* Header */
+    gfds_write_header(cur, n_segs, total_blocks, data_size, out_stats->xxh64);
+    cur += GFDS_HDR_SZ;
+
+    /* Segment index */
     for (uint32_t si = 0; si < n_segs; si++) {
-        /* Init 6 faces of LetterCube */
-        for (int f = 0; f < CC_FACES; f++) {
-            memset(lc_bufs[f], 0, LC_SERIALIZED_SZ);
-            for (uint8_t lane = 0; lane < 6; lane++) {
-                uint8_t pair = (lane + (si + f) % 12) % 24;
-                uint8_t angle = (si + lane + f) % 6;
-                geofield_lc_assign(lc_bufs[f], lane, pair, angle);
+        memcpy(cur, &offsets[si], 4);
+        uint16_t seg_nblk = (uint16_t)lengths[si];
+        memcpy(cur + 4, &seg_nblk, 2);
+        memset(cur + 6, 0, 6);  /* reserved */
+        cur += GFDS_IDX_ENTRY_SZ;
+    }
+
+    /* Structured blocks: classify all blocks linearly */
+    for (uint32_t bi = 0; bi < total_blocks; bi++) {
+        uint64_t off = (uint64_t)bi * 64;
+        uint64_t bsz = (data_size - off > 64) ? 64 : (data_size - off);
+        memset(block, 0, 64);
+        memcpy(block, data + off, (size_t)bsz);
+
+        uint32_t wrote = geofield_ds_classify_block(cur, block);
+        cur += wrote;
+    }
+
+    free(offsets); free(lengths);
+    return 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Phase 7: Rearrange — Hilbert scatter for spatial coherence
+   ═══════════════════════════════════════════════════════════════
+   geo_field's job: rearrange raw bytes so geopixel can compress.
+   Hilbert curve maps 1D byte positions → 2D grid coordinates,
+   grouping spatially similar bytes together. This creates the
+   spatial coherence that geopixel's FLAT/SMOOTH/GRADIENT modes need.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Scatter raw bytes onto 8×8 grid via Hilbert curve.
+ * dst[64] = grid in Hilbert order. src[64] = raw bytes. */
+GEO_JUMP_API void geofield_hilbert_scatter_8x8(uint8_t *dst, const uint8_t *src)
+{
+    for (uint32_t i = 0; i < 64; i++) {
+        uint32_t x, y;
+        pogls_geopixel_hilbert_d_to_xy(i, 3, &x, &y);
+        dst[y * 8 + x] = src[i];
+    }
+}
+
+/* Gather: reverse Hilbert scatter. dst[64] = restored bytes. src[64] = grid. */
+GEO_JUMP_API void geofield_hilbert_gather_8x8(uint8_t *dst, const uint8_t *src)
+{
+    for (uint32_t i = 0; i < 64; i++) {
+        uint32_t x, y;
+        pogls_geopixel_hilbert_d_to_xy(i, 3, &x, &y);
+        dst[i] = src[y * 8 + x];
+    }
+}
+
+/* Full rearrange: scatter all blocks via Hilbert, then classify.
+ * rearranged[total_blocks * 64] = Hilbert-scattered blocks.
+ * Caller must free(rearranged). Returns 0 on success. */
+GEO_JUMP_API int geofield_rearrange_hilbert(
+    const uint8_t *data, uint64_t data_size,
+    uint8_t **rearranged_out, uint64_t *rearranged_sz_out)
+{
+    if (!data || data_size == 0 || !rearranged_out) return -1;
+
+    uint32_t total_blocks = (uint32_t)((data_size + 63) / 64);
+    uint64_t buf_sz = (uint64_t)total_blocks * 64;
+    uint8_t *buf = (uint8_t *)malloc(buf_sz);
+    if (!buf) return -1;
+    memset(buf, 0, (size_t)buf_sz);
+
+    uint8_t block[64], scattered[64];
+    for (uint32_t bi = 0; bi < total_blocks; bi++) {
+        uint64_t off = (uint64_t)bi * 64;
+        uint64_t bsz = (data_size - off > 64) ? 64 : (data_size - off);
+        memset(block, 0, 64);
+        memcpy(block, data + off, (size_t)bsz);
+
+        geofield_hilbert_scatter_8x8(scattered, block);
+        memcpy(buf + off, scattered, 64);
+    }
+
+    *rearranged_out = buf;
+    if (rearranged_sz_out) *rearranged_sz_out = buf_sz;
+    return 0;
+}
+
+/* Reverse rearrange: gather scattered blocks back to original order. */
+GEO_JUMP_API int geofield_unarrange_hilbert(
+    const uint8_t *scattered, uint64_t scattered_size,
+    uint8_t *original_out, uint64_t original_size)
+{
+    if (!scattered || !original_out) return -1;
+
+    uint32_t total_blocks = (uint32_t)((original_size + 63) / 64);
+    uint8_t grid[64], gathered[64];
+    for (uint32_t bi = 0; bi < total_blocks; bi++) {
+        uint64_t off = (uint64_t)bi * 64;
+        uint64_t bsz = (original_size - off > 64) ? 64 : (original_size - off);
+        memcpy(grid, scattered + off, 64);
+
+        geofield_hilbert_gather_8x8(gathered, grid);
+        uint64_t write_sz = (bsz < 64) ? bsz : 64;
+        memcpy(original_out + off, gathered, (size_t)write_sz);
+    }
+    return 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Phase 6c: Full compress/decompress with codebook
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Compress: classify → build codebook → write compressed stream.
+ * Output layout:
+ *   [header:32B] [codebook:N×2B] [seg_index:n_segs×12B] [blocks:variable]
+ * Returns 0 on success. out_stats filled if non-NULL. */
+typedef struct {
+    uint32_t n_segments;
+    uint32_t n_blocks;
+    uint32_t n_patterns;
+    uint32_t skel_hits[6];
+    uint8_t  diamond_hits[3];
+    uint64_t xxh64;
+    uint64_t orig_size;
+    uint64_t comp_size;      /* compressed data size (excl header+codebook+index) */
+    uint64_t total_out;      /* header + codebook + index + compressed */
+    double   structure_ms;
+    double   wall_ms;
+} GFCSStats;
+
+GEO_JUMP_API int geofield_full_compress(
+    const uint8_t *data, uint64_t data_size,
+    uint32_t min_chunk, uint32_t max_chunk,
+    uint8_t *out_buf, uint64_t out_buf_sz,
+    GFCSStats *out_stats)
+{
+    if (!data || data_size == 0 || !out_stats) return -1;
+    memset(out_stats, 0, sizeof(*out_stats));
+    out_stats->orig_size = data_size;
+
+#ifdef _WIN32
+    LARGE_INTEGER freq, t0, t1;
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&t0);
+#else
+    struct timespec ts0, ts1;
+    clock_gettime(CLOCK_MONOTONIC, &ts0);
+#endif
+
+    out_stats->xxh64 = geofield_xxh64(data, data_size);
+
+    uint32_t total_blocks = (uint32_t)((data_size + 63) / 64);
+
+    /* Step 1: build codebook */
+    GCFSPattern codebook[GFCS_MAX_CODEBOOK];
+    uint32_t *block_idx = (uint32_t *)malloc(total_blocks * sizeof(uint32_t));
+    if (!block_idx) return -1;
+    uint32_t n_patterns = gfcs_build_codebook(data, data_size, codebook, block_idx);
+
+    /* Step 2: flow_chunk for segment metadata */
+    uint32_t max_segs = (uint32_t)(data_size / (min_chunk ? min_chunk : 32)) + 256;
+    uint64_t *offsets = (uint64_t *)malloc(max_segs * sizeof(uint64_t));
+    uint64_t *lengths = (uint64_t *)malloc(max_segs * sizeof(uint64_t));
+    if (!offsets || !lengths) { free(offsets); free(lengths); free(block_idx); return -1; }
+    uint32_t n_segs = geofield_flow_chunk(data, data_size,
+                                           min_chunk ? min_chunk : 32,
+                                           max_chunk ? max_chunk : 4096,
+                                           offsets, lengths, max_segs);
+    out_stats->n_segments = n_segs;
+
+    /* Step 3: compute total compressed size */
+    uint64_t total_comp = 0;
+    uint8_t block[64];
+    uint8_t tmp_out[80];
+    for (uint32_t bi = 0; bi < total_blocks; bi++) {
+        uint64_t off = (uint64_t)bi * 64;
+        uint64_t bsz = (data_size - off > 64) ? 64 : (data_size - off);
+        memset(block, 0, 64);
+        memcpy(block, data + off, (size_t)bsz);
+
+        /* Stats */
+        DiamondClassify dc = geofield_diamond_classify(block);
+        out_stats->diamond_hits[dc.flag]++;
+        SkelDecision sd = geofield_skel_decide(block, block, 0);
+        out_stats->skel_hits[sd.strategy]++;
+
+        /* Compressed size: codebook_index(1B) + sub_data for non-FLAT */
+        total_comp += gfcs_block_csize(&codebook[block_idx[bi]]);
+    }
+
+    /* Step 4: compute total output size */
+    uint64_t cb_size = (uint64_t)n_patterns * 2;  /* codebook: 2B per pattern */
+    uint64_t idx_size = (uint64_t)n_segs * GFCS_IDX_ENTRY_SZ;
+    uint64_t needed = GFCS_HDR_SZ + cb_size + idx_size + total_comp;
+
+    if (out_buf && needed > out_buf_sz) {
+        free(offsets); free(lengths); free(block_idx);
+        return -2;
+    }
+
+    out_stats->n_blocks = total_blocks;
+    out_stats->n_patterns = n_patterns;
+    out_stats->comp_size = total_comp;
+    out_stats->total_out = needed;
+
+    if (!out_buf) {
+        free(offsets); free(lengths); free(block_idx);
+        return 0;
+    }
+
+    /* Step 5: write header */
+    gfcs_write_header(out_buf, n_segs, total_blocks, n_patterns,
+                       data_size, out_stats->xxh64);
+
+    /* Step 6: write codebook */
+    uint8_t *cb_base = out_buf + GFCS_HDR_SZ;
+    for (uint32_t pi = 0; pi < n_patterns; pi++) {
+        cb_base[pi * 2]     = codebook[pi].rot;
+        cb_base[pi * 2 + 1] = codebook[pi].sub_flags;
+    }
+
+    /* Step 7: write segment index */
+    uint8_t *idx_base = out_buf + GFCS_HDR_SZ + cb_size;
+    for (uint32_t si = 0; si < n_segs; si++) {
+        uint32_t start_chunk = (uint32_t)(offsets[si] / 64);
+        uint16_t seg_nblocks = (uint16_t)((lengths[si] + 63) / 64);
+        memcpy(idx_base + si * GFCS_IDX_ENTRY_SZ,     &start_chunk, 4);
+        memcpy(idx_base + si * GFCS_IDX_ENTRY_SZ + 4, &seg_nblocks, 2);
+        memset(idx_base + si * GFCS_IDX_ENTRY_SZ + 6, 0, 6);
+    }
+
+    /* Step 8: write compressed blocks */
+    uint8_t *comp_base = out_buf + GFCS_HDR_SZ + cb_size + idx_size;
+    uint64_t comp_pos = 0;
+
+    for (uint32_t bi = 0; bi < total_blocks; bi++) {
+        uint64_t off = (uint64_t)bi * 64;
+        uint64_t bsz = (data_size - off > 64) ? 64 : (data_size - off);
+        memset(block, 0, 64);
+        memcpy(block, data + off, (size_t)bsz);
+
+        uint32_t pi = block_idx[bi];
+        comp_base[comp_pos++] = (uint8_t)pi;
+
+        if (codebook[pi].sub_flags != 0) {
+            /* Non-FLAT: write rotated sub-block data */
+            geofield_ds_classify_block(tmp_out, block);
+            uint8_t sub_flags = codebook[pi].sub_flags;
+            uint32_t src_pos = 3; /* skip [flag][rot][sub_flags] */
+            for (int s = 0; s < DS_SUB_N; s++) {
+                if (sub_flags & (1u << s)) {
+                    memcpy(comp_base + comp_pos, tmp_out + src_pos, DS_SUB_SZ);
+                    comp_pos += DS_SUB_SZ;
+                    src_pos += DS_SUB_SZ;
+                }
             }
-            geofield_lc_bond(lc_bufs[f], 0, 1);
-            geofield_lc_bond(lc_bufs[f], 2, 3);
-            geofield_lc_bond(lc_bufs[f], 4, 5);
-            geofield_lc_assemble(lc_bufs[f]);
-            if (geofield_lc_verify(lc_bufs[f])) lc_ok++;
         }
-
-        /* CubeCtx from 6 LetterCube faces */
-        geofield_cube_ctx_init(cube_buf);
-        geofield_cube_ctx_from_lc(cube_buf, lc_bufs);
     }
-    out_stats->lc_verified = lc_ok;
 
-    /* Step 4: Goldberg + Fibonacci (quick — O(1) per call) */
-    uint32_t tile_id;
-    for (uint32_t si = 0; si < n_segs; si++) {
-        geofield_gp_map_face(2, si % 30, &tile_id);
-        geofield_shell_layer_live(si % 12, si);
-    }
+    out_stats->comp_size = comp_pos;
 
 #ifdef _WIN32
     QueryPerformanceCounter(&t1);
@@ -1120,9 +1676,213 @@ GEO_JUMP_API int geofield_full_encode(
     clock_gettime(CLOCK_MONOTONIC, &ts1);
     out_stats->wall_ms = (ts1.tv_sec - ts0.tv_sec) * 1000.0 + (ts1.tv_nsec - ts0.tv_nsec) / 1e6;
 #endif
-    out_stats->encode_ms = out_stats->wall_ms; /* alias */
+    out_stats->structure_ms = out_stats->wall_ms;
 
     free(offsets);
     free(lengths);
+    free(block_idx);
     return 0;
+}
+
+/* Decompress GFCS stream → original data.
+ * Returns 0 on success, -1 on error, -2 on xxh64 mismatch. */
+GEO_JUMP_API int geofield_full_decompress(
+    const uint8_t *in_buf, uint64_t in_sz,
+    uint8_t *out_buf, uint64_t out_buf_sz,
+    uint64_t *out_xxh64)
+{
+    if (!in_buf || !out_buf) return -1;
+
+    uint32_t n_segs, n_blocks, n_patterns;
+    uint64_t orig_size, stored_xxh64;
+    if (gfcs_read_header(in_buf, &n_segs, &n_blocks, &n_patterns,
+                          &orig_size, &stored_xxh64) != 0)
+        return -1;
+    if (orig_size > out_buf_sz) return -1;
+
+    /* Read codebook */
+    const uint8_t *cb_base = in_buf + GFCS_HDR_SZ;
+    GCFSPattern codebook[GFCS_MAX_CODEBOOK];
+    for (uint32_t pi = 0; pi < n_patterns && pi < GFCS_MAX_CODEBOOK; pi++) {
+        codebook[pi].rot = cb_base[pi * 2];
+        codebook[pi].sub_flags = cb_base[pi * 2 + 1];
+    }
+
+    /* Skip segment index, go to compressed blocks */
+    uint64_t cb_size = (uint64_t)n_patterns * 2;
+    uint64_t idx_size = (uint64_t)n_segs * GFCS_IDX_ENTRY_SZ;
+    const uint8_t *comp_base = in_buf + GFCS_HDR_SZ + cb_size + idx_size;
+
+    /* Decompress all blocks linearly */
+    uint64_t comp_pos = 0;
+    uint64_t out_pos = 0;
+
+    for (uint32_t bi = 0; bi < n_blocks; bi++) {
+        uint8_t pi = comp_base[comp_pos++];
+        const GCFSPattern *pat = &codebook[pi];
+
+        /* Handle partial last block — only write actual bytes */
+        uint64_t block_bsz = (orig_size - out_pos > 64) ? 64 : (orig_size - out_pos);
+
+        if (pat->sub_flags == 0) {
+            /* FLAT: all zeros */
+            memset(out_buf + out_pos, 0, block_bsz);
+        } else {
+            /* Non-FLAT: reconstruct rotbuf from sub-blocks */
+            uint8_t rotbuf[64];
+            memset(rotbuf, 0, 64);
+            for (int s = 0; s < DS_SUB_N; s++) {
+                if (pat->sub_flags & (1u << s)) {
+                    memcpy(rotbuf + s * DS_SUB_SZ, comp_base + comp_pos, DS_SUB_SZ);
+                    comp_pos += DS_SUB_SZ;
+                }
+            }
+            /* Inverse rotation */
+            uint8_t rot = pat->rot;
+            for (int nz = 0; nz < 4; nz++) {
+                for (int ny = 0; ny < 4; ny++) {
+                    for (int nx = 0; nx < 4; nx++) {
+                        int x, y, z;
+                        switch (rot % 6) {
+                            case 0: x=nx;   y=ny;   z=nz;   break;
+                            case 1: x=nz;   y=nx;   z=ny;   break;
+                            case 2: x=ny;   y=nz;   z=nx;   break;
+                            case 3: x=3-nx; y=ny;   z=nz;   break;
+                            case 4: x=nx;   y=3-ny; z=nz;   break;
+                            case 5: x=nx;   y=ny;   z=3-nz; break;
+                            default: x=nx; y=ny; z=nz; break;
+                        }
+                        if (x + y*4 + z*16 < block_bsz) {
+                            out_buf[out_pos + x + y*4 + z*16] =
+                                rotbuf[nx + ny*4 + nz*16];
+                        }
+                    }
+                }
+            }
+        }
+        out_pos += block_bsz;
+    }
+
+    /* Verify xxh64 — only hash orig_size bytes */
+    uint64_t got = geofield_xxh64(out_buf, orig_size);
+    if (out_xxh64) *out_xxh64 = got;
+    if (got != stored_xxh64) return -2;
+
+    return 0;
+}
+
+
+/* Decode GFDS structured stream → original data.
+ * in_buf: full GFDS buffer (header + index + structured blocks)
+ * out_buf: output buffer (must be >= orig_size bytes)
+ * Returns 0 on success, -1 on error, -2 on xxh64 mismatch. */
+GEO_JUMP_API int geofield_full_decode(const uint8_t *in_buf, uint64_t in_sz,
+                                       uint8_t *out_buf, uint64_t out_buf_sz,
+                                       uint64_t *out_xxh64)
+{
+    if (!in_buf || !out_buf) return -1;
+
+    /* Read header */
+    uint32_t n_segs, n_blocks;
+    uint64_t orig_size, stored_xxh64;
+    if (gfds_read_header(in_buf, &n_segs, &n_blocks, &orig_size, &stored_xxh64) != 0)
+        return -1;
+
+    if (orig_size > out_buf_sz) return -1;
+
+    /* Read segment index (metadata, not needed for linear decode) */
+    const uint8_t *struct_base = in_buf + GFDS_HDR_SZ + (uint64_t)n_segs * GFDS_IDX_ENTRY_SZ;
+
+    /* Decode ALL blocks linearly — matches the linear classify
+     * Note: output buffer must be at least n_blocks*64 bytes.
+     * Only orig_size bytes are hash-verified (last block may be partial). */
+    uint64_t out_pos = 0;
+    uint64_t struct_pos = 0;
+    uint32_t blocks_decoded = 0;
+
+    while (blocks_decoded < n_blocks) {
+        uint32_t consumed = geofield_ds_decode_block(out_buf + out_pos,
+                                                      struct_base + struct_pos);
+        if (consumed == 0) return -1;
+        struct_pos += consumed;
+        out_pos += 64;
+        blocks_decoded++;
+    }
+
+    /* Verify xxh64 — only hash orig_size bytes (last block may be padded) */
+    uint64_t got = geofield_xxh64(out_buf, orig_size);
+    if (out_xxh64) *out_xxh64 = got;
+    if (got != stored_xxh64) return -2;
+
+    return 0;
+}
+
+/* Get required output buffer size from GFDS header. */
+GEO_JUMP_API int gfds_get_info(const uint8_t *in_buf, uint64_t in_sz,
+                                uint64_t *orig_size, uint32_t *n_blocks)
+{
+    if (!in_buf) return -1;
+    uint32_t n_segs, nb;
+    uint64_t os, xx;
+    if (gfds_read_header(in_buf, &n_segs, &nb, &os, &xx) != 0) return -1;
+    if (orig_size) *orig_size = os;
+    if (n_blocks)  *n_blocks  = nb;
+    return 0;
+}
+
+/* ── Compressed DRamTile store/restore ───────────────────────── */
+
+/* Compress full data via geofield_full_compress and store as single GFCS blob.
+ * Returns 0 on success, -1 on error. */
+GEO_JUMP_API int geofield_dt_store_compressed(void *handle,
+    const uint8_t *data, uint64_t data_size)
+{
+    GFDTContext *ctx = (GFDTContext *)handle;
+    if (!ctx || !ctx->initialized) return -1;
+
+    GFCSStats stats;
+    memset(&stats, 0, sizeof(stats));
+    int rc = geofield_full_compress(data, data_size, 32, 4096, NULL, 0, &stats);
+    if (rc != 0) return -1;
+
+    uint8_t *comp = (uint8_t *)malloc((size_t)stats.total_out);
+    if (!comp) return -1;
+
+    rc = geofield_full_compress(data, data_size, 32, 4096,
+                                 comp, stats.total_out, &stats);
+    if (rc != 0) { free(comp); return -1; }
+
+    uint8_t *stored = ps_put(&ctx->store, "gf.compressed", comp, stats.total_out);
+    free(comp);
+    return stored ? 0 : -1;
+}
+
+/* Restore original data from compressed GFCS blob in store.
+ * out_data must be large enough for original data.
+ * Returns 0 on success, -1 on error (-2 = xxh64 mismatch). */
+GEO_JUMP_API int geofield_dt_restore_compressed(void *handle,
+    uint8_t *out_data, uint64_t out_size)
+{
+    GFDTContext *ctx = (GFDTContext *)handle;
+    if (!ctx || !ctx->initialized) return -1;
+
+    size_t comp_sz = ps_get_size(&ctx->store, "gf.compressed");
+    if (comp_sz == 0) return -1;
+
+    uint8_t *comp = ps_get(&ctx->store, "gf.compressed");
+    if (!comp) return -1;
+
+    uint64_t got_xxh = 0;
+    return geofield_full_decompress(comp, comp_sz, out_data, out_size, &got_xxh);
+}
+
+/* Legacy signature: structure without output buffer (dry run stats only).
+ * Kept for backward compatibility. */
+GEO_JUMP_API int geofield_full_structure_stats(
+    const uint8_t *data, uint64_t data_size,
+    uint32_t min_chunk, uint32_t max_chunk,
+    GFStructureStats *out_stats)
+{
+    return geofield_full_structure(data, data_size, min_chunk, max_chunk,
+                                NULL, 0, out_stats);
 }
