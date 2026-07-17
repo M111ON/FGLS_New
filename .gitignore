@@ -82,7 +82,11 @@ opencode.json
 xopencode.json
 magic-context.jsonc.*
 cross-env
-hermes@*/
+hermes@*
+
+# ── Old test data / temp dirs ──
+pipeline/test_data/
+pipeline/test_tmp/
 
 # ── Harness memory cache ──
 .harness-memory/
