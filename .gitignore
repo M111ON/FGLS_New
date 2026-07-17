@@ -42,11 +42,50 @@ node_modules/
 .opencode/
 
 # ── Archives ──
-#*.zip
+*.zip
 *.7z
 *.tar.gz
 collection.zip
 bak_collection.zip
+
+# ── Error logs / temp output ──
+*_err.txt
+*_out.txt
+*_pp.txt
+*stderr*
+*stdout*
+temp_jsonc.json
+output/_prose_block.txt
+
+# ── Pipeline linker output ──
+*.exp
+*.lib
+
+# ── Compiled binaries (no extension) ──
+runner/addr_resolve
+runner/dramtile_dump
+runner/pogls_build
+runner/pogls_cat
+runner/pogls_compress
+runner/pogls_decompress
+runner/pogls_diff
+runner/pogls_inspect
+runner/pogls_roundtrip
+runner/pogls_test
+runner/pogls_verify
+runner/test.bpack
+
+# ── Node / editor configs (local only) ──
+package.json
+package-lock.json
+opencode.json
+xopencode.json
+magic-context.jsonc.*
+cross-env
+hermes@*/
+
+# ── Harness memory cache ──
+.harness-memory/
 
 # ── Generated images / docs ──
 *.bmp
@@ -73,3 +112,9 @@ memory_store/raw/
 /.file_vault
 runner/nul
 clangd-mcp-server/
+*.gfuf
+*.geopixel
+*.gpf
+*.gpxl
+*.dec
+*.gpx5
