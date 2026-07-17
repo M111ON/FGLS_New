@@ -8,14 +8,6 @@
 #include "gguf_index.h"
 #include "sid_cache.h"
 
-#ifdef _WIN32
-  #define SID_FSEEK64(f,o,w) fseeko64(f,(__int64)(o),w)
-#else
-  #include <unistd.h>
-  #define _FILE_OFFSET_BITS 64
-  #define SID_FSEEK64(f,o,w) fseeko(f,(off_t)(o),w)
-#endif
-
 #define SID_LOADER_NAME_MAX  256
 
 typedef struct {
@@ -36,57 +28,119 @@ typedef struct {
     uint64_t          cache_hits;
 } SIDLoaderCtx;
 
+/* Open GGUF file + load tensor index */
 static int sid_loader_open(SIDLoaderCtx *ctx, const char *gguf_path, SIDCache *cache) {
-    memset(ctx,0,sizeof(*ctx)); ctx->gguf_path=gguf_path; ctx->cache=cache;
-    ctx->gguf_file=fopen(gguf_path,"rb");
-    if(!ctx->gguf_file) return -1;
-    if(gguf_idx_open(gguf_path,&ctx->idx)!=0){fclose(ctx->gguf_file);return -1;}
-    ctx->n_tensors=ctx->idx.n_tensors; return 0;
-}
+    memset(ctx, 0, sizeof(*ctx));
+    ctx->gguf_path = gguf_path;
+    ctx->cache = cache;
 
-static void sid_loader_close(SIDLoaderCtx *ctx) {
-    if(ctx->gguf_file){fclose(ctx->gguf_file);ctx->gguf_file=NULL;}
-    gguf_idx_close(&ctx->idx);
-}
+    ctx->gguf_file = fopen(gguf_path, "rb");
+    if (!ctx->gguf_file) return -1;
 
-static int64_t sid_loader_find(SIDLoaderCtx *ctx, const char *name) {
-    for(uint64_t i=0;i<ctx->idx.n_tensors;i++)
-        if(strcmp(ctx->idx.names[i],name)==0) return (int64_t)i;
-    return -1;
-}
-
-static int sid_loader_read(SIDLoaderCtx *ctx, uint64_t ti, uint8_t *buf) {
-    if(ti>=ctx->idx.n_tensors) return -1;
-    uint64_t off=gguf_idx_tensor_abs_offset(&ctx->idx, ti), sz=ctx->idx.sizes[ti];
-    if (SID_FSEEK64(ctx->gguf_file, off, SEEK_SET) != 0) return -1;
-    if(fread(buf,1,sz,ctx->gguf_file)!=sz) return -1;
-    ctx->bytes_read+=sz; ctx->file_hits++; return 0;
-}
-
-static int sid_loader_read_by_name(SIDLoaderCtx *ctx, const char *name, uint8_t *buf) {
-    int64_t ti=sid_loader_find(ctx,name); if(ti<0) return -1;
-    return sid_loader_read(ctx,(uint64_t)ti,buf);
-}
-
-static int sid_loader_info(SIDLoaderCtx *ctx, const char *name, SIDLoaderTensor *info) {
-    int64_t ti=sid_loader_find(ctx,name); if(ti<0) return -1;
-    strncpy(info->name,ctx->idx.names[ti],SID_LOADER_NAME_MAX-1);
-    info->dtype=ctx->idx.dtypes[ti]; info->offset=ctx->idx.offsets[ti]; info->size=ctx->idx.sizes[ti];
+    if (gguf_idx_open(gguf_path, &ctx->idx) != 0) {
+        fclose(ctx->gguf_file);
+        return -1;
+    }
+    ctx->n_tensors = ctx->idx.n_tensors;
     return 0;
 }
 
-static int sid_loader_is_norm(const char *name) {
-    return strstr(name,"norm")!=NULL||strstr(name,"_norm")!=NULL||strstr(name,"bias")!=NULL;
+/* Close GGUF file + free index */
+static void sid_loader_close(SIDLoaderCtx *ctx) {
+    if (ctx->gguf_file) {
+        fclose(ctx->gguf_file);
+        ctx->gguf_file = NULL;
+    }
+    gguf_idx_close(&ctx->idx);
 }
 
-static int sid_loader_load(SIDLoaderCtx *ctx, const char *name, uint8_t *read_buf, uint8_t **data, size_t *size) {
-    uint8_t *c; size_t cs;
-    if(sid_cache_get(ctx->cache,name,&c,&cs)==0){*data=c;*size=cs;ctx->cache_hits++;return 0;}
-    int64_t ti=sid_loader_find(ctx,name); if(ti<0) return -1;
-    uint64_t sz=ctx->idx.sizes[ti], off=gguf_idx_tensor_abs_offset(&ctx->idx, (uint64_t)ti);
-    if (SID_FSEEK64(ctx->gguf_file, off, SEEK_SET) != 0) return -1; if(fread(read_buf,1,sz,ctx->gguf_file)!=sz) return -1;
-    ctx->bytes_read+=sz; ctx->file_hits++; *data=read_buf; *size=(size_t)sz;
-    if(!sid_loader_is_norm(name)) sid_cache_put_compressed(ctx->cache,name,0,read_buf,(size_t)sz);
+/* Find tensor in GGUF index by name. Returns index or -1. */
+static int64_t sid_loader_find(SIDLoaderCtx *ctx, const char *name) {
+    for (uint64_t i = 0; i < ctx->idx.n_tensors; i++) {
+        if (strcmp(ctx->idx.names[i], name) == 0) {
+            return (int64_t)i;
+        }
+    }
+    return -1;
+}
+
+/* Read raw tensor data from GGUF file by index. buf must be large enough. */
+static int sid_loader_read(SIDLoaderCtx *ctx, uint64_t ti, uint8_t *buf) {
+    if (ti >= ctx->idx.n_tensors) return -1;
+    uint64_t off = ctx->idx.offsets[ti];
+    uint64_t sz  = ctx->idx.sizes[ti];
+    fseek(ctx->gguf_file, off, SEEK_SET);
+    if (fread(buf, 1, sz, ctx->gguf_file) != sz) return -1;
+    ctx->bytes_read += sz;
+    ctx->file_hits++;
+    return 0;
+}
+
+/* Read tensor by name */
+static int sid_loader_read_by_name(SIDLoaderCtx *ctx, const char *name, uint8_t *buf) {
+    int64_t ti = sid_loader_find(ctx, name);
+    if (ti < 0) return -1;
+    return sid_loader_read(ctx, (uint64_t)ti, buf);
+}
+
+/* Get tensor info by name */
+static int sid_loader_info(SIDLoaderCtx *ctx, const char *name,
+                            SIDLoaderTensor *info) {
+    int64_t ti = sid_loader_find(ctx, name);
+    if (ti < 0) return -1;
+    strncpy(info->name, ctx->idx.names[ti], SID_LOADER_NAME_MAX - 1);
+    info->dtype  = ctx->idx.dtypes[ti];
+    info->offset = ctx->idx.offsets[ti];
+    info->size   = ctx->idx.sizes[ti];
+    return 0;
+}
+
+/* Is this tensor a norm/bias layer? (F32, small, not ATTN/FFN) */
+static int sid_loader_is_norm(const char *name) {
+    return (strstr(name, "norm") != NULL ||
+            strstr(name, "_norm") != NULL ||
+            strstr(name, "bias") != NULL);
+}
+
+/* Load tensor via cache-aware path:
+ *   1. Check SIDCache by name
+ *   2. On miss: read from GGUF, store in cache (if not norm)
+ * Returns 0 on success, -1 on error.
+ * Sets *data to point to cached/loaded data, *size to byte count.
+ * Note: For cache misses, data pointer is from the read buffer — caller should
+ * use it immediately or copy. For cache hits, data is from cache pool.
+ */
+static int sid_loader_load(SIDLoaderCtx *ctx, const char *name,
+                            uint8_t *read_buf,
+                            uint8_t **data, size_t *size) {
+    uint8_t *cached; size_t cached_sz;
+    if (sid_cache_get(ctx->cache, name, &cached, &cached_sz) == 0) {
+        *data = cached;
+        *size = cached_sz;
+        ctx->cache_hits++;
+        return 0;
+    }
+
+    int64_t ti = sid_loader_find(ctx, name);
+    if (ti < 0) return -1;
+
+    uint64_t sz = ctx->idx.sizes[ti];
+    uint64_t off = ctx->idx.offsets[ti];
+
+    fseek(ctx->gguf_file, off, SEEK_SET);
+    if (fread(read_buf, 1, sz, ctx->gguf_file) != sz) return -1;
+    ctx->bytes_read += sz;
+    ctx->file_hits++;
+
+    *data = read_buf;
+    *size = (size_t)sz;
+
+    /* Cache non-norm tensors (ATTN/FFN weights) */
+    if (!sid_loader_is_norm(name)) {
+        uint16_t tring = 0;
+        sid_cache_put(ctx->cache, name, tring, read_buf, (size_t)sz);
+    }
+
     return 0;
 }
 

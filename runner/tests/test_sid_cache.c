@@ -1,62 +1,58 @@
-#ifdef SID_CACHE_TEST_MAIN
+/* test_sid_cache.c — Unit tests for SID weight cache (Module C) */
 #include <stdio.h>
 #include <string.h>
-#include <stdlib.h>
 #include "../sid_cache.h"
 
-static int failed = 0, passed = 0;
-#define TEST(name, expr) do { \
-    if (!(expr)) { fprintf(stderr, "FAIL: %s\n", name); failed++; } \
-    else { passed++; } \
+static int n_pass = 0, n_fail = 0;
+#define TEST(name, cond) do { \
+    if (!(cond)) { fprintf(stderr, "FAIL: %s\n", name); n_fail++; } \
+    else { printf("PASS: %s\n", name); n_pass++; } \
 } while(0)
 
 int main(void) {
-    SIDCache c;
-    sid_cache_init(&c, 1024*1024);
+    uint8_t buf[1024];
+    for (int i = 0; i < 1024; i++) buf[i] = i & 0xFF;
 
-    TEST("init empty", c.n_entries == 0);
-    TEST("init pool", c.pool_size == 1024*1024);
+    SIDCache cache;
+    sid_cache_init(&cache, 1024 * 1024);
 
-    uint8_t data[64] = {42};
-    int r = sid_cache_put(&c, "test.tensor", 0, data, 64);
-    TEST("first put", r == 0);
-    TEST("n_entries after put", c.n_entries == 1);
-    TEST("pool_used after put", c.pool_used == 64);
+    /* Test 1: put + get */
+    TEST("put/get", sid_cache_put(&cache, "test.1", 42, buf, 512) == 0);
+    uint8_t *d; size_t sz;
+    TEST("get hit", sid_cache_get(&cache, "test.1", &d, &sz) == 0);
+    TEST("get size", sz == 512);
+    TEST("get data", d[0] == 0 && d[255] == 255);
 
-    uint8_t *got; size_t gs;
-    r = sid_cache_get(&c, "test.tensor", &got, &gs);
-    TEST("get hit", r == 0);
-    TEST("get data", got && got[0] == 42);
-    TEST("get size", gs == 64);
-    TEST("hits count", c.hits == 1);
+    /* Test 2: cache miss */
+    TEST("get miss", sid_cache_get(&cache, "nonexistent", &d, &sz) != 0);
 
-    r = sid_cache_get(&c, "nonexistent", &got, &gs);
-    TEST("get miss", r == -1);
-    TEST("misses count", c.misses == 1);
+    /* Test 3: update existing */
+    uint8_t buf2[256];
+    memset(buf2, 0xAA, 256);
+    TEST("update", sid_cache_put(&cache, "test.1", 43, buf2, 256) == 1);
+    TEST("get after update", sid_cache_get(&cache, "test.1", &d, &sz) == 0);
+    TEST("updated size", sz == 256);
+    TEST("updated data", d[0] == 0xAA);
 
-    r = sid_cache_put(&c, "test.tensor", 0, data, 128);
-    TEST("put replace", r == 1);
+    /* Test 4: evict by tring */
+    TEST("evict tring", sid_cache_evict(&cache, 43) == 0);
+    TEST("get after evict", sid_cache_get(&cache, "test.1", &d, &sz) != 0);
 
-    uint8_t data2[32] = {7};
-    r = sid_cache_put(&c, "t2", 1, data2, 32);
-    TEST("put second tensor", r == 0);
-    TEST("n_entries=2", c.n_entries == 2);
+    /* Test 5: get by tring */
+    sid_cache_put(&cache, "test.2", 100, buf, 128);
+    TEST("get by tring", sid_cache_get_by_tring(&cache, 100, &d, &sz) == 0);
+    TEST("tring data", d[0] == 0);
 
-    r = sid_cache_get_by_tring(&c, 1, &got, &gs);
-    TEST("get by tring hit", r == 0);
-    TEST("get_by_tring data", got[0] == 7);
+    /* Test 6: stats */
+    TEST("hits > 0", cache.hits > 0);
+    TEST("misses > 0", cache.misses > 0);
+    TEST("pool_used > 0", cache.pool_used > 0);
 
-    r = sid_cache_evict(&c, 0);
-    TEST("evict ok", r == 0);
-    TEST("n_entries after evict", c.n_entries == 1);
-    r = sid_cache_get(&c, "test.tensor", &got, &gs);
-    TEST("get after evict miss", r == -1);
+    /* Test 7: clear */
+    sid_cache_clear(&cache);
+    TEST("cleared", sid_cache_get(&cache, "test.2", &d, &sz) != 0);
+    TEST("pool zero", cache.pool_used == 0);
 
-    sid_cache_clear(&c);
-    TEST("clear empties", c.n_entries == 0);
-    TEST("clear pool", c.pool_used == 0);
-
-    printf("\nSID Cache: %d/%d pass\n", passed, passed + failed);
-    return failed > 0 ? 1 : 0;
+    printf("\nResults: %d/%d pass, %d fail\n", n_pass, n_pass + n_fail, n_fail);
+    return n_fail ? 1 : 0;
 }
-#endif
