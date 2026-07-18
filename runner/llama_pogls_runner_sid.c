@@ -336,7 +336,7 @@ int main(int argc, char **argv) {
 
     fprintf(stderr, "\n[load] %llu tensors  %.0f ms  (file=%llu, cache=%llu)\n",
             (unsigned long long)rc.tensors_set, load_ms,
-            (unsigned long long)loader.file_hits, rc.cache.cache_hits);
+            (unsigned long long)loader.file_hits, rc.cache->hits);
 
     /* ── Context ── */
     struct llama_context_params cparams = llama_context_default_params();

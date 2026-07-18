@@ -24,11 +24,21 @@
 #include <string.h>
 
 /* ── LC constants ── */
+#ifndef LC_PAIRS
 #define LC_PAIRS      26u   /* A..Z */
+#endif
+#ifndef LC_FACES
 #define LC_FACES       6u   /* frustum directions */
+#endif
 #define LC_PALETTE    16u   /* palette slots */
 
-/* ── LCGate: routing decision ── */
+/* ═══════════════════════════════════════════════════════
+   LEGACY v1 types — guarded against lc_hdr.h (v2)
+   When lc_hdr.h is included, its LCHdr/LCGate are canonical.
+   ═══════════════════════════════════════════════════════ */
+#ifndef LC_HDR_H
+
+/* ── LCGate: routing decision (legacy v1) ── */
 typedef enum {
     LC_GATE_WARP      = 0,   /* fast intersect path        */
     LC_GATE_ROUTE     = 1,   /* normal intersect path      */
@@ -36,7 +46,7 @@ typedef enum {
     LC_GATE_GROUND    = 3,   /* bypass geo → dodeca direct */
 } LCGate;
 
-/* ── LCHdr: packed 8B header encoding geometry bits ── */
+/* ── LCHdr: packed 8B header (legacy v1 struct) ── */
 typedef struct {
     uint8_t  sign;      /* bit polarity 0/1          */
     uint8_t  mag;       /* magnitude class 0..7      */
@@ -47,58 +57,7 @@ typedef struct {
     uint16_t slope;     /* slope fingerprint         */
 } LCHdr;   /* 8B */
 
-/* ── LetterPair ── */
-typedef struct {
-    uint8_t upper;   /* 0=A..25=Z */
-    uint8_t lower;   /* 0=a..25=z */
-} LetterPair;
-
-static inline int lc_pair_valid(LetterPair p) {
-    return (p.upper < LC_PAIRS) && (p.lower < LC_PAIRS)
-           && (p.upper == p.lower);
-}
-
-static inline LetterPair lc_make_pair(uint8_t idx) {
-    LetterPair p = { (uint8_t)(idx % LC_PAIRS),
-                     (uint8_t)(idx % LC_PAIRS) };
-    return p;
-}
-
-/* ── CubeNode: one frustum face slot ── */
-typedef struct {
-    uint64_t   core;
-    LetterPair key;
-    uint8_t    face_id;
-    uint8_t    coupled;
-} CubeNode;   /* 12B */
-
-/* ── LCTwinGateCtx: gate context ── */
-typedef struct {
-    uint8_t  palette_a[LC_PALETTE];   /* addr palette */
-    uint8_t  palette_b[LC_PALETTE];   /* value palette */
-    CubeNode faces[LC_FACES];         /* LetterPair face slots */
-    uint64_t slope_hash;              /* apex slope fingerprint */
-    uint8_t  coupled_count;
-    uint32_t gate_counts[4];          /* WARP/ROUTE/COLLISION/GROUND */
-} LCTwinGateCtx;
-
-/* ════════════════════════════════════════
-   INIT
-   ════════════════════════════════════════ */
-static inline void lc_twin_gate_init(LCTwinGateCtx *g) {
-    memset(g, 0, sizeof(*g));
-    /* default palette: identity spread */
-    for (uint8_t i = 0; i < LC_PALETTE; i++) {
-        g->palette_a[i] = (uint8_t)(i * 17u % 26u);
-        g->palette_b[i] = (uint8_t)(i * 13u % 26u);
-    }
-    for (uint8_t f = 0; f < LC_FACES; f++)
-        g->faces[f].face_id = f;
-}
-
-/* ════════════════════════════════════════
-   ENCODE: addr/value → LCHdr
-   ════════════════════════════════════════ */
+/* ── encode addr/value → legacy LCHdr ── */
 static inline LCHdr lc_hdr_encode_addr(uint64_t addr) {
     LCHdr h;
     h.sign   = (uint8_t)(addr >> 63);
@@ -123,9 +82,7 @@ static inline LCHdr lc_hdr_encode_value(uint64_t value) {
     return h;
 }
 
-/* ════════════════════════════════════════
-   GATE: LCHdr pair → routing decision
-   ════════════════════════════════════════ */
+/* ── gate: LCHdr pair → routing decision (legacy v1) ── */
 static inline LCGate lch_gate(LCHdr hA, LCHdr hB,
                                const uint8_t pa[LC_PALETTE],
                                const uint8_t pb[LC_PALETTE])
@@ -144,10 +101,71 @@ static inline LCGate lch_gate(LCHdr hA, LCHdr hB,
     return coupled ? LC_GATE_WARP : LC_GATE_ROUTE;
 }
 
-/* ════════════════════════════════════════
+#endif /* LC_HDR_H — end legacy v1 block */
+
+/* ═══════════════════════════════════════════════════════
+   LetterPair + CubeNode — shared types
+   guarded against geo_letter_cube.h which defines same
+   ═══════════════════════════════════════════════════════ */
+#ifndef GEO_LETTER_CUBE_H
+typedef struct {
+    uint8_t upper;   /* 0=A..25=Z */
+    uint8_t lower;   /* 0=a..25=z */
+} LetterPair;
+
+static inline int lc_pair_valid(LetterPair p) {
+    return (p.upper < LC_PAIRS) && (p.lower < LC_PAIRS)
+           && (p.upper == p.lower);
+}
+
+static inline LetterPair lc_make_pair(uint8_t idx) {
+    LetterPair p = { (uint8_t)(idx % LC_PAIRS),
+                     (uint8_t)(idx % LC_PAIRS) };
+    return p;
+}
+
+/* ── CubeNode: one frustum face slot ── */
+typedef struct {
+    uint64_t   core;
+    LetterPair key;
+    uint8_t    face_id;
+    uint8_t    coupled;
+} CubeNode;   /* 12B */
+#endif /* GEO_LETTER_CUBE_H */
+
+/* ═══════════════════════════════════════════════════════
+   LCTwinGateCtx + coupling functions
+   (no conflict — uses CubeNode only, not LCHdr)
+   ═══════════════════════════════════════════════════════ */
+
+/* ── LCTwinGateCtx: gate context ── */
+typedef struct {
+    uint8_t  palette_a[LC_PALETTE];   /* addr palette */
+    uint8_t  palette_b[LC_PALETTE];   /* value palette */
+    CubeNode faces[LC_FACES];         /* LetterPair face slots */
+    uint64_t slope_hash;              /* apex slope fingerprint */
+    uint8_t  coupled_count;
+    uint32_t gate_counts[4];          /* WARP/ROUTE/COLLISION/GROUND */
+} LCTwinGateCtx;
+
+/* ══════════════════════════════════════════════
+   INIT
+   ══════════════════════════════════════════════ */
+static inline void lc_twin_gate_init(LCTwinGateCtx *g) {
+    memset(g, 0, sizeof(*g));
+    /* default palette: identity spread */
+    for (uint8_t i = 0; i < LC_PALETTE; i++) {
+        g->palette_a[i] = (uint8_t)(i * 17u % 26u);
+        g->palette_b[i] = (uint8_t)(i * 13u % 26u);
+    }
+    for (uint8_t f = 0; f < LC_FACES; f++)
+        g->faces[f].face_id = f;
+}
+
+/* ══════════════════════════════════════════════
    P3 — LetterPair Coupling
    feed fibo_seed as slope_hash into CubeNode faces
-   ════════════════════════════════════════ */
+   ══════════════════════════════════════════════ */
 static inline void lc_gate_assign(LCTwinGateCtx *g,
                                    uint64_t addr,
                                    uint64_t fibo_seed,
@@ -195,9 +213,11 @@ static inline int lc_gate_force_couple(LCTwinGateCtx *g)
     return coupled;
 }
 
-/* helper for external stats callers */
+#ifndef LC_HDR_H
+/* helper for external stats callers (uses legacy LCGate enum) */
 static inline void lc_gate_count(LCTwinGateCtx *g, LCGate gate) {
     g->gate_counts[gate]++;
 }
+#endif /* LC_HDR_H */
 
 #endif /* LC_TWIN_GATE_H */

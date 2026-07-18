@@ -247,7 +247,7 @@ static inline uint64_t rs_freeze(ResidualSpace *rs,
     if (!entry) return RS_BOND_KEY_RESERVED;
 
     entry->bond_key   = bond_key;
-    entry->origin_key = pogls_bond_key(piece);
+    entry->origin_key = piece->geo_key;
     entry->geo_key    = piece->geo_key;
     entry->data_size  = size;
     entry->timestamp  = rs->next_timestamp++;

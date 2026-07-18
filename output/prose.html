@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html class="dark" lang="en">
 <head>
 <meta charset="utf-8">
@@ -6,6 +6,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=block" rel="stylesheet">
 <script async src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
 .module-card{position:relative;background:rgba(255,255,255,0.03);transition:all 0.3s cubic-bezier(0.4,0,0.2,1);border:1px solid rgba(255,255,255,0.1)}
 .module-card:hover{border-color:transparent;transform:translateY(-2px);box-shadow:0 10px 30px -10px rgba(0,0,0,0.5)}
@@ -151,460 +152,270 @@ Total Files: <span id="total">0</span>
 <span class="material-symbols-outlined text-3xl">menu_book</span>
 </button>
 <script>var PROSE_JSON ={
- "project": "POGLS Toolchain",
- "version": "2.0",
- "root": "runner",
- "modules": [
-  {
-   "name": "core",
-   "label": "pogls_core",
-   "role": "Foundation Layer",
-   "desc": "Platform abstraction, compression API, 144\u00b2 address space, v2 metadata format",
-   "tests": 1,
-   "files": [
+  "project": "POGLS Toolchain",
+  "version": "2.0",
+  "root": "runner",
+  "modules": [
     {
-     "path": "pogls_core/pogls_addr.c",
-     "purpose": "core module \u2014 pogls_addr.c"
+      "name": "core",
+      "label": "pogls_core",
+      "role": "Foundation Layer",
+      "desc": "Platform abstraction, compression API, 144\u00B2 address space, v2 metadata format, standalone loader",
+      "tests": 34,
+      "doc": "pogls-core",
+      "design_note": "Zero external dependencies. Platform layer isolates all OS-specific code (Win32/POSIX) in pogls_platform.h/.c. pogls_loader.h is a header-only standalone loader for external runners (llama.cpp, Ollama, vLLM) with implementation toggle via POGLS_LOADER_IMPLEMENTATION.",
+      "files": [
+        {"path": "pogls_core/pogls_platform.h", "purpose": "Platform abstraction: VirtualAlloc/mmap, 64-bit file I/O, xorshift32 PRNG", "api": ["pogls_map_file","pogls_alloc_large","pogls_free_large","pogls_fopen","pogls_fseek","pogls_ftell","pogls_fsize","pogls_xorshift32"]},
+        {"path": "pogls_core/pogls_platform.c", "purpose": "Platform impl — #ifdef _WIN32 branches for VirtualAlloc/CreateFileMapping/gmtime_s", "api": []},
+        {"path": "pogls_core/pogls_compress.h", "purpose": "Compression API: RAW/ZSTD/SHELL/DELTA/GEOPIXEL per-tensor, auto-fallback to RAW when ratio < 1.1x", "api": ["pogls_compress","pogls_decompress"]},
+        {"path": "pogls_core/pogls_compress.c", "purpose": "Compression impl — guarded by #define POGLS_USE_ZSTD", "api": []},
+        {"path": "pogls_core/pogls_addr.h", "purpose": "144\u00B2=20736 address space. Tier0-3 decomposition: macro(128)\u00D7micro(162). capo() face rotation, FNV-1a name hash", "api": ["pogls_tier_capacity","pogls_select_tier","pogls_decompose","pogls_compose","pogls_to_geo","pogls_from_name","pogls_capo","pogls_addr_valid","pogls_tier_name","pogls_addr_print"]},
+        {"path": "pogls_core/pogls_addr.c", "purpose": "Address space impl — FNV-1a hash\u2192macro/micro, capo face offset, tier selection", "api": []},
+        {"path": "pogls_core/pogls_meta.h", "purpose": "POGLS v2 format: header (magic+version+flags) + tensor meta array + optional model meta blob", "api": ["pogls_meta_header_init","pogls_meta_data_off","pogls_meta_entry_init","pogls_meta_read","pogls_meta_write","pogls_meta_find","pogls_meta_find_name"]},
+        {"path": "pogls_core/pogls_meta.c", "purpose": "Format read/write — binary search by address or name, v1 backward compat", "api": []},
+        {"path": "pogls_core/pogls_core.h", "purpose": "Umbrella include — single #include \"pogls_core.h\" gets all sub-headers", "api": []},
+        {"path": "pogls_core/pogls_store.h", "purpose": "Store contract interface — forward-declared PoglsStore with 11 lifecycle/query functions", "api": ["pogls_store_open","pogls_store_close","pogls_store_sync","pogls_store_put","pogls_store_get","pogls_store_free","pogls_store_foreach","pogls_store_count","pogls_store_bytes","pogls_store_has","pogls_store_size"]},
+        {"path": "pogls_core/pogls_loader.h", "purpose": "Standalone loader API for external runners — mmap zero-copy tensor access, face rotation, error reporting", "api": ["pogls_open","pogls_close","pogls_tensor_count","pogls_version","pogls_gguf_path","pogls_model_meta_size","pogls_model_meta","pogls_tensor_name","pogls_tensor_addr","pogls_tensor_dtype","pogls_tensor_ndim","pogls_tensor_shape","pogls_tensor_nbytes","pogls_tensor_comp_nbytes","pogls_tensor_comp_type","pogls_find_tensor","pogls_tensor_data","pogls_tensor_size","pogls_find_tensor_by_addr","pogls_tensor_data_by_addr","pogls_face_addr","pogls_tensor_data_face","pogls_file_size","pogls_mmap_ptr","pogls_mmap_size","pogls_last_error"]}
+      ]
     },
     {
-     "path": "pogls_core/pogls_addr.h",
-     "purpose": "\u2500\u2500 Core Geometry Constants \u2500\u2500"
+      "name": "gguf",
+      "label": "pogls_gguf",
+      "role": "GGUF Reader Layer",
+      "desc": "Standalone GGUF file parser — no llama.cpp dependency. Type-size table for 31 GGML types",
+      "tests": 9,
+      "doc": "pogls-gguf",
+      "design_note": "Pure stdio — parses header, KV metadata, tensor index. 64-bit offset support throughout. Replaces project's legacy gguf_reader.h + gguf_index.h.",
+      "files": [
+        {"path": "pogls_gguf/pogls_gguf.h", "purpose": "Public API: PoglsGgufReader + PoglsGgufIndex structs, open/read/close, type queries", "api": ["pogls_gguf_open","pogls_gguf_read_tensor","pogls_gguf_close","pogls_gguf_idx_open","pogls_gguf_idx_close","pogls_gguf_idx_tensor_off","pogls_gguf_idx_meta_blob","pogls_gguf_is_q4","pogls_gguf_type_is_kquant","pogls_gguf_type_size","pogls_gguf_block_size"]},
+        {"path": "pogls_gguf/pogls_gguf.c", "purpose": "Full GGUF parser — type-size table (31 types), KV skip, tensor index, 64-bit offset", "api": []}
+      ]
     },
     {
-     "path": "pogls_core/pogls_compress.c",
-     "purpose": "core module \u2014 pogls_compress.c"
+      "name": "geo",
+      "label": "pogls_geo",
+      "role": "Geometric Addressing Layer",
+      "desc": "Y-triangle coordinate system: 144\u00B2=20736, face jump, triplet topology, FNV-1a name hash",
+      "tests": 18,
+      "doc": "pogls-geo",
+      "design_note": "128\u00D7162 = 144\u00B2 = 20736. 128=2\u2077 (head_dim power-of-2), 162=2\u00D73\u2074 (Y-triangle faces). Pure integer math, no float, no hash collision. 12-face pentagon triplet table baked inline.",
+      "files": [
+        {"path": "pogls_geo/pogls_geo.h", "purpose": "Geo API: coord decompose/compose, face jump, name hash, triplet table, tier name, address validation", "api": ["pogls_geo_coord","pogls_geo_from_coord","pogls_geo_jump","pogls_geo_face_addr","pogls_geo_addr_valid","pogls_geo_name_hash","pogls_geo_triplet_vert","pogls_geo_tier_name"]},
+        {"path": "pogls_geo/pogls_geo.c", "purpose": "Geo impl — full decompose algorithm, FNV-1a hash, 12-face pentagon triplet table", "api": []}
+      ]
     },
     {
-     "path": "pogls_core/pogls_compress.h",
-     "purpose": "Compression flags (per-tensor)"
+      "name": "dram",
+      "label": "pogls_dram",
+      "role": "Memory Store Layer",
+      "desc": "Flat-arena DRamTile: put/get by addr or name, KV ephemeral flag, save/load persistence",
+      "tests": 46,
+      "doc": "pogls-dram",
+      "design_note": "Single VirtualAlloc block: [header | directory[512] | data arena]. Linear scan (~25\u00B5s worst-case). No hash, no geo_jump dependency. Max 512 entries, POGLS_DRAM_KV_FLAG bit 31 masking.",
+      "files": [
+        {"path": "pogls_dram/pogls_dram.h", "purpose": "DRamTile API: open/close, put/get by addr or name, free, save, stats, has", "api": ["pogls_dram_open","pogls_dram_close","pogls_dram_save","pogls_dram_put","pogls_dram_get","pogls_dram_get_name","pogls_dram_free","pogls_dram_has","pogls_dram_count","pogls_dram_bytes"]},
+        {"path": "pogls_dram/pogls_dram.c", "purpose": "DRamTile impl — flat arena layout, directory[512] linear scan, KV flag masking", "api": []}
+      ]
     },
     {
-     "path": "pogls_core/pogls_core.h",
-     "purpose": "core module \u2014 pogls_core.h"
+      "name": "bermuda",
+      "label": "pogls_bermuda",
+      "role": "Routing + Compression Layer",
+      "desc": "Stride-37 geometry router, Diamond Shell 3D cube codec, RLE, shadow bonds, zone scoring",
+      "tests": 46,
+      "doc": "pogls-bermuda",
+      "design_note": "Hilbert encode \u2192 zone mapping \u2192 4 traverse modes (orbit/chiral/cross/hub). Diamond Shell: 4\u00D74\u00D74 cube with 6 rotation orientations. Shadow bond: ring buffer of 144 entries.",
+      "files": [
+        {"path": "pogls_bermuda/pogls_bermuda.h", "purpose": "Bermuda API: route, face scores, diamond compress/decompress, RLE, shadow read/write", "api": ["pogls_bermuda_route","pogls_bermuda_face_scores","pogls_bermuda_diamond_compress","pogls_bermuda_diamond_decompress","pogls_bermuda_rle_compress","pogls_bermuda_rle_decompress","pogls_bermuda_shadow_write","pogls_bermuda_shadow_read"]},
+        {"path": "pogls_bermuda/pogls_bermuda.c", "purpose": "Bermuda full impl — Stride-37, Diamond Shell encode/decode, RLE, shadow ring buffer", "api": []}
+      ]
     },
     {
-     "path": "pogls_core/pogls_loader.h",
-     "purpose": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
+      "name": "kv",
+      "label": "pogls_kv",
+      "role": "KV Cache Layer",
+      "desc": "Adaptive KV remap: ENTROPY/GEO/REBUILD delta + 3-lane rail scanner, freeze/resume",
+      "tests": 27,
+      "doc": "pogls-kv",
+      "design_note": "classify() compares cur vs base in 4096B strides. Auto-tier: 0-15% ENTROPY (XOR+RLE), 15-85% GEO (byte-offset ranges), 85%+ REBUILD. Max 4096 geo ranges.",
+      "files": [
+        {"path": "pogls_kv/pogls_kv.h", "purpose": "KV API: skeleton init/destroy, classify, encode/decode, rail init/step/freeze/resume/free", "api": ["pogls_kv_skeleton_init","pogls_kv_skeleton_destroy","pogls_kv_classify","pogls_kv_encode","pogls_kv_decode","pogls_kv_rail_init","pogls_kv_rail_step","pogls_kv_rail_free","pogls_kv_rail_freeze","pogls_kv_rail_resume"]},
+        {"path": "pogls_kv/pogls_kv.c", "purpose": "KV impl — RLE compress/decompress, GEO range delta, 3-lane round-robin rail", "api": []}
+      ]
     },
     {
-     "path": "pogls_core/pogls_meta.c",
-     "purpose": "core module \u2014 pogls_meta.c"
+      "name": "geopixel",
+      "label": "pogls_geopixel",
+      "role": "Pixel Compression Layer",
+      "desc": "64B block codec: FLAT(2B)/SMOOTH(10B)/GRADIENT(10B)/EDGE(65B) + Hilbert 2D curve + session tracking",
+      "tests": 39,
+      "doc": "pogls-geopixel",
+      "design_note": "Classify 64B block by variance: FLAT (2B header+mean), SMOOTH/GRADIENT (10B predictor), EDGE (65B raw). 8\u00D78 Hilbert order-3 curve for spatial locality. No libpng, no file I/O, no heap in hot path.",
+      "files": [
+        {"path": "pogls_geopixel/pogls_geopixel.h", "purpose": "Geopixel API: encode/decode block, full tensor, Hilbert XY\u2194D, session feed/stats", "api": ["pogls_geopixel_encode_block","pogls_geopixel_decode_block","pogls_geopixel_encode","pogls_geopixel_decode","pogls_geopixel_hilbert_xy_to_d","pogls_geopixel_hilbert_d_to_xy","pogls_geopixel_session_init","pogls_geopixel_session_feed","pogls_geopixel_session_stats"]},
+        {"path": "pogls_geopixel/pogls_geopixel.c", "purpose": "Geopixel impl — block classify, variance compute, Hilbert 2D 8-bit, session frame counter", "api": []}
+      ]
     },
     {
-     "path": "pogls_core/pogls_meta.h",
-     "purpose": "core module \u2014 pogls_meta.h"
+      "name": "hilbert-container",
+      "label": "pogls_hilbert_container",
+      "role": "Hilbert Container Layer",
+      "desc": "Hilbert L-Block container format: 3\u00D764B cells + 32B connector, GeoJump integration, file I/O",
+      "tests": 117,
+      "doc": "pogls-hilbert-container",
+      "design_note": "L-block = 3 cells \u00D7 64B = 192B data + 32B connector = 224B unit. Container: [Header 20B] [L0 192B][C0 32B] ... Hilbert order N \u2192 4^N cells. GeoJump variant uses Metatron blocks (3 floors \u00D7 16 cells). Both header-only with static inline implementations.",
+      "files": [
+        {"path": "pogls_hilbert_container/pogls_hilbert_container.h", "purpose": "Hilbert container: L-block writer/reader, Hilbert curve (order N), file I/O roundtrip, spatial locality verification", "api": ["hc_hilbert_xy_to_d","hc_hilbert_d_to_xy","hc_writer_init","hc_write_cell","hc_writer_finalize","hc_serialize","hc_reader_init","hc_get_cell","hc_get_connector","hc_verify","hc_write_file","hc_read_file"]},
+        {"path": "pogls_hilbert_container/pogls_hc_geojump.h", "purpose": "GeoJump integration: Metatron Hilbert floors, node decompose, geojump walk over L-blocks", "api": ["hc_gj_constants","hc_gj_hilbert_floor","hc_gj_node_decompose","hc_gj_writer_init","hc_gj_write_cell","hc_gj_reader_init","hc_gj_get_cell","hc_gj_get_connector","hc_gj_walk","hc_gj_verify"]}
+      ]
     },
     {
-     "path": "pogls_core/pogls_platform.c",
-     "purpose": "core module \u2014 pogls_platform.c"
+      "name": "geopixel-codec",
+      "label": "geopixel-codec",
+      "role": "Standalone Geopixel Codec",
+      "desc": "Complete tile codec ecosystem: GPX2/GPX4/GPX5 containers, Hamburger encode/decode, tile classify, Goldberg geometry, Fibo shell walk, bond layer, Hilbert-64 RGB",
+      "tests": 15,
+      "doc": "pogls-geopixel-codec",
+      "design_note": "External module tree with own Makefile. Hamburger Architecture: seed + invert chain storage, 1440-tick warm-up cycle, GPX5 container. Tile classify via geopixel_v21_o25.c: FLAT/GRAD/EDGE/NOISE. Goldberg GP(1,1) with 32 faces (12 pentagon + 20 hexagon). Fibo 1440 timeline with stride-37 frame seek (768B\u21922B encoding).",
+      "files": [
+        {"path": "geopixel/src/geo_jump.c", "purpose": "GeoJump Metatron routing impl — jump tables for Hilbert/Peano/Pentagon/Mod/Invert/Ground/Capo", "api": ["geo_jump","geo_jump_hilbert","geo_jump_peano","geo_jump_pentagon","geo_jump_mod","geo_jump_invert","geo_jump_ground","geo_jump_capo","geo_field_climate"]},
+        {"path": "geopixel/src/geopixel_v21_o25.c", "purpose": "V21 encoder/decoder — O4 connector codec, pixel synthesis, tile classify TTYPE_FLAT/GRAD/EDGE/NOISE", "api": ["gp_v21_encode","gp_v21_decode","gp_v21_classify_tile","gp_v21_synthesize"]},
+        {"path": "geopixel/include/geo_jump.h", "purpose": "Core Metatron geometry constants: 4\u00D74\u00D73 cells, GEO_TOWER=144, GEO_FULL=20736, climate zones, jumper types", "api": ["geo_jump_*"]},
+        {"path": "geopixel/include/geo_frame_seek.h", "purpose": "Deterministic frame seek on Fibo 1440 timeline — stride-37 walk, O(1) seek, 9H+3P edges per frame", "api": ["frame_seek_init","frame_seek_enc","frame_seek_next","frame_seek_decompose"]},
+        {"path": "geopixel/include/geo_frame_seek_wang.h", "purpose": "Wang chord functions for Fibo 2&7 chord validation — 1440-cycle tangent verification", "api": ["wang_chord","wang_validate"]},
+        {"path": "geopixel/include/pogls_hilbert64_encoder.h", "purpose": "Hilbert-64 RGB encoder — 64-slot Hilbert grid, RGB balanced, 12 faces \u00D7 4 paths, ghost zone slots 48-63", "api": ["h64_channel","h64_slot","h64_encode","h64_decode"]},
+        {"path": "geopixel/include/pogls_to_geopixel.h", "purpose": "Bridge from POGLS H64 to geopixel — Path A seed-only storage, 4B seed per tile, H64TileIn structure", "api": ["pogls_to_geopixel","pogls_h64_bridge_init"]},
+        {"path": "geopixel/include/hex_tile.h", "purpose": "Hex tile structure and utilities — shared across Hamburger codec modules", "api": ["hex_tile_init","hex_tile_render"]},
+        {"path": "geopixel/include/geopixel/geo_goldberg_tile.h", "purpose": "Goldberg GP(1,1) tile integration — circuit-based residual routing, window-level blueprint dedup, 32-face baked LUT", "api": ["ggt_tile_scan","ggt_window_feed","ggt_window_flush"]},
+        {"path": "geopixel/include/geopixel/geo_gpx_decode.h", "purpose": "Standalone GPX2 decoder — decode to BMP or RGB buffer, depends on libpng+zstd", "api": ["gpx_decode_to_bmp","gpx_decode_to_rgb"]},
+        {"path": "geopixel/include/geopixel/geo_gpx_anim_o23.h", "purpose": "GPX animation decoder O23 — frame sequence playback from GPX container", "api": ["gpx_anim_open","gpx_anim_next_frame"]},
+        {"path": "geopixel/include/geopixel/geo_o4_connector.h", "purpose": "O4 connector — O-protocol 4-edge tile connector, neighbor interpolation", "api": ["o4_connector_init","o4_connector_apply"]},
+        {"path": "geopixel/include/geopixel/geo_pixel.h", "purpose": "Core pixel type definitions — YCgCo color space, pixel packing", "api": ["pixel_rgb_to_ycgco","pixel_ycgco_to_rgb"]},
+        {"path": "geopixel/include/geopixel/geo_tring_addr.h", "purpose": "TRing address space — 1440-position triangular encoding for geo frame addressing", "api": ["tring_addr_encode","tring_addr_decode"]},
+        {"path": "geopixel/include/geopixel/geo_tring_walk.h", "purpose": "TRing walk — deterministic traversal of 1440 TRing positions, spoke alignment", "api": ["tring_walk_enc","tring_walk_next","tring_walk_spoke"]},
+        {"path": "geopixel/include/geopixel/gpr1_container.h", "purpose": "GPR1 container format — geometric prediction residual container v1", "api": ["gpr1_read","gpr1_write","gpr1_verify"]},
+        {"path": "geopixel/include/geopixel/gpx4_container_o22.h", "purpose": "GPX4 container v0.22 — tile storage with O4 connector metadata", "api": ["gpx4_o22_read","gpx4_o22_write"]},
+        {"path": "geopixel/include/geopixel/gpx4_container.h", "purpose": "GPX4 container base format — block-level tile storage with header+table+blobs", "api": ["gpx4_open","gpx4_close","gpx4_read_tile","gpx4_write_tile"]},
+        {"path": "geopixel/include/hamburger/gpx5_container.h", "purpose": "GPX5 container — seed + invert chain storage, LUT_FROZEN flag, O(1) random access", "api": ["gpx5_open","gpx5_close","gpx5_read_tile","gpx5_write_tile","gpx5_read_lut","gpx5_write_lut"]},
+        {"path": "geopixel/include/hamburger/gpx5_hbhf.h", "purpose": "GPX5 HBHF (Hamburger Header Frame) — frame-level metadata in GPX5 container", "api": ["gpx5_hbhf_init","gpx5_hbhf_read","gpx5_hbhf_write"]},
+        {"path": "geopixel/include/hamburger/hamburger_classify.h", "purpose": "Tile classifier — integer variance (*100), 5 predictors (MED/GRAD/LEFT/TOP/AVG), 4 thresholds", "api": ["hb_classify_tile","hb_ttype_to_codec","hb_ttype_to_ctype","hb_auto_pipes"]},
+        {"path": "geopixel/include/hamburger/hamburger_encode.h", "purpose": "Single-call encode/decode for Hamburger Architecture — 1440-tick warm-up, LUT build, invert chain", "api": ["hamburger_encode","hamburger_decode"]},
+        {"path": "geopixel/include/hamburger/hamburger_pipe.h", "purpose": "Hamburger pipe dispatch — per-tile codec selection, pipe state machine, tick processing", "api": ["hb_pipe_init","hb_pipe_dispatch","hb_pipe_tick"]},
+        {"path": "geopixel/include/hbv/fibo_hb_wire.h", "purpose": "Fibo-HB wire protocol — clock-cycle-aligned wire format for Hamburger tiles", "api": ["fibo_hb_wire_encode","fibo_hb_wire_decode"]},
+        {"path": "geopixel/include/hbv/fibo_layer_header.h", "purpose": "Fibo layer header — layer-level metadata for shell-walk tile organization", "api": ["fibo_layer_header_init","fibo_layer_header_validate"]},
+        {"path": "geopixel/include/hbv/fibo_shell_walk.h", "purpose": "FiboClock x Shell Traversal — cube shell layer, cylinder sector, TRing enc expansion", "api": ["fsw_tick_to_shell","fsw_tick_to_sector","fsw_enc_to_clock","fsw_clock_to_enc"]},
+        {"path": "geopixel/include/hbv/fibo_tile_dispatch.h", "purpose": "Fibo tile dispatch — distributes tiles to codec lanes based on shell walk phase", "api": ["fibo_tile_dispatch","fibo_tile_collect"]},
+        {"path": "geopixel/include/hbv/frustum_coord.h", "purpose": "Frustum coordinate system — cube shell sacred shell detection, shell count", "api": ["fc_cube_is_sacred_shell","fc_cube_shell_count","fc_coord_to_shell"]},
+        {"path": "geopixel/include/hbv/frustum_coset.h", "purpose": "Frustum coset — 12 coset checksums encoding topology signature in dodecahedron address space", "api": ["frustum_coset_compute","frustum_coset_verify"]},
+        {"path": "geopixel/include/hbv/goldberg_adj.h", "purpose": "Goldberg adjacency — face adjacency lookup for GP(1,1) Goldberg polyhedron", "api": ["goldberg_adjacent_faces","goldberg_face_neighbors"]},
+        {"path": "geopixel/include/hbv/hb_header_frame.h", "purpose": "HB header frame — per-frame header metadata in Hamburger encode pipeline", "api": ["hb_header_frame_init","hb_header_frame_write"]},
+        {"path": "geopixel/include/hbv/hb_manifest.h", "purpose": "HB manifest — encode manifest storing tile count, codec selection, LUT offset", "api": ["hb_manifest_init","hb_manifest_read","hb_manifest_write"]},
+        {"path": "geopixel/include/hbv/hb_tile_stream.h", "purpose": "HB tile stream — sequential tile read/write stream for Hamburger encode/decode", "api": ["hb_tile_stream_open","hb_tile_stream_read","hb_tile_stream_write","hb_tile_stream_close"]},
+        {"path": "geopixel/include/hbv/hb_vault.h", "purpose": "HB vault — persistent tile vault for cached tile storage across encode sessions", "api": ["hb_vault_open","hb_vault_store","hb_vault_retrieve","hb_vault_close"]},
+        {"path": "geopixel/include/bond/pogls_bond.h", "purpose": "Intrinsic Bond Layer — fibo_addr wired to TetrisRouter, 25B piece, self-enforcing bond_key", "api": ["pogls_bond_piece_create","pogls_bond_verify","pogls_bond_resolve"]},
+        {"path": "geopixel/include/bond/pogls_config.h", "purpose": "Bond configuration constants — magic seeds, FNV primes, fibo clock parameters", "api": []},
+        {"path": "geopixel/include/bond/bond_to_geopixel.h", "purpose": "Bond-to-geopixel bridge — translates bond pieces to geopixel tile descriptors", "api": ["bond_to_geopixel_convert"]},
+        {"path": "geopixel/include/sync/p5h_ribcage.h", "purpose": "P5H ribcage — synchronization barrier for Hamburger pipe stages", "api": ["p5h_ribcage_init","p5h_ribcage_wait","p5h_ribcage_signal"]},
+        {"path": "geopixel/include/sync/rail_ring.h", "purpose": "Rail ring buffer — circular buffer for inter-stage tile passing in encode pipeline", "api": ["rail_ring_init","rail_ring_push","rail_ring_pop"]},
+        {"path": "geopixel/include/sync/rail_sync.h", "purpose": "Rail synchronization — stage-coordinated pipeline sync for multi-lane Hamburger encoding", "api": ["rail_sync_init","rail_sync_barrier"]},
+        {"path": "geopixel/demo/demo_p5h_barrier.c", "purpose": "P5H barrier demo — demonstrates P5H ribcage synchronization in action", "api": []}
+      ]
     },
     {
-     "path": "pogls_core/pogls_platform.h",
-     "purpose": "\u2500\u2500 Memory Mapping \u2500\u2500"
+      "name": "geofield",
+      "label": "geofield",
+      "role": "GeoField Topology & Routing",
+      "desc": "Goldberg sphere GpAddr, Metatron 4-route, FrustumBlock/DiamondBlock, Trit decomposition, Flow chunker",
+      "tests": 2,
+      "doc": "geofield",
+      "design_note": "collection/geopixel/geofield/ — 28 files implementing the geo_field pipeline: GpSphere scatter, FrustumBlock diamond slots, Metatron routing, Flow chunking, temporal LUT. Used as mandatory structuring step before geopixel/Hamburger encoding.",
+      "files": [
+        {"path": "collection/geopixel/geofield/fabric_wire.h", "purpose": "Fabric wire — frozen constants for geo_field fabric routing", "api": []},
+        {"path": "collection/geopixel/geofield/fabric_wire_drain.h", "purpose": "Fabric wire drain — drain state bit masks for fabric termination", "api": []},
+        {"path": "collection/geopixel/geofield/frustum_gcfs.h", "purpose": "Frustum GCFS constants — Generalized Canonical Frustum Slot parameters", "api": []},
+        {"path": "collection/geopixel/geofield/frustum_layout_v2.h", "purpose": "Frustum layout v2 — frozen slot layout for FrustumBlock diamond addressing", "api": []},
+        {"path": "collection/geopixel/geofield/frustum_slot64.h", "purpose": "Frustum slot64 — 64-bit slot descriptor for FrustumBlock addressing", "api": []},
+        {"path": "collection/geopixel/geofield/frustum_trit.h", "purpose": "Frustum trit — ternary decomposition for FrustumBlock coordinate system", "api": []},
+        {"path": "collection/geopixel/geofield/geo_field_bridge.c", "purpose": "GeoField bridge — implementation of bridge between geo_field and geopixel pipeline", "api": []},
+        {"path": "collection/geopixel/geofield/geo_field_core.h", "purpose": "GeoField core headers — core geo_field data structures and constants", "api": []},
+        {"path": "collection/geopixel/geofield/geo_field_core_2.h", "purpose": "GeoField core (part 2) — extended structures and macro definitions", "api": []},
+        {"path": "collection/geopixel/geofield/geo_field_core_3.h", "purpose": "GeoField core (part 3) — routing tables and topology definitions", "api": []},
+        {"path": "collection/geopixel/geofield/geo_field_main.c", "purpose": "GeoField main entry — top-level pipeline glue for geo_field processing", "api": []},
+        {"path": "collection/geopixel/geofield/geo_flow_chunker_v8.h", "purpose": "Flow chunker v8 — 64-bit content-driven segment chunker for large file support", "api": []},
+        {"path": "collection/geopixel/geofield/geo_flow_chunker_v8_1.h", "purpose": "Flow chunker v8.1 — refined content-driven segment boundaries", "api": []},
+        {"path": "collection/geopixel/geofield/geo_goldberg_sphere.h", "purpose": "Goldberg sphere constants — GP(1,1) face count, pentagon pairs, geodesic parameters", "api": []},
+        {"path": "collection/geopixel/geofield/geo_gp_frustum_bridge.h", "purpose": "GP-Frustum bridge — slot mapping between Goldberg pentagon and FrustumBlock", "api": []},
+        {"path": "collection/geopixel/geofield/geo_metatron_route.h", "purpose": "Metatron 4-route — 4-direction routing within Metatron block topology", "api": []},
+        {"path": "collection/geopixel/geofield/geo_reshape_junction.h", "purpose": "Reshape junction — coordinate transform between geo_field and outer pipeline", "api": []},
+        {"path": "collection/geopixel/geofield/geo_temporal_lut.h", "purpose": "Temporal LUT — lookup table for timeline-derivable frame addresses", "api": []},
+        {"path": "collection/geopixel/geofield/geo_tring_walk.h", "purpose": "TRing walk — tile to TRing position mapping (0..719) for geo_field", "api": []},
+        {"path": "collection/geopixel/geofield/geometry_store_reader.h", "purpose": "Geometry store reader — read geometry data from persistent store", "api": []},
+        {"path": "collection/geopixel/geofield/goldberg_shutter.h", "purpose": "Goldberg shutter — face-level occlusion culling for Goldberg sphere topology", "api": []},
+        {"path": "collection/geopixel/geofield/heptagon_fence.h", "purpose": "Heptagon fence — boundary fencing for 7-sided polygon routing", "api": []},
+        {"path": "collection/geopixel/geofield/pogls_1440.h", "purpose": "POGLS 1440 constants — 1440-cycle constants shared across geo_field modules", "api": []},
+        {"path": "collection/geopixel/geofield/pogls_atomic_reshape.h", "purpose": "Atomic reshape — thread-safe reshape operations on geo_field structures", "api": []},
+        {"path": "collection/geopixel/geofield/pogls_fold.h", "purpose": "POGLS fold — hash fold operations for geometry address compression", "api": []},
+        {"path": "collection/geopixel/geofield/pogls_rotation.h", "purpose": "POGLS rotation — face rotation transforms for dodecahedral addressing", "api": []},
+        {"path": "collection/geopixel/geofield/skeleton_index.h", "purpose": "Skeleton index — index structure for geometry skeleton traversal", "api": []},
+        {"path": "collection/geopixel/geofield/tring.h", "purpose": "TRing node — triangular ring node structure for topology walk", "api": []}
+      ]
     },
     {
-     "path": "pogls_core/pogls_store.h",
-     "purpose": "Forward declaration \u2014 implementation owns the struct layout"
+      "name": "tools",
+      "label": "pogls_tools",
+      "role": "CLI Tools",
+      "desc": "19 command-line utilities for build, inspect, compress, test, debug, load, convert",
+      "tests": 0,
+      "doc": "pogls-tools",
+      "design_note": "Each tool is a single .c file compiling against pogls_core.lib. See runner/Makefile for build recipes. Tools range from .pogls file manipulation to GGUF dumping, DRamTile CLI operations, and end-to-end pipeline testing.",
+      "files": [
+        {"path": "pogls_tools/pogls_build.c", "purpose": "Build .pogls file from GGUF source — read header + tensor info, write .pogls metadata+data", "api": []},
+        {"path": "pogls_tools/pogls_compress.c", "purpose": "Compress tensor data with ZSTD — read raw input, write .pogls compressed output", "api": []},
+        {"path": "pogls_tools/pogls_decompress.c", "purpose": "Decompress tensor data — read .pogls compressed file, write raw decompressed output", "api": []},
+        {"path": "pogls_tools/pogls_inspect.c", "purpose": "Inspect .pogls file structure — dump header, metadata, tensor index, compression info", "api": []},
+        {"path": "pogls_tools/pogls_roundtrip.c", "purpose": "Compress then decompress — verify data integrity through compress-decompress roundtrip", "api": []},
+        {"path": "pogls_tools/pogls_cat.c", "purpose": "Concatenate multiple .pogls files into a single merged output", "api": []},
+        {"path": "pogls_tools/pogls_diff.c", "purpose": "Byte-by-byte diff of two .pogls files — report first differing offset", "api": []},
+        {"path": "pogls_tools/pogls_verify.c", "purpose": "Verify .pogls file integrity — check header magic, version, flags, tensor metadata CRC", "api": []},
+        {"path": "pogls_tools/pogls_test.c", "purpose": "Run POGLS core test suite — platform, compression, address space, metadata, store contract", "api": []},
+        {"path": "pogls_tools/pogls_loader_demo.c", "purpose": "Loader demo — integration example showing open, iterate tensors, lookup by name, face rotation", "api": []},
+        {"path": "pogls_tools/test_pogls_loader.c", "purpose": "Loader test suite — 20+ tests for pogls_loader.h API: open/close, lookup, face access, error handling", "api": []},
+        {"path": "pogls_tools/test_e2e_pipeline.c", "purpose": "End-to-end pipeline test — GGUF\u2192POGLS\u2192verify\u2192loader\u2192tensor data comparison", "api": []},
+        {"path": "pogls_tools/addr_resolve.c", "purpose": "Resolve tensor name to 144\u00B2 address — show macro, micro, face rotation decomposition", "api": []},
+        {"path": "pogls_tools/gguf_dump.c", "purpose": "Dump GGUF file structure — header, KV metadata pairs, tensor listing with offsets and sizes", "api": []},
+        {"path": "pogls_tools/dramtile_dump.c", "purpose": "Dump DRamTile store contents — list all entries with addresses, sizes, and flags", "api": []},
+        {"path": "pogls_tools/dramtile_cli.c", "purpose": "DRamTile interactive CLI — create, put, get, list, stats, delete operations on .dt stores", "api": []},
+        {"path": "pogls_tools/dramtile_bench.c", "purpose": "Benchmark DRamTile put/get performance — throughput and latency measurements", "api": []},
+        {"path": "pogls_tools/kv_delta_bench.c", "purpose": "Benchmark KV delta encode/decode — tier selection, compression ratio, throughput", "api": []},
+        {"path": "pogls_tools/kv_delta_test.c", "purpose": "KV delta roundtrip test — encode-decode roundtrip with ENTROPY/GEO/REBUILD tiers", "api": []}
+      ]
     }
-   ],
-   "dirs": [
-    "runner/pogls_core"
-   ]
-  },
-  {
-   "name": "gguf",
-   "label": "pogls_gguf",
-   "role": "GGUF Reader Layer",
-   "desc": "Standalone GGUF file parser \u2014 no llama.cpp dep",
-   "tests": 1,
-   "files": [
-    {
-     "path": "pogls_gguf/pogls_gguf.c",
-     "purpose": "gguf module \u2014 pogls_gguf.c"
-    },
-    {
-     "path": "pogls_gguf/pogls_gguf.h",
-     "purpose": "gguf module \u2014 pogls_gguf.h"
-    }
-   ],
-   "dirs": [
-    "runner/pogls_gguf"
-   ]
-  },
-  {
-   "name": "geo",
-   "label": "pogls_geo",
-   "role": "Geometric Addressing Layer",
-   "desc": "Y-triangle coordinate system: 144\u00b2 tower, jump, triplet",
-   "tests": 1,
-   "files": [
-    {
-     "path": "pogls_geo/pogls_geo.c",
-     "purpose": "geo module \u2014 pogls_geo.c"
-    },
-    {
-     "path": "pogls_geo/pogls_geo.h",
-     "purpose": "geo module \u2014 pogls_geo.h"
-    }
-   ],
-   "dirs": [
-    "runner/pogls_geo"
-   ]
-  },
-  {
-   "name": "dram",
-   "label": "pogls_dram",
-   "role": "Memory Store Layer",
-   "desc": "Flat-arena DRamTile: put/get by addr or name",
-   "tests": 1,
-   "files": [
-    {
-     "path": "pogls_dram/pogls_dram.c",
-     "purpose": "DirEntry is internal \u2014 not exposed in the public header"
-    },
-    {
-     "path": "pogls_dram/pogls_dram.h",
-     "purpose": "\u2500\u2500 Store structure (fields are internal, access via API only) \u2500\u2500"
-    }
-   ],
-   "dirs": [
-    "runner/pogls_dram"
-   ]
-  },
-  {
-   "name": "bermuda",
-   "label": "pogls_bermuda",
-   "role": "Routing + Compression Layer",
-   "desc": "Stride-37 router, Diamond Shell, 3D RLE, shadow bond",
-   "tests": 1,
-   "files": [
-    {
-     "path": "pogls_bermuda/pogls_bermuda.c",
-     "purpose": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
-    },
-    {
-     "path": "pogls_bermuda/pogls_bermuda.h",
-     "purpose": "\u2500\u2500 Constants \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-    }
-   ],
-   "dirs": [
-    "runner/pogls_bermuda"
-   ]
-  },
-  {
-   "name": "kv",
-   "label": "pogls_kv",
-   "role": "KV Cache Layer",
-   "desc": "Adaptive KV remap: ENTROPY/GEO/REBUILD, 3-lane rail",
-   "tests": 1,
-   "files": [
-    {
-     "path": "pogls_kv/pogls_kv.c",
-     "purpose": "kv module \u2014 pogls_kv.c"
-    },
-    {
-     "path": "pogls_kv/pogls_kv.h",
-     "purpose": "kv module \u2014 pogls_kv.h"
-    }
-   ],
-   "dirs": [
-    "runner/pogls_kv"
-   ]
-  },
-  {
-   "name": "geopixel",
-   "label": "pogls_geopixel",
-   "role": "Pixel Compression Layer",
-   "desc": "64B block codec: FLAT/SMOOTH/GRADIENT/EDGE, Hilbert",
-   "tests": 1,
-   "files": [
-    {
-     "path": "pogls_geopixel/pogls_geopixel.c",
-     "purpose": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
-    },
-    {
-     "path": "pogls_geopixel/pogls_geopixel.h",
-     "purpose": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
-    }
-   ],
-   "dirs": [
-    "runner/pogls_geopixel"
-   ],
-   "doc": "pogls-geopixel"
-  },
-  {
-   "name": "tools",
-   "label": "pogls_tools",
-   "role": "CLI Tools",
-   "desc": "14 CLI utilities for build, inspect, test, debug",
-   "tests": 2,
-   "files": [
-    {
-     "path": "pogls_tools/addr_resolve.c",
-     "purpose": "Show face rotation"
-    },
-    {
-     "path": "pogls_tools/dramtile_bench.c",
-     "purpose": "Init"
-    },
-    {
-     "path": "pogls_tools/dramtile_cli.c",
-     "purpose": "Command: create"
-    },
-    {
-     "path": "pogls_tools/dramtile_dump.c",
-     "purpose": "Just init an anonymous store for inspection"
-    },
-    {
-     "path": "pogls_tools/gguf_dump.c",
-     "purpose": "Get file size"
-    },
-    {
-     "path": "pogls_tools/kv_delta_bench.c",
-     "purpose": "Allocate"
-    },
-    {
-     "path": "pogls_tools/kv_delta_test.c",
-     "purpose": "Fill with deterministic pattern"
-    },
-    {
-     "path": "pogls_tools/pogls_build.c",
-     "purpose": "Minimal GGUF \u2192 POGLS: read header + tensor info, write .pogls"
-    },
-    {
-     "path": "pogls_tools/pogls_cat.c",
-     "purpose": "tools module \u2014 pogls_cat.c"
-    },
-    {
-     "path": "pogls_tools/pogls_compress.c",
-     "purpose": "Read input"
-    },
-    {
-     "path": "pogls_tools/pogls_decompress.c",
-     "purpose": "Read input header"
-    },
-    {
-     "path": "pogls_tools/pogls_diff.c",
-     "purpose": "Compare byte by byte"
-    },
-    {
-     "path": "pogls_tools/pogls_inspect.c",
-     "purpose": "Read file \u2014 try v2 first, fallback to raw read"
-    },
-    {
-     "path": "pogls_tools/pogls_loader_demo.c",
-     "purpose": "Open POGLS file"
-    },
-    {
-     "path": "pogls_tools/pogls_roundtrip.c",
-     "purpose": "Read input"
-    },
-    {
-     "path": "pogls_tools/pogls_test.c",
-     "purpose": "\u2500\u2500 Platform Tests \u2500\u2500"
-    },
-    {
-     "path": "pogls_tools/pogls_verify.c",
-     "purpose": "Read raw header"
-    }
-   ],
-   "dirs": [
-    "runner/pogls_tools"
-   ]
-  },
-  {
-   "name": "geopixel-codec",
-   "label": "geopixel-codec",
-   "role": "Standalone Geopixel Codec",
-   "desc": "Full tile codec: v21 encoder/decoder, Hamburger classify, GPX decode, Hilbert curve",
-   "tests": 0,
-   "files": [
-    {
-     "path": "geopixel/src/geo_jump.c",
-     "purpose": "geopixel-codec module \u2014 geo_jump.c"
-    },
-    {
-     "path": "geopixel/src/geopixel_v21_o25.c",
-     "purpose": "grad mode counters (thread-safe) \u2014 reset before encode, read after"
-    },
-    {
-     "path": "geopixel/include/geo_frame_seek.h",
-     "purpose": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
-    },
-    {
-     "path": "geopixel/include/geo_frame_seek_wang.h",
-     "purpose": "\u2500\u2500 Fib 2&7 chord functions \u2500\u2500"
-    },
-    {
-     "path": "geopixel/include/geo_jump.h",
-     "purpose": "always-available helpers (not dependent on GEO_JUMP_INLINE)"
-    },
-    {
-     "path": "geopixel/include/hex_tile.h",
-     "purpose": "geopixel-codec module \u2014 hex_tile.h"
-    },
-    {
-     "path": "geopixel/include/pogls_hilbert64_encoder.h",
-     "purpose": "\u2500\u2500 Constants \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-    },
-    {
-     "path": "geopixel/include/pogls_to_geopixel.h",
-     "purpose": "\u2500\u2500 Header (16B) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-    }
-   ],
-   "dirs": [
-    "geopixel/src",
-    "geopixel/include"
-   ],
-   "doc": "pogls-geopixel-codec"
-  },
-  {
-   "name": "geofield",
-   "label": "geofield",
-   "role": "GeoField Topology & Routing",
-   "desc": "Goldberg sphere GpAddr, Metatron 4-route, FrustumBlock/DiamondBlock, Trit decomposition",
-   "tests": 2,
-   "files": [
-    {
-     "path": "collection/geopixel/geofield/fabric_wire.h",
-     "purpose": "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 frozen constants \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-    },
-    {
-     "path": "collection/geopixel/geofield/fabric_wire_drain.h",
-     "purpose": "\u2500\u2500 drain_state bit masks \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-    },
-    {
-     "path": "collection/geopixel/geofield/frustum_gcfs.h",
-     "purpose": "\u2500\u2500 file constants \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-    },
-    {
-     "path": "collection/geopixel/geofield/frustum_layout_v2.h",
-     "purpose": "\u2500\u2500 frozen constants \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-    },
-    {
-     "path": "collection/geopixel/geofield/frustum_slot64.h",
-     "purpose": "\u2500\u2500 constants \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-    },
-    {
-     "path": "collection/geopixel/geofield/frustum_trit.h",
-     "purpose": "\u2500\u2500 constants \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-    },
-    {
-     "path": "collection/geopixel/geofield/geo_field_bridge.c",
-     "purpose": "\u2500\u2500 Geofield headers \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-    },
-    {
-     "path": "collection/geopixel/geofield/geo_field_core.h",
-     "purpose": "\u2500\u2500 Dependencies \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-    },
-    {
-     "path": "collection/geopixel/geofield/geo_field_core_2.h",
-     "purpose": "\u2500\u2500 Dependencies \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-    },
-    {
-     "path": "collection/geopixel/geofield/geo_field_core_3.h",
-     "purpose": "\u2500\u2500 Dependencies \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-    },
-    {
-     "path": "collection/geopixel/geofield/geo_field_main.c",
-     "purpose": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
-    },
-    {
-     "path": "collection/geopixel/geofield/geo_flow_chunker_v8.h",
-     "purpose": "One content-driven segment \u2014 v8: 64-bit for large file support"
-    },
-    {
-     "path": "collection/geopixel/geofield/geo_flow_chunker_v8_1.h",
-     "purpose": "One content-driven segment \u2014 v8: 64-bit for large file support"
-    },
-    {
-     "path": "collection/geopixel/geofield/geo_goldberg_sphere.h",
-     "purpose": "\u2500\u2500 Constants \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-    },
-    {
-     "path": "collection/geopixel/geofield/geo_gp_frustum_bridge.h",
-     "purpose": "\u2500\u2500 Slot mapping result \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-    },
-    {
-     "path": "collection/geopixel/geofield/geo_metatron_route.h",
-     "purpose": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
-    },
-    {
-     "path": "collection/geopixel/geofield/geo_reshape_junction.h",
-     "purpose": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
-    },
-    {
-     "path": "collection/geopixel/geofield/geo_temporal_lut.h",
-     "purpose": "geofield module \u2014 geo_temporal_lut.h"
-    },
-    {
-     "path": "collection/geopixel/geofield/geo_tring_walk.h",
-     "purpose": "\u2500\u2500 enc: tile i \u2192 TRing position 0..719 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-    },
-    {
-     "path": "collection/geopixel/geofield/geometry_store_reader.h",
-     "purpose": "geofield module \u2014 geometry_store_reader.h"
-    },
-    {
-     "path": "collection/geopixel/geofield/goldberg_shutter.h",
-     "purpose": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
-    },
-    {
-     "path": "collection/geopixel/geofield/heptagon_fence.h",
-     "purpose": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
-    },
-    {
-     "path": "collection/geopixel/geofield/pogls_1440.h",
-     "purpose": "\u2500\u2500 constants \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-    },
-    {
-     "path": "collection/geopixel/geofield/pogls_atomic_reshape.h",
-     "purpose": "\u2500\u2500 result codes \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-    },
-    {
-     "path": "collection/geopixel/geofield/pogls_fold.h",
-     "purpose": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
-    },
-    {
-     "path": "collection/geopixel/geofield/pogls_rotation.h",
-     "purpose": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
-    },
-    {
-     "path": "collection/geopixel/geofield/skeleton_index.h",
-     "purpose": "\u2500\u2500 Constants \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-    },
-    {
-     "path": "collection/geopixel/geofield/tring.h",
-     "purpose": "\u2500\u2500 Node \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-    }
-   ],
-   "dirs": [
-    "collection/geopixel/geofield"
-   ],
-   "doc": "geofield"
-  }
- ]
+  ]
 };
 </script>
+
 <script>
 var PROSE = PROSE_JSON;
 const MOD_COLORS = {
   'core':'#58a6ff','gguf':'#3fb950','geo':'#d29922',
   'dram':'#f0883e','bermuda':'#bc8cff','kv':'#79c0ff',
   'geopixel':'#ff7b72','tools':'#8b949e',
-  'geopixel-codec':'#ffa657','geofield':'#79c0ff'
+  'geopixel-codec':'#ffa657','geofield':'#79c0ff',
+  'hilbert-container':'#79e0a3'
 };
 const MOD_ICONS = {
   'core':'database','gguf':'neurology','geo':'public',
   'dram':'memory','bermuda':'waves','kv':'key',
   'geopixel':'grid_view','tools':'build',
-  'geopixel-codec':'grid_on','geofield':'language'
+  'geopixel-codec':'grid_on','geofield':'language',
+  'hilbert-container':'grid_view'
 };
 const MOD_COLOR_BG = {
   'core':'bg-primary/5','gguf':'bg-tertiary/5','geo':'bg-secondary/5',
   'dram':'bg-error/5','bermuda':'bg-primary-container/5','kv':'bg-accent-blue/5',
   'geopixel':'bg-tertiary-fixed/5','tools':'bg-on-surface-variant/5',
-  'geopixel-codec':'bg-rose-gold/5','geofield':'bg-accent-blue/5'
+  'geopixel-codec':'bg-rose-gold/5','geofield':'bg-accent-blue/5',
+  'hilbert-container':'bg-emerald-success/5'
 };
 
 document.getElementById('total').textContent = (()=>{
@@ -779,25 +590,29 @@ async function exportFiles(){
   const all = [];
   PROSE.modules.forEach(m => (m.files||[]).forEach(f => {
     const path = '../'+f.path;
-    if(!q || path.toLowerCase().includes(q) || f.purpose.toLowerCase().includes(q)) all.push({path, purpose:f.purpose});
+    if(!q || path.toLowerCase().includes(q) || f.purpose.toLowerCase().includes(q)) all.push({path: f.path, purpose: f.purpose, module: m.name});
   }));
   if(all.length===0) return;
-  let ps = '# PROSE export — '+all.length+' files\n';
-  ps += '$DEST = "prose-export"\n';
-  ps += 'if(!(Test-Path $DEST)) { New-Item -ItemType Directory -Path $DEST | Out-Null }\n\n';
-  all.forEach(f => {
-    const dir = f.path.substring(0, f.path.lastIndexOf('/'));
-    ps += 'if(!(Test-Path "$DEST/'+dir+'")) { New-Item -ItemType Directory -Path "$DEST/'+dir+'" | Out-Null }\n';
-    ps += 'Copy-Item "'+f.path+'" "$DEST/'+f.path+'"\n';
-  });
-  ps += '\nWrite-Host "Exported '+all.length+' files to $DEST/"';
+  const zip = new JSZip();
+  let fetched = 0, failed = 0;
+  for(const f of all){
+    try{
+      const r = await fetch('../'+f.path);
+      if(!r.ok) throw Error(r.status);
+      const text = await r.text();
+      zip.file(f.path, text);
+      fetched++;
+    }catch(e){
+      zip.file(f.path, '// failed to fetch: '+e.message);
+      failed++;
+    }
+  }
+  const blob = await zip.generateAsync({type:'blob'});
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([ps],{type:'text/plain'}));
-  a.download = 'prose-export.ps1'; a.click();
-  const a2 = document.createElement('a');
-  a2.href = URL.createObjectURL(new Blob([all.map(f=>f.path).join('\n')],{type:'text/plain'}));
-  a2.download = 'prose-manifest.txt'; a2.click();
-  URL.revokeObjectURL(a.href); URL.revokeObjectURL(a2.href);
+  a.href = URL.createObjectURL(blob);
+  a.download = 'prose-export.zip';
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 document.addEventListener('keydown', e => {
