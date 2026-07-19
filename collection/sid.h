@@ -37,7 +37,7 @@
 #include "geo_shell.h"
 
 /* ── Limits ─────────────────────────────────────────────────── */
-#define SID_MAX_ENTRIES  2048
+#define SID_MAX_ENTRIES  65536
 #define SID_NAME_MAX     256
 #define SID_TWIDX_MAGIC  0x53494432u   /* "SID2" — Y-triangle format */
 #define SID_TWIDX_VER    2u

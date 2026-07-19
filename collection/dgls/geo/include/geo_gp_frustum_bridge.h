@@ -60,7 +60,7 @@ static inline GpFrustumSlot gp_frustum_map(uint8_t gp_level, GpAddr a)
     GpFrustumSlot s;
 
     /* diamond slot: tile_id wraps over 54 DiamondBlocks */
-    s.diamond_slot = (uint8_t)(a.tile_id % DGLS_DIAMOND_COUNT);   /* %54 */
+    s.diamond_slot = (uint8_t)(a.tile_id % FGLS_DIAMOND_COUNT);   /* %54 */
 
     /* drain: pentagon anchor of this tile */
     s.drain_idx = gp_is_pentagon(a.tile_id)
@@ -69,7 +69,7 @@ static inline GpFrustumSlot gp_frustum_map(uint8_t gp_level, GpAddr a)
 
     /* clock tick: scale tile_id into 0..143 range */
     uint32_t face_max = gp_face_count(gp_level);
-    s.clock_tick = (uint8_t)(((uint64_t)a.tile_id * DGLS_CLOCK_TICKS)
+    s.clock_tick = (uint8_t)(((uint64_t)a.tile_id * FGLS_CLOCK_TICKS)
                               / face_max);                          /* 0..143 */
 
     /* Metatron enc: tick % 720 → face/slot decomposition */
@@ -84,13 +84,13 @@ static inline GpFrustumSlot gp_frustum_map(uint8_t gp_level, GpAddr a)
 static inline uint8_t *gp_diamond_ptr(FrustumBlock *blk,
                                        GpFrustumSlot s)
 {
-    return blk->data + (size_t)s.diamond_slot * DGLS_DIAMOND_BYTES;
+    return blk->data + (size_t)s.diamond_slot * FGLS_DIAMOND_BYTES;
 }
 
 static inline const uint8_t *gp_diamond_ptr_c(const FrustumBlock *blk,
                                                 GpFrustumSlot s)
 {
-    return blk->data + (size_t)s.diamond_slot * DGLS_DIAMOND_BYTES;
+    return blk->data + (size_t)s.diamond_slot * FGLS_DIAMOND_BYTES;
 }
 
 /* ── Lens read/write through FrustumBlock ──────────────────── */
@@ -106,7 +106,7 @@ static inline uint8_t gp_blk_write(FrustumBlock *blk,
                                     const uint8_t chunk[64])
 {
     GpFrustumSlot s = gp_frustum_map(gp_level, a);
-    memcpy(gp_diamond_ptr(blk, s), chunk, DGLS_DIAMOND_BYTES);
+    memcpy(gp_diamond_ptr(blk, s), chunk, FGLS_DIAMOND_BYTES);
 
     /* mark shadow occupied (bit0) for drain tracking */
     uint8_t drain = s.drain_idx;
@@ -157,12 +157,12 @@ static inline int gp_blk_zone_check(const FrustumBlock *blk,
 static inline int gp_blk_reshape_ready(const FrustumBlock *blk)
 {
     int count = 0;
-    for (int i = 0; i < DGLS_SHADOW_COUNT; i++)
+    for (int i = 0; i < FGLS_SHADOW_COUNT; i++)
         count += (blk->meta.shadow_state[i] & 0x01u) ? 1 : 0;
     /* also count active drain slots */
-    for (int i = 0; i < DGLS_DRAIN_COUNT; i++)
+    for (int i = 0; i < FGLS_DRAIN_COUNT; i++)
         count += (blk->meta.drain_state[i] & 0x01u) ? 1 : 0;
-    return (count >= DGLS_DIAMOND_COUNT) ? 1 : 0;  /* 54 threshold */
+    return (count >= FGLS_DIAMOND_COUNT) ? 1 : 0;  /* 54 threshold */
 }
 
 /* ── Complete loop: chunk_idx → write → zone → reshape ─────── */
