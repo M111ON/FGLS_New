@@ -1,0 +1,206 @@
+#!/bin/bash
+# fgls — User-Friendly Wrapper
+#
+# Simple interface for non-technical users:
+#   fgls compress <file>           — auto-compress with best route
+#   fgls decompress <file.fgls>    — auto-decompress
+#   fgls info <file>               — show file info
+#   fgls benchmark <file>          — benchmark all routes
+#   fgls sid <file>                — SID capture (Pro tier)
+#   fgls version                   — show version
+#   fgls help                      — show help
+
+set -e
+
+SCRIPT_DIR="/mnt/i/FGLS_new"
+FGLS_EXE="$SCRIPT_DIR/fgls.exe"
+PRO_EXE="$SCRIPT_DIR/pro_cli.exe"
+
+# Check if binaries exist
+# Convert WSL path to Windows path for .exe files
+to_winpath() {
+    if [[ "$1" == /mnt/* ]]; then
+        local drive=$(echo "$1" | cut -c6 | tr '[:lower:]' '[:upper:]')
+        local rest=$(echo "$1" | cut -c7-)
+        echo "${drive}:${rest}"
+    else
+        echo "$1"
+    fi
+}
+
+check_binaries() {
+    if [ ! -f "$FGLS_EXE" ]; then
+        echo "Error: fgls.exe not found at $FGLS_EXE"
+        echo "Run 'make' first to build the binaries."
+        exit 1
+    fi
+}
+
+# Show help
+show_help() {
+    cat << 'EOF'
+FGLS Universal Codec v2.0.0
+
+Usage:
+  fgls compress <file> [output.fgls]   Compress a file
+  fgls decompress <file.fgls> [output]  Decompress a file
+  fgls info <file>                       Show file details
+  fgls benchmark <file>                  Benchmark all routes
+  fgls sid <file> [output.twidx]         SID capture (Pro tier)
+  fgls version                           Show version
+  fgls help                              Show this help
+
+Examples:
+  fgls compress model.bin                → model.bin.fgls
+  fgls decompress model.bin.fgls         → model.bin
+  fgls info model.bin                    → file details
+  fgls benchmark model.bin               → speed comparison
+  fgls sid model.bin                     → SID coordinates
+
+The encoder automatically selects the best compression route
+for your data. No configuration needed.
+EOF
+}
+
+# Auto-detect file type
+detect_file() {
+    local file="$1"
+    local ext="${file##*.}"
+    
+    case "$ext" in
+        fgls) echo "compressed" ;;
+        twidx) echo "sid" ;;
+        *) echo "raw" ;;
+    esac
+}
+
+# Compress
+do_compress() {
+    local input="$1"
+    local output="$2"
+    
+    if [ -z "$output" ]; then
+        output="${input}.fgls"
+    fi
+    
+    echo "Compressing: $input"
+    "$FGLS_EXE" encode "$(to_winpath "$input")" "$(to_winpath "$output")"
+    echo "Output: $output"
+}
+
+# Decompress
+do_decompress() {
+    local input="$1"
+    local output="$2"
+    
+    if [ -z "$output" ]; then
+        # Strip .fgls extension
+        output="${input%.fgls}"
+        if [ "$output" = "$input" ]; then
+            output="${input}.dec"
+        fi
+    fi
+    
+    echo "Decompressing: $input"
+    "$FGLS_EXE" decode "$(to_winpath "$input")" "$(to_winpath "$output")"
+    echo "Output: $output"
+}
+
+# Info
+do_info() {
+    local file="$1"
+    local filetype=$(detect_file "$file")
+    
+    echo "File: $file"
+    echo "Size: $(wc -c < "$file") bytes"
+    
+    case "$filetype" in
+        compressed)
+            echo "Type: FGLS compressed"
+            "$FGLS_EXE" info "$(to_winpath "$file")"
+            ;;
+        sid)
+            echo "Type: SID coordinates"
+            "$PRO_EXE" info "$file"
+            ;;
+        *)
+            echo "Type: Raw data"
+            "$FGLS_EXE" profile "$(to_winpath "$file")"
+            ;;
+    esac
+}
+
+# Benchmark
+do_benchmark() {
+    local file="$1"
+    echo "Benchmarking: $file"
+    "$FGLS_EXE" bench "$(to_winpath "$file")"
+}
+
+# SID capture
+do_sid() {
+    local input="$1"
+    local output="$2"
+    
+    if [ -z "$output" ]; then
+        output="${input}.twidx"
+    fi
+    
+    echo "SID capturing: $input"
+    "$PRO_EXE" capture "$(to_winpath "$input")" "$(to_winpath "$output")"
+    echo "Output: $output"
+}
+
+# Main
+check_binaries
+
+case "${1:-help}" in
+    compress|c)
+        if [ -z "$2" ]; then
+            echo "Usage: fgls compress <input> [output.fgls]"
+            exit 1
+        fi
+        do_compress "$2" "$3"
+        ;;
+    decompress|d)
+        if [ -z "$2" ]; then
+            echo "Usage: fgls decompress <input.fgls> [output]"
+            exit 1
+        fi
+        do_decompress "$2" "$3"
+        ;;
+    info|i)
+        if [ -z "$2" ]; then
+            echo "Usage: fgls info <file>"
+            exit 1
+        fi
+        do_info "$2"
+        ;;
+    benchmark|bench|b)
+        if [ -z "$2" ]; then
+            echo "Usage: fgls benchmark <file>"
+            exit 1
+        fi
+        do_benchmark "$2"
+        ;;
+    sid|s)
+        if [ -z "$2" ]; then
+            echo "Usage: fgls sid <input> [output.twidx]"
+            exit 1
+        fi
+        do_sid "$2" "$3"
+        ;;
+    version|--version|-v)
+        echo "FGLS Universal Codec v2.0.0"
+        "$FGLS_EXE" version 2>/dev/null || true
+        ;;
+    help|--help|-h)
+        show_help
+        ;;
+    *)
+        echo "Unknown command: $1"
+        echo ""
+        show_help
+        exit 1
+        ;;
+esac

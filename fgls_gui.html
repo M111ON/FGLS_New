@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FGLS Codec</title>
+<style>
+:root {
+  --bg-root: #0a0a0f; --bg-surface: #12121a; --bg-card: #1a1a24;
+  --bg-input: #0e0e16; --border: #2a2a3a; --border-focus: #4a6fa5;
+  --text-primary: #e8e8f0; --text-secondary: #8888a0; --text-muted: #555568;
+  --accent: #4a9eff; --success: #3ddc84; --warning: #ffb74d; --error: #ff5252;
+  --p1:#4a9eff; --p2:#7c4dff; --p3:#e040fb; --p4:#ff5252; --p5:#ff9100; --p6:#3ddc84;
+  --font: system-ui,-apple-system,sans-serif;
+  --mono: 'SF Mono','Cascadia Code','Fira Code',monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--font);background:var(--bg-root);color:var(--text-primary);min-height:100vh}
+.app{max-width:1400px;margin:0 auto;padding:24px;display:flex;flex-direction:column;gap:24px}
+
+.header{display:flex;align-items:center;justify-content:space-between;padding-bottom:16px;border-bottom:1px solid var(--border)}
+.hb{display:flex;align-items:center;gap:12px}
+.logo{width:36px;height:36px;background:linear-gradient(135deg,var(--accent),var(--p2));border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff}
+.ht{font-size:18px;font-weight:600}
+.hv{font-size:11px;color:var(--text-muted);font-family:var(--mono)}
+.st{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--success)}
+
+.main{display:grid;grid-template-columns:1fr 380px;gap:24px}
+@media(max-width:900px){.main{grid-template-columns:1fr}}
+
+.s{background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;padding:20px}
+.sl{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:12px}
+
+.pipeline{display:flex;align-items:center;gap:0;overflow-x:auto;padding:4px 0}
+.stg{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:100px;padding:10px 8px;border-radius:8px;background:var(--bg-card);border:1px solid var(--border);transition:all .2s;cursor:default}
+.stg:hover{background:#1e1e2a;border-color:var(--border-focus);transform:translateY(-2px)}
+.stg.active{border-color:var(--accent);box-shadow:0 0 12px rgba(74,158,255,.2)}
+.si{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff;flex-shrink:0}
+.sn{font-size:10px;font-weight:600;text-align:center;line-height:1.2}
+.sd{font-size:8px;color:var(--text-muted);text-align:center}
+.ar{color:var(--text-muted);font-size:16px;padding:0 2px;flex-shrink:0}
+
+.input-row{display:flex;align-items:center;gap:8px}
+.path-input{flex:1;padding:10px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--mono);font-size:13px}
+.path-input:focus{outline:none;border-color:var(--accent)}
+.path-input::placeholder{color:var(--text-muted)}
+.btn{padding:9px 14px;border:1px solid var(--border);border-radius:6px;background:var(--bg-card);color:var(--text-primary);font-family:var(--font);font-size:12px;font-weight:500;cursor:pointer;transition:all .15s}
+.btn:hover{background:#1e1e2a;border-color:var(--border-focus)}
+.btn:active{transform:scale(.97)}
+.btn:disabled{opacity:.35;cursor:not-allowed}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.btn-primary:hover{background:#5aa8ff}
+.btn-small{padding:6px 10px;font-size:11px}
+.btn-danger{color:var(--error)}
+
+.dropper{border:2px dashed var(--border);border-radius:8px;padding:28px;text-align:center;transition:all .2s;cursor:pointer;margin-top:8px;background:var(--bg-input)}
+.dropper:hover,.dropper.dragover{border-color:var(--accent);background:rgba(74,158,255,.05)}
+.di{font-size:32px;opacity:.5}
+.dt{font-size:13px;color:var(--text-secondary)}
+.dh{font-size:11px;color:var(--text-muted);margin-top:4px}
+#fileMeta{font-size:11px;color:var(--text-muted);margin-top:4px}
+
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.mg{display:flex;background:var(--bg-card);border-radius:6px;border:1px solid var(--border);overflow:hidden}
+.mb{padding:8px 14px;background:none;border:none;color:var(--text-muted);font-size:12px;font-weight:500;cursor:pointer}
+.mb.active{background:var(--accent);color:#fff}
+.mb:hover:not(.active){color:var(--text-primary)}
+
+.pw{height:4px;background:var(--bg-card);border-radius:2px;overflow:hidden;display:none}
+.pb{height:100%;background:linear-gradient(90deg,var(--accent),var(--p2));border-radius:2px;width:40%;animation:slide 1.2s ease-in-out infinite}
+@keyframes slide{0%{transform:translateX(-100%)}100%{transform:translateX(400%)}}
+
+.sg{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stat{text-align:center;padding:12px;background:var(--bg-card);border-radius:6px}
+.sv{font-size:22px;font-weight:700;font-family:var(--mono);color:var(--accent)}
+.sl2{font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
+
+.lh{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.lc{background:none;border:none;color:var(--text-muted);font-size:11px;cursor:pointer}
+.log{flex:1;background:var(--bg-input);border-radius:6px;padding:12px;font-family:var(--mono);font-size:11px;line-height:1.6;overflow-y:auto;min-height:180px;max-height:360px;color:var(--text-secondary)}
+.l{padding:1px 0}
+.l-s{color:var(--success)}
+.l-e{color:var(--error)}
+.l-i{color:var(--accent)}
+.l-w{color:var(--warning)}
+
+.ft{display:flex;align-items:center;justify-content:space-between;padding-top:12px;border-top:1px solid var(--border);font-size:11px;color:var(--text-muted)}
+.ft a{color:var(--text-secondary);text-decoration:none;margin-left:12px}
+.ft a:hover{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="header">
+    <div class="hb"><div class="logo">F</div><div><div class="ht">FGLS Codec</div><div class="hv" id="vInfo">v2.0.0</div></div></div>
+    <div class="st"><span class="dot" id="sDot"></span><span id="sText">Ready</span></div>
+  </header>
+
+  <div class="main">
+    <div class="lc" style="display:flex;flex-direction:column;gap:16px">
+
+      <!-- Pipeline -->
+      <div class="s"><div class="sl">Pipeline</div>
+        <div class="pipeline">
+          <div class="stg" data-i="0"><div class="si" style="background:var(--p1)">①</div><div class="sn">tw_capture</div><div class="sd">Integer capture</div></div><div class="ar">→</div>
+          <div class="stg" data-i="1"><div class="si" style="background:var(--p2)">②</div><div class="sn">tw_bridge</div><div class="sd">POGLS routing</div></div><div class="ar">→</div>
+          <div class="stg" data-i="2"><div class="si" style="background:var(--p3)">③</div><div class="sn">geo_dram_tile</div><div class="sd">Hilbert 8×8</div></div><div class="ar">→</div>
+          <div class="stg" data-i="3"><div class="si" style="background:var(--p4)">④</div><div class="sn">dramtile_store</div><div class="sd">mmap zero-copy</div></div><div class="ar">→</div>
+          <div class="stg" data-i="4"><div class="si" style="background:var(--p5)">⑤</div><div class="sn">gear_shift</div><div class="sd">Routing</div></div><div class="ar">→</div>
+          <div class="stg" data-i="5"><div class="si" style="background:var(--p6)">⑥</div><div class="sn">gear_lock</div><div class="sd">Phase control</div></div>
+        </div>
+      </div>
+
+      <!-- File -->
+      <div class="s"><div class="sl">File</div>
+        <div class="input-row">
+          <input class="path-input" id="pathInput" placeholder='Paste path e.g. C:\model.bin — or drop/browse to upload'>
+          <input type="file" id="fileInput" style="display:none">
+          <button class="btn" id="btnBrowse">Browse</button>
+          <button class="btn btn-small" id="btnFileClear" title="Clear">✕</button>
+        </div>
+        <div class="dropper" id="dropZone">
+          <div class="di">📁</div>
+          <div class="dt">Drop file here to upload</div>
+          <div class="dh">Or type path above — upload needed for browser-selected files</div>
+        </div>
+        <div id="fileMeta"></div>
+      </div>
+
+      <!-- Actions -->
+      <div class="actions">
+        <div class="mg">
+          <button class="mb active" data-m="auto">Auto</button>
+          <button class="mb" data-m="encode">Encode</button>
+          <button class="mb" data-m="decode">Decode</button>
+        </div>
+        <button class="btn btn-primary" id="btnRun">▶ Process</button>
+        <button class="btn" id="btnInfo">ℹ Info</button>
+        <button class="btn" id="btnBench">⚡ Bench</button>
+        <button class="btn" id="btnProfile">📊 Profile</button>
+      </div>
+      <div class="actions" style="margin-top:-4px">
+        <button class="btn btn-small" id="btnGeoEnc">🌐 GeoField Enc</button>
+        <button class="btn btn-small" id="btnGeoDec">🌐 GeoField Dec</button>
+        <button class="btn btn-small" id="btnSid">◎ SID Capture</button>
+        <button class="btn btn-small btn-danger" id="btnCancel" disabled>✕ Cancel</button>
+      </div>
+
+      <div class="pw" id="pw"><div class="pb" id="pb"></div></div>
+    </div>
+
+    <!-- Right -->
+    <div class="rc" style="display:flex;flex-direction:column;gap:16px">
+      <div class="s"><div class="sl">Results</div>
+        <div class="sg">
+          <div class="stat"><div class="sv" id="sRatio">—</div><div class="sl2">Ratio</div></div>
+          <div class="stat"><div class="sv" id="sSpeed">—</div><div class="sl2">Speed</div></div>
+          <div class="stat"><div class="sv" id="sInput">—</div><div class="sl2">Input</div></div>
+          <div class="stat"><div class="sv" id="sOutput">—</div><div class="sl2">Output</div></div>
+        </div>
+      </div>
+      <div class="s" style="flex:1;display:flex;flex-direction:column">
+        <div class="lh"><div class="sl" style="margin:0">Log</div><button class="lc" id="logClear">Clear</button></div>
+        <div class="log" id="logBox"><div class="l l-i">FGLS Codec Dashboard</div><div class="l">Type a file path or drop a file to start.</div></div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="ft"><span>FGLS — Geometric Compression Pipeline</span><span><a href="https://github.com" target="_blank">GitHub</a></span></footer>
+</div>
+
+<script>
+const $=s=>document.querySelector(s), $$=s=>document.querySelectorAll(s)
+
+// ── State ──
+let currentPath = ''
+let currentMode = 'auto'
+let isRunning = false
+let uploadedFile = null  // File object for upload-needed actions
+
+const API_JSON = (endpoint, data) =>
+  fetch('/api/'+endpoint, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data||{})}).then(r=>r.json())
+const API_GET = (endpoint, args) =>
+  fetch('/api/'+endpoint+'?'+new URLSearchParams(args||{})).then(r=>r.json())
+
+// ── Init ──
+API_GET('ping').then(r=>{if(r.ok){$('#sText').textContent='Ready';$('#vInfo').textContent=r.version||'v2.0.0'}}).catch(()=>{$('#sText').textContent='Offline';$('#sDot').style.background='var(--error)'})
+
+// ── File input ──
+$('#pathInput').addEventListener('input', ()=>{
+  const v = $('#pathInput').value.trim()
+  if(v) { currentPath = v; updateMode(v); }
+})
+$('#btnBrowse').onclick = () => $('#fileInput').click()
+$('#btnFileClear').onclick = clearFile
+$('#fileInput').addEventListener('change', ()=>{
+  if($('#fileInput').files.length) selectFile($('#fileInput').files[0])
+})
+
+// ── Drop zone ──
+const dz = $('#dropZone')
+dz.addEventListener('dragover', e=>{e.preventDefault();dz.classList.add('dragover')})
+dz.addEventListener('dragleave', ()=>dz.classList.remove('dragover'))
+dz.addEventListener('drop', e=>{e.preventDefault();dz.classList.remove('dragover');if(e.dataTransfer.files.length)selectFile(e.dataTransfer.files[0])})
+dz.addEventListener('click', ()=>$('#fileInput').click())
+
+function selectFile(file) {
+  uploadedFile = file
+  $('#pathInput').value = file.name
+  const sz = file.size < 1024 ? file.size+' B' : file.size < 1048576 ? (file.size/1024).toFixed(1)+' KB' : (file.size/1048576).toFixed(2)+' MB'
+  $('#fileMeta').textContent = `${file.name}  •  ${sz}  (click Process to upload first)`
+  updateMode(file.name)
+  log(`Selected: ${file.name} (${sz})`, '')
+  currentPath = ''  // will be set after upload
+}
+
+function clearFile() {
+  currentPath = ''; uploadedFile = null
+  $('#pathInput').value = ''; $('#fileMeta').textContent = ''; $('#fileInput').value = ''
+  clearStats()
+}
+
+function updateMode(fname) {
+  const ext = fname.split('.').pop().toLowerCase()
+  setMode(['fgls','gfuf','gpx5','gpxl','geopixel','twidx'].includes(ext) ? 'decode' : 'auto')
+}
+
+// ── Mode ──
+$$('.mb').forEach(b=>b.addEventListener('click',()=>setMode(b.dataset.m)))
+function setMode(m){currentMode=m;$$('.mb').forEach(b=>b.classList.toggle('active',b.dataset.m===m))}
+
+// ── Log ──
+function log(msg,c){const d=document.createElement('div');d.className='l'+(c?' '+c:'');d.textContent=msg;$('#logBox').appendChild(d);$('#logBox').scrollTop=$('#logBox').scrollHeight}
+function logHtml(html,c){const d=document.createElement('div');d.className='l'+(c?' '+c:'');d.innerHTML=html;$('#logBox').appendChild(d);$('#logBox').scrollTop=$('#logBox').scrollHeight}
+function logLines(t,c){if(!t)return;t.split('\n').filter(Boolean).forEach(l=>log(l,c))}
+$('#logClear').onclick=()=>{$('#logBox').innerHTML=''}
+
+// ── Stats / Progress / Pipeline ──
+function ss(id,v){$(id).textContent=v||'—'}
+function clearStats(){ss('#sRatio','—');ss('#sSpeed','—');ss('#sInput','—');ss('#sOutput','—')}
+function sp(){ $('#pw').style.display='' }
+function hp(){ $('#pw').style.display='none' }
+function hl(i){$$('.stg').forEach((s,j)=>s.classList.toggle('active',j<=i))}
+function cp(){$$('.stg').forEach(s=>s.classList.remove('active'))}
+function setBusy(b){isRunning=b;$$('#btnRun,#btnInfo,#btnBench,#btnProfile,#btnGeoEnc,#btnGeoDec,#btnSid').forEach(b=>b.disabled=isRunning);$('#btnCancel').disabled=!b}
+
+// ── Upload + Action ──
+async function ensurePath() {
+  // If path is typed manually, use it directly
+  const manual = $('#pathInput').value.trim()
+  if(manual && !uploadedFile) {
+    currentPath = manual
+    return true
+  }
+  // If we have an uploaded file object, upload it
+  if(uploadedFile) {
+    log('Uploading file...', 'l-i')
+    const form = new FormData()
+    form.append('file', uploadedFile)
+    try {
+      const r = await fetch('/api/upload', {method:'POST', body: form}).then(r=>r.json())
+      if(r.ok) {
+        currentPath = r.path
+        $('#fileMeta').textContent = `Uploaded: ${r.name} (${fmtSize(r.size)})  → server: ${r.path}`
+        log(`Uploaded to: ${r.path}`, 'l-s')
+        uploadedFile = null
+        return true
+      } else {
+        log('Upload failed: '+r.error, 'l-e')
+        return false
+      }
+    } catch(e) {
+      log('Upload error: '+e.message, 'l-e')
+      return false
+    }
+  }
+  log('No file selected. Type a path or drop a file.', 'l-w')
+  return false
+}
+
+async function doAction(endpoint, extra) {
+  if(isRunning) { log('Already running — cancel first', 'l-w'); return }
+  if(!await ensurePath()) return
+  setBusy(true); sp()
+  log(`→ ${endpoint}: ${currentPath}`, 'l-i')
+  clearStats(); cp()
+  try {
+    const r = await API_JSON(endpoint, {path: currentPath, ...(extra||{})})
+    logLines(r.output, r.ok?'':'l-e')
+    if(r.error) logLines(r.error, 'l-e')
+    if(r.ok) {
+      log('✓ '+endpoint+' complete', 'l-s')
+      if(r.ratio != null) ss('#sRatio', (r.ratio*100).toFixed(1)+'%')
+      if(r.input_size) ss('#sInput', fmtSize(r.input_size))
+      if(r.output_size) ss('#sOutput', fmtSize(r.output_size))
+    } else {
+      log('✗ '+endpoint+' failed', 'l-e')
+    }
+    if(r.output_path) {
+      log('Output: ' + r.output_path, '')
+      // if output is in uploads/, offer clickable download link + auto-download
+      if(r.output_path.includes('\\uploads\\') || r.output_path.includes('/uploads/')) {
+        const fn = r.output_file || r.output_path.split(/[\\/]/).pop()
+        logHtml('📥 <a href="/api/download?path=' + encodeURIComponent(fn) + '" style="color:var(--accent);text-decoration:underline" download>Download: ' + fn + '</a>', '')
+        // auto-trigger download
+        const a = document.createElement('a')
+        a.href = '/api/download?path=' + encodeURIComponent(fn)
+        a.download = fn; a.click()
+      }
+    } else if(r.output_file) {
+      log('Output: ' + r.output_file, '')
+    }
+    if(r.size) $('#sInput').textContent = fmtSize(r.size)
+  } catch(e) { log('Error: '+e.message, 'l-e') }
+  hp(); setBusy(false); cp()
+}
+
+function fmtSize(n) {
+  if(!n||n===0) return '—'
+  return n<1024 ? n+' B' : n<1048576 ? (n/1024).toFixed(1)+' KB' : (n/1048576).toFixed(2)+' MB'
+}
+
+// ── Button handlers ──
+$('#btnRun').onclick = ()=>{
+  const m = currentMode==='auto'?'auto':currentMode
+  doAction(m==='decode'?'decode':'encode')
+}
+$('#btnInfo').onclick = () => doAction('info')
+$('#btnBench').onclick = () => doAction('bench')
+$('#btnProfile').onclick = () => doAction('profile')
+$('#btnGeoEnc').onclick = () => doAction('geofield_enc')
+$('#btnGeoDec').onclick = () => doAction('geofield_dec')
+$('#btnSid').onclick = () => doAction('sid_capture')
+$('#btnCancel').onclick = async () => {
+  const r = await API_JSON('cancel')
+  log('Cancel: '+(r.message||'sent'), 'l-w')
+  hp(); setBusy(false); cp()
+}
+
+// ── Keyboard ──
+document.addEventListener('keydown', e => { if(e.key==='Enter'&&!isRunning) $('#btnRun').click() })
+</script>
+</body>
+</html>
