@@ -2,7 +2,7 @@
 """
 FGLS GUI Server — local HTTP backend
 ═════════════════════════════════════
-Serves HTML + API that calls fgls.exe / geofield_full.exe / pro_cli.exe.
+Serves HTML + API that calls fgls.exe (FGLS Universal Codec).
 File path: user types path OR browser uploads file via /api/upload.
 """
 
@@ -11,8 +11,6 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 FGLS_EXE  = SCRIPT_DIR / "fgls.exe"
-GEO_EXE   = SCRIPT_DIR / "geofield_full.exe"
-PRO_EXE   = SCRIPT_DIR / "pro_cli.exe"
 UPLOAD_DIR = SCRIPT_DIR / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 PORT = 8080
@@ -133,20 +131,15 @@ def _do_info(args):
     exe = find_exec('fgls.exe')
     if not exe: return {'ok': False, 'error': 'fgls.exe not found'}
     ok, out, err = run_cli([exe, 'info', src])
-    if not ok:
-        geo = find_exec('geofield_full.exe')
-        if geo: ok, out, err = run_cli([geo, 'info', src])
     return {'ok': ok, 'output': out, 'error': err, 'file': os.path.basename(src), 'size': os.path.getsize(src)}
 
 def _do_bench(args):
     src = resolve_path(args.get('path', ''))
     if not os.path.isfile(src): return {'ok': False, 'error': f'File not found: {src}'}
-    for exe_name in ('fgls.exe','pro_cli.exe'):
-        exe = find_exec(exe_name)
-        if exe:
-            ok, out, err = run_cli([exe, 'bench', src])
-            if ok: return {'ok': True, 'output': out, 'error': err}
-    return {'ok': False, 'error': 'No bench exe found'}
+    exe = find_exec('fgls.exe')
+    if not exe: return {'ok': False, 'error': 'fgls.exe not found'}
+    ok, out, err = run_cli([exe, 'bench', src])
+    return {'ok': ok, 'output': out, 'error': err}
 
 def _do_profile(args):
     src = resolve_path(args.get('path', ''))
@@ -159,8 +152,8 @@ def _do_profile(args):
 def _do_geofield_enc(args):
     src = resolve_path(args.get('path', ''))
     if not os.path.isfile(src): return {'ok': False, 'error': f'File not found: {src}'}
-    exe = find_exec('geofield_full.exe')
-    if not exe: return {'ok': False, 'error': 'geofield_full.exe not found'}
+    exe = find_exec('fgls.exe')
+    if not exe: return {'ok': False, 'error': 'fgls.exe not found'}
     dst = src + '.gfuf'
     ok, out, err = run_cli([exe, 'encode', src, dst])
     r = {'ok': ok, 'output': out, 'error': err, 'input_file': os.path.basename(src), 'input_size': os.path.getsize(src)}
@@ -174,8 +167,8 @@ def _do_geofield_enc(args):
 def _do_geofield_dec(args):
     src = resolve_path(args.get('path', ''))
     if not os.path.isfile(src): return {'ok': False, 'error': f'File not found: {src}'}
-    exe = find_exec('geofield_full.exe')
-    if not exe: return {'ok': False, 'error': 'geofield_full.exe not found'}
+    exe = find_exec('fgls.exe')
+    if not exe: return {'ok': False, 'error': 'fgls.exe not found'}
     dst = src + '.dec'
     ok, out, err = run_cli([exe, 'decode', src, dst])
     r = {'ok': ok, 'output': out, 'error': err, 'input_file': os.path.basename(src), 'input_size': os.path.getsize(src)}
@@ -188,10 +181,10 @@ def _do_geofield_dec(args):
 def _do_sid_capture(args):
     src = resolve_path(args.get('path', ''))
     if not os.path.isfile(src): return {'ok': False, 'error': f'File not found: {src}'}
-    exe = find_exec('pro_cli.exe')
-    if not exe: return {'ok': False, 'error': 'pro_cli.exe not found (Pro)'}
+    exe = find_exec('fgls.exe')
+    if not exe: return {'ok': False, 'error': 'fgls.exe not found'}
     dst = src + '.twidx'
-    ok, out, err = run_cli([exe, 'capture', src, dst])
+    ok, out, err = run_cli([exe, 'encode-framed', src, dst])
     r = {'ok': ok, 'output': out, 'error': err, 'input_file': os.path.basename(src)}
     if os.path.isfile(dst):
         r['output_file'] = os.path.basename(dst)
@@ -347,7 +340,7 @@ def open_browser():
 
 if __name__ == '__main__':
     print('FGLS GUI v2.0.0')
-    for name in ('fgls.exe','geofield_full.exe','pro_cli.exe'):
+    for name in ('fgls.exe',):
         print(f'  {name:25s} {"✓" if (SCRIPT_DIR/name).is_file() else "✗"}')
     print()
     threading.Thread(target=open_browser, daemon=True).start()
