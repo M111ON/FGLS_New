@@ -546,7 +546,7 @@ static int dec_raw(uint8_t *out, uint32_t out_size,
 #define FRMD_MAX_FRAMES   65536u
 
 #define FRMD_MAGIC        0x444D5246u  /* "FRMD" */
-#define FRMD_VERSION      1u
+#define FRMD_VERSION      2u   /* v2: adaptive prediction (seed vs adjacent) */
 #define FRMD_HDR_SZ       16u
 
 #define FRMD_DS_FLAT      0
@@ -556,6 +556,26 @@ static int dec_raw(uint8_t *out, uint32_t out_size,
 #define FRMD_DS_SUB_N     8
 #define FRMD_DS_SUB_SZ    8
 #define FRMD_DS_SPARSE_MAX 16u
+
+/* ── DS size helper: returns encoded size for a 64B block ── */
+static uint32_t ds_encoded_size(const uint8_t block[64]) {
+    int is_zero = 1;
+    for (int i = 0; i < 64; i++) { if (block[i]) { is_zero = 0; break; } }
+    if (is_zero) return 1;
+    int nz = 0;
+    for (int i = 0; i < 64; i++) if (block[i]) nz++;
+    if ((uint32_t)nz <= FRMD_DS_SPARSE_MAX) return 3 + (uint32_t)nz * 2;
+    int active = 0;
+    for (int s = 0; s < FRMD_DS_SUB_N; s++) {
+        int has_nz = 0;
+        for (int j = 0; j < FRMD_DS_SUB_SZ; j++) {
+            if (block[s * FRMD_DS_SUB_SZ + j]) { has_nz = 1; break; }
+        }
+        if (has_nz) active++;
+    }
+    if (active >= 7) return 66;
+    return 3 + (uint32_t)active * FRMD_DS_SUB_SZ;
+}
 
 typedef struct __attribute__((packed)) {
     uint32_t magic;
@@ -671,9 +691,10 @@ static uint32_t ds_decode(uint8_t out[64], const uint8_t *in) {
     return pos;
 }
 
-/* ── FRAMED encode: in-memory buffer → out (caller allocates) ──
- * Returns bytes written to out, or 0 on error.
- * out_cap must be ≥ FRMD_HDR_SZ + 12*66 + n_frames * (2 + 12*66). */
+/* ── FRAMED encode v2: adaptive prediction (seed vs adjacent) ──
+ * For each frame, try both seed-delta and adjacent-delta per chunk.
+ * Store 1B prediction flags (bit i = 1 → adjacent, 0 → seed).
+ * Wire format v2: [16B hdr][seed 12×DS][per frame: 2B enc + 1B pred_flags + 12×DS] */
 static uint32_t frmd_encode(const uint8_t *data, uint32_t data_sz,
                              uint8_t *out, uint32_t out_cap) {
     if (geo_frame_seek_verify() != 0) return 0;
@@ -705,26 +726,49 @@ static uint32_t frmd_encode(const uint8_t *data, uint32_t data_sz,
         pos += ds_sz;
     }
 
-    /* Per-frame: enc + 12 XOR residuals */
+    /* Previous frame chunks (for adjacent prediction) */
+    uint8_t prev_chunk[FRMD_FRAME_CHUNKS][FRMD_CHUNK_SZ];
+    memcpy(prev_chunk, seed_chunk, sizeof(seed_chunk));
+
+    /* Per-frame: enc + pred_flags + 12 XOR residuals */
     for (uint32_t fi = 1; fi < n_frames; fi++) {
-        if (pos + 2 > out_cap) return 0;
+        if (pos + 3 > out_cap) return 0;
         uint16_t enc = frame_enc(fi);
         out[pos++] = (uint8_t)(enc & 0xFF);
         out[pos++] = (uint8_t)(enc >> 8);
 
         uint32_t frame_off = fi * FRMD_FRAME_BYTES;
+        uint8_t pred_flags = 0;  /* bit i = 1 → adjacent, 0 → seed */
+
+        /* First pass: compute flags (pick better prediction per chunk) */
+        uint8_t chunk[FRMD_FRAME_CHUNKS][FRMD_CHUNK_SZ];
         for (uint32_t ci = 0; ci < FRMD_FRAME_CHUNKS; ci++) {
-            if (pos + 2 + 66 > out_cap) return 0;
             uint32_t off = frame_off + ci * FRMD_CHUNK_SZ;
             uint32_t sz = (off + FRMD_CHUNK_SZ <= data_sz) ? FRMD_CHUNK_SZ
                        : (data_sz > off ? data_sz - off : 0);
-            uint8_t chunk[FRMD_CHUNK_SZ];
-            uint8_t residual[FRMD_CHUNK_SZ];
-            memset(chunk, 0, FRMD_CHUNK_SZ);
-            memset(residual, 0, FRMD_CHUNK_SZ);
-            if (sz > 0) memcpy(chunk, data + off, sz);
+            memset(chunk[ci], 0, FRMD_CHUNK_SZ);
+            if (sz > 0) memcpy(chunk[ci], data + off, sz);
+
+            /* Compute residual sizes for both predictions */
+            uint8_t res_seed[FRMD_CHUNK_SZ], res_adj[FRMD_CHUNK_SZ];
             for (uint32_t b = 0; b < FRMD_CHUNK_SZ; b++) {
-                residual[b] = chunk[b] ^ seed_chunk[ci][b];
+                res_seed[b] = chunk[ci][b] ^ seed_chunk[ci][b];
+                res_adj[b]  = chunk[ci][b] ^ prev_chunk[ci][b];
+            }
+            uint32_t sz_seed = ds_encoded_size(res_seed);
+            uint32_t sz_adj  = ds_encoded_size(res_adj);
+            if (sz_adj < sz_seed) pred_flags |= (uint8_t)(1u << ci);
+        }
+
+        out[pos++] = pred_flags;
+
+        /* Second pass: encode residuals with chosen prediction */
+        for (uint32_t ci = 0; ci < FRMD_FRAME_CHUNKS; ci++) {
+            if (pos + 2 + 66 > out_cap) return 0;
+            uint8_t residual[FRMD_CHUNK_SZ];
+            const uint8_t *ref = (pred_flags & (1u << ci)) ? prev_chunk[ci] : seed_chunk[ci];
+            for (uint32_t b = 0; b < FRMD_CHUNK_SZ; b++) {
+                residual[b] = chunk[ci][b] ^ ref[b];
             }
             uint8_t ds_buf[70];
             uint32_t ds_sz = ds_encode(ds_buf, residual);
@@ -733,11 +777,16 @@ static uint32_t frmd_encode(const uint8_t *data, uint32_t data_sz,
             memcpy(out + pos, ds_buf, ds_sz);
             pos += ds_sz;
         }
+
+        /* Update prev_chunk for next frame's adjacent prediction */
+        for (uint32_t ci = 0; ci < FRMD_FRAME_CHUNKS; ci++) {
+            memcpy(prev_chunk[ci], chunk[ci], FRMD_CHUNK_SZ);
+        }
     }
     return pos;
 }
 
-/* ── FRAMED decode: in-memory buffer → out (caller allocates) ──
+/* ── FRAMED decode v2: adaptive prediction (seed vs adjacent) ──
  * Returns bytes written to out (== hdr.orig_size), or 0 on error. */
 static uint32_t frmd_decode(const uint8_t *in, uint32_t in_sz,
                              uint8_t *out, uint32_t out_cap) {
@@ -773,10 +822,15 @@ static uint32_t frmd_decode(const uint8_t *in, uint32_t in_sz,
         memcpy(out + off, seed_chunk[ci], sz);
     }
 
+    /* Previous frame chunks (for adjacent prediction) */
+    uint8_t prev_chunk[FRMD_FRAME_CHUNKS][FRMD_CHUNK_SZ];
+    memcpy(prev_chunk, seed_chunk, sizeof(seed_chunk));
+
     /* Read frames 1..n */
     for (uint32_t fi = 1; fi < hdr.n_frames; fi++) {
-        if (pos + 2 > in_sz) return 0;
+        if (pos + 3 > in_sz) return 0;
         pos += 2;  /* enc */
+        uint8_t pred_flags = in[pos++];  /* v2: prediction flags */
 
         uint32_t frame_off = fi * FRMD_FRAME_BYTES;
         for (uint32_t ci = 0; ci < FRMD_FRAME_CHUNKS; ci++) {
@@ -792,8 +846,14 @@ static uint32_t frmd_decode(const uint8_t *in, uint32_t in_sz,
             uint32_t sz = (off + FRMD_CHUNK_SZ <= hdr.orig_size)
                         ? FRMD_CHUNK_SZ
                         : (hdr.orig_size > off ? hdr.orig_size - off : 0);
+            /* v2: use prediction flag to select reference */
+            const uint8_t *ref = (pred_flags & (1u << ci)) ? prev_chunk[ci] : seed_chunk[ci];
             for (uint32_t b = 0; b < sz; b++) {
-                out[off + b] = residual[b] ^ seed_chunk[ci][b];
+                out[off + b] = residual[b] ^ ref[b];
+            }
+            /* Update prev_chunk with decoded data */
+            if (off + FRMD_CHUNK_SZ <= hdr.orig_size) {
+                memcpy(prev_chunk[ci], out + off, FRMD_CHUNK_SZ);
             }
         }
     }
@@ -911,6 +971,8 @@ static void usage(void) {
         "  fgls reshape-demo <output>          Atomic reshape (separate TU)\n"
         "  fgls dual-demo <output>             Dual-world 162↔64 placement\n"
         "  fgls timetravel-demo <output>       Rewind + Wang + temporal ring\n"
+        "  fgls frame-seek-verify             Verify geo_frame_seek invariants\n"
+        "  fgls geo-seek <time>               Show frame at time t (0..1439)\n"
         "  fgls encode-auto <input> <output>    Pick best of GFUF/FRAMED per data\n"
         "  fgls decode-framed <input> <output>  Decode GFRMD → raw bytes\n"
         "  fgls decode-lblock <input> <output>  Decode LBLK → raw bytes\n"
@@ -2260,6 +2322,37 @@ int main(int argc, char **argv) {
     if (strcmp(cmd, "timetravel-demo") == 0 || strcmp(cmd, "ttd") == 0) {
         if (argc < 3) { fprintf(stderr, "Usage: fgls timetravel-demo <output>\n"); return 1; }
         return cmd_timetravel_demo(argv[2]);
+    }
+    if (strcmp(cmd, "frame-seek-verify") == 0 || strcmp(cmd, "fsv") == 0) {
+        printf("=== geo_frame_seek Verification ===\n");
+        int rc = geo_frame_seek_verify();
+        if (rc != 0) { printf("FAIL (rc=%d)\n", rc); return 1; }
+        printf("PASS — stride-37 walk, 1440-cycle, all invariants verified\n");
+        printf("  FRAME_CYCLE=%u FRAME_STRIDE=%u FRAME_FACE_SZ=%u\n",
+               FRAME_CYCLE, FRAME_STRIDE, FRAME_FACE_SZ);
+        printf("  FRAME_EDGES=%u FRAME_ICO_NODES=%u\n",
+               FRAME_EDGES, FRAME_ICO_NODES);
+        /* Show enc values for first 12 frames */
+        printf("  enc[0..11]: ");
+        for (uint32_t t = 0; t < 12; t++) printf("%u ", frame_enc(t));
+        printf("\n");
+        return 0;
+    }
+    if (strcmp(cmd, "geo-seek") == 0 || strcmp(cmd, "gs") == 0) {
+        if (argc < 3) { fprintf(stderr, "Usage: fgls geo-seek <time>\n"); return 1; }
+        uint32_t t = (uint32_t)strtoul(argv[2], NULL, 10);
+        if (t >= FRAME_CYCLE) { fprintf(stderr, "time must be 0..%u\n", FRAME_CYCLE - 1); return 1; }
+        DualFrame f = frame_seek(t);
+        printf("frame_seek(%u):\n", t);
+        printf("  enc=%u face=%u slot=%u phase=%u ico_idx=%u\n",
+               f.enc, f.face, f.slot, f.phase, f.ico_idx);
+        printf("  Hilbert: group=%u edge=%u is_skip=%u\n",
+               f.h.group, f.h.edge, f.h.is_skip);
+        printf("  Peano:   step=%u sub=%u hilbert_group=%u\n",
+               f.p.step, f.p.sub, f.p.hilbert_group);
+        printf("  cpair=%u next=%u prev=%u\n",
+               frame_cpair(f.enc), frame_next(f.enc), frame_prev(f.enc));
+        return 0;
     }
     if (strcmp(cmd, "bench") == 0) {
         if (argc < 3) { fprintf(stderr, "Usage: fgls bench <file>\n"); return 1; }
