@@ -23,7 +23,9 @@ LDFLAGS = -lm
 INCLUDES = -Icore -Icollection -Irunner \
   -Icollection/dgls/geo/include -Icollection/dgls/geo/frustum \
   -Icollection/dgls/geo/Metatron -Icollection/core/core \
-  -Icollection/rdh -Icollection/active_updates -Icollection/dgls/bond/include
+  -Icollection/rdh -Icollection/active_updates -Icollection/dgls/bond/include \
+  -Icollection/dgls/diamond/include -Icollection/dgls/diamond/hamburger \
+  -Icollection/dgls/diamond/hbv_bundle -Icollection/dgls/diamond/gpx
 # ── Zstd: opt-in via ZSTD=1 (requires matching toolchain) ──
 # MinGW 8.1.0 CRT is incompatible with MSYS2 zstd — use ZSTD=1 only with MSYS2 gcc.
 ZSTD_CFLAGS  =

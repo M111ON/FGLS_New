@@ -4,8 +4,8 @@
 #ifndef GEO_TRING_ADDR_H
 #define GEO_TRING_ADDR_H
 
-#if __has_include("../geopixel/geopixel/geo_tring_addr.h")
-#include "../geopixel/geopixel/geo_tring_addr.h"
+#if __has_include("../collection/geopixel/geopixel/geo_tring_addr.h")
+#include "../collection/geopixel/geopixel/geo_tring_addr.h"
 #else
 #error "geo_tring_addr.h: no active tring address implementation found"
 #endif

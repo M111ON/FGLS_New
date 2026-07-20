@@ -66,6 +66,9 @@
    L-block format: [header 17B] [data 3456B] [meta 1440B] = 4896B total. */
 #include "frustum_layout_v2.h"
 
+/* Full Bond→GeoPixel→Hamburger→GPX5 pipeline (header-only driver) */
+#include "pipeline_glue.h"
+
 #ifdef FGLS_USE_ZSTD
 #include <zstd.h>
 #endif
@@ -964,6 +967,7 @@ static void usage(void) {
         "  fgls encode <input> <output>     Auto-route + encode (GFUF v3)\n"
         "  fgls encode-framed <input> <output>  FRAMED codec (geo_frame_seek + temporal)\n"
         "  fgls encode-lblock <input> <output>  FrustumBlock (4896B L-block container)\n"
+        "  fgls pipeline <input> <output>    Full Bond→GeoPixel→Hamburger→GPX5\n"
         "  fgls lblock-reshape <input> <output> Build bond edges (pogls_bond_edge)\n"
         "  fgls field-info <input> <output>     GeoField metadata via geo_field_core\n"
         "  fgls tring-demo <output>            Tring 64B timeline roundtrip\n"
@@ -2245,6 +2249,65 @@ static int cmd_decompress(const char *path) {
     return rc;
 }
 
+/* ── Pipeline: Bond→GeoPixel→Hamburger→GPX5 encode ── */
+static int cmd_pipeline(const char *in_path, const char *out_path) {
+    uint32_t sz = 0;
+    uint8_t *data = read_file(in_path, &sz);
+    if (!data) return 1;
+
+    printf("Pipeline: %s (%u bytes)\n", in_path, sz);
+
+    /* Init pipeline */
+    PGContext pg;
+    uint32_t seed = 0xDEADBEEF;
+    if (pg_init(&pg, data, sz, seed, PG_FLAG_VERBOSE) != 0) {
+        fprintf(stderr, "Error: pg_init failed\n");
+        free(data);
+        return 1;
+    }
+
+    /* Stage 1: Chunking */
+    uint32_t nc = pg_stage_chunking(&pg);
+    printf("  Stage 1 chunking: %u chunks\n", nc);
+
+    /* Stage 2: Bonding */
+    uint32_t nb = pg_stage_bonding(&pg);
+    printf("  Stage 2 bonding:  %u bonded\n", nb);
+
+    /* Stage 3: Shelling */
+    uint32_t ns = pg_stage_shelling(&pg);
+    printf("  Stage 3 shelling: %u shelled\n", ns);
+
+    /* Stage 4: Pixelating */
+    uint32_t np = pg_stage_pixelating(&pg);
+    printf("  Stage 4 pixels:   %u pixelated\n", np);
+
+    /* Stage 5: Hamburger encode */
+    uint32_t nh = pg_stage_hamburger(&pg);
+    printf("  Stage 5 hamburger: %u tiles encoded\n", nh);
+
+    /* Stage 6: Write .gpx5 */
+    uint32_t fsz = pg_stage_gpx5(&pg);
+    printf("  Stage 6 gpx5:     %u bytes written\n", fsz);
+
+    if (out_path && fsz > 0) {
+        if (rename(pg.output_path, out_path) == 0) {
+            printf("  Output: %s\n", out_path);
+        } else {
+            printf("  Output: %s (rename failed)\n", pg.output_path);
+        }
+    } else {
+        printf("  Output: %s\n", pg.output_path);
+    }
+
+    printf("Pipeline: DONE stages=%u bonded=%u shelled=%u pixels=%u ham=%u\n",
+           pg.stage, pg.n_bonded, pg.n_shelled, pg.n_pixelated, pg.n_hamburger);
+
+    pg_free(&pg);
+    free(data);
+    return 0;
+}
+
 /* ═══════════════════════════════════════════════════════════════
  * MAIN
  * ═══════════════════════════════════════════════════════════════ */
@@ -2377,6 +2440,11 @@ int main(int argc, char **argv) {
     if (strcmp(cmd, "decompress") == 0 || strcmp(cmd, "d") == 0) {
         if (argc < 3) { fprintf(stderr, "Usage: fgls decompress <file>\n"); return 1; }
         return cmd_decompress(argv[2]);
+    }
+
+    if (strcmp(cmd, "pipeline") == 0 || strcmp(cmd, "pg") == 0) {
+        if (argc < 3) { fprintf(stderr, "Usage: fgls pipeline <input> [output.gpx5]\n"); return 1; }
+        return cmd_pipeline(argv[2], argc > 3 ? argv[3] : NULL);
     }
 
     fprintf(stderr, "Unknown command: %s\n", cmd);

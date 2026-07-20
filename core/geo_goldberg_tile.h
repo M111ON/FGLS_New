@@ -4,8 +4,8 @@
 #ifndef GEO_GOLDBERG_TILE_H
 #define GEO_GOLDBERG_TILE_H
 
-#if __has_include("../geopixel/geopixel/geo_goldberg_tile.h")
-#include "../geopixel/geopixel/geo_goldberg_tile.h"
+#if __has_include("../collection/geopixel/geopixel/geo_goldberg_tile.h")
+#include "../collection/geopixel/geopixel/geo_goldberg_tile.h"
 #else
 #error "geo_goldberg_tile.h: no active goldberg tile implementation found"
 #endif

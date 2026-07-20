@@ -13,10 +13,10 @@
 #define GEOPIXEL_SESSION_ENABLE_ANIM_CODEC 0
 #endif
 
-#if __has_include("../geopixel/geopixel/geo_gpx_anim_o23.h")
-#include "../geopixel/geopixel/geo_gpx_anim_o23.h"
-#elif __has_include("../geopixel/geopixel/gpx4_container_o22.h")
-#include "../geopixel/geopixel/gpx4_container_o22.h"
+#if __has_include("../collection/geopixel/geopixel/geo_gpx_anim_o23.h")
+#include "../collection/geopixel/geopixel/geo_gpx_anim_o23.h"
+#elif __has_include("../collection/geopixel/geopixel/gpx4_container_o22.h")
+#include "../collection/geopixel/geopixel/gpx4_container_o22.h"
 #else
 #error "geopixel_session_feed.h: missing GeoPixel container headers"
 #endif
