@@ -53,10 +53,10 @@ else
 endif
 
 # ── Main binary ──
-fgls.exe: pipeline/fgls_cli.c pipeline/atomic_reshape_cmd.c pipeline/timetravel_cmd.c collection/fgls_profile.h
+fgls.exe: pipeline/fgls_cli.c pipeline/atomic_reshape_cmd.c pipeline/timetravel_cmd.c pipeline/tensor_cmd.c collection/fgls_profile.h
 	$(CC) $(CFLAGS) $(INCLUDES) $(ZSTD_CFLAGS) \
 	  pipeline/fgls_cli.c pipeline/atomic_reshape_cmd.c \
-	  pipeline/timetravel_cmd.c $(GEO_SRC) \
+	  pipeline/timetravel_cmd.c pipeline/tensor_cmd.c $(GEO_SRC) \
 	  $(LDFLAGS) $(ZSTD_LDFLAGS) -o fgls.exe
 
 nozstd: pipeline/fgls_cli.c collection/fgls_profile.h

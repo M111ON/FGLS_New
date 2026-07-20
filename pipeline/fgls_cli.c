@@ -89,6 +89,9 @@ extern int atomic_reshape_demo(const char *out_path);
 /* Timetravel lives in separate TU (timetravel_cmd.c) due to tring_init
  * name collision between geo_temporal_ring.h and tring.h. */
 extern int timetravel_demo(const char *out_path);
+/* Tensor field commands live in separate TU (tensor_cmd.c) to keep
+ * the include chain (sid.h → geo_jump.h → geo_shell.h) isolated. */
+#include "tensor_cmd.h"
 
 #define FGLS_VERSION "1.0.0"
 
@@ -2445,6 +2448,53 @@ int main(int argc, char **argv) {
     if (strcmp(cmd, "pipeline") == 0 || strcmp(cmd, "pg") == 0) {
         if (argc < 3) { fprintf(stderr, "Usage: fgls pipeline <input> [output.gpx5]\n"); return 1; }
         return cmd_pipeline(argv[2], argc > 3 ? argv[3] : NULL);
+    }
+
+    /* ── Tensor field commands ── */
+    if (strcmp(cmd, "tensor") == 0 || strcmp(cmd, "t") == 0) {
+        if (argc < 3) {
+            fprintf(stderr,
+                "Usage: fgls tensor <subcommand> [args]\n\n"
+                "Subcommands:\n"
+                "  test                    Run full tensor field verification (28 tests)\n"
+                "  addr <name>             Address decomposition for tensor name\n"
+                "  route <name>            Show routing options for tensor name\n"
+                "  capture <file> [out]    SID capture (real capture from sid.h)\n"
+                "  summon <file> [out]     Reconstruct from .twidx blueprint\n"
+                "  remap <file>            Capo rotation analysis from .twidx\n"
+                "  gguf <path.gguf>        Scan GGUF tensor names to addresses\n"
+                "  zero <path.gguf>        Zero Copy proof: capture→summon roundtrip\n"
+            );
+            return 1;
+        }
+        const char *sub = argv[2];
+        if (strcmp(sub, "test") == 0) {
+            return tensor_cmd_test();
+        } else if (strcmp(sub, "addr") == 0) {
+            if (argc < 4) { fprintf(stderr, "Usage: fgls tensor addr <tensor_name>\n"); return 1; }
+            return tensor_cmd_addr(argv[3]);
+        } else if (strcmp(sub, "route") == 0) {
+            if (argc < 4) { fprintf(stderr, "Usage: fgls tensor route <tensor_name>\n"); return 1; }
+            return tensor_cmd_route(argv[3]);
+        } else if (strcmp(sub, "capture") == 0 || strcmp(sub, "cap") == 0) {
+            if (argc < 4) { fprintf(stderr, "Usage: fgls tensor capture <file> [output.twidx]\n"); return 1; }
+            return tensor_cmd_capture(argv[3], argc > 4 ? argv[4] : NULL);
+        } else if (strcmp(sub, "summon") == 0 || strcmp(sub, "sum") == 0) {
+            if (argc < 4) { fprintf(stderr, "Usage: fgls tensor summon <file.twidx> [output.txt]\n"); return 1; }
+            return tensor_cmd_summon(argv[3], argc > 4 ? argv[4] : NULL);
+        } else if (strcmp(sub, "remap") == 0) {
+            if (argc < 4) { fprintf(stderr, "Usage: fgls tensor remap <file.twidx>\n"); return 1; }
+            return tensor_cmd_remap(argv[3]);
+        } else if (strcmp(sub, "gguf") == 0) {
+            if (argc < 4) { fprintf(stderr, "Usage: fgls tensor gguf <model.gguf>\n"); return 1; }
+            return tensor_cmd_gguf(argv[3]);
+        } else if (strcmp(sub, "zero") == 0) {
+            if (argc < 4) { fprintf(stderr, "Usage: fgls tensor zero <model.gguf>\n"); return 1; }
+            return tensor_cmd_zero(argv[3]);
+        } else {
+            fprintf(stderr, "Unknown tensor subcommand: %s\n", sub);
+            return 1;
+        }
     }
 
     fprintf(stderr, "Unknown command: %s\n", cmd);

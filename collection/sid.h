@@ -141,6 +141,74 @@ static inline int sid_signature_f32(const uint8_t *f32_data, size_t nbytes,
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   F16 signature (dtype=2)
+   ═══════════════════════════════════════════════════════════════ */
+static inline int sid_signature_f16(const uint8_t *f16_data, size_t nbytes,
+                                     int64_t *vx, int64_t *vy)
+{
+    if (!f16_data || nbytes < 4) return -1;
+    uint32_t n = (uint32_t)(nbytes / 2);
+    if (n > 64) n = 64;
+    uint32_t half = n / 2;
+    double sum_a = 0, sum_b = 0;
+    for (uint32_t i = 0; i < half; i++) {
+        uint16_t h; memcpy(&h, f16_data + i * 2, 2);
+        uint32_t sign = (uint32_t)(h >> 15) << 31;
+        uint32_t exp  = (uint32_t)((h >> 10) & 0x1Fu);
+        uint32_t mant = (uint32_t)(h & 0x3FFu);
+        float val;
+        if (exp == 0) {
+            uint32_t v = sign; memcpy(&val, &v, 4);
+        } else if (exp == 31) {
+            uint32_t v = sign | 0x7F800000u | (mant << 13); memcpy(&val, &v, 4);
+        } else {
+            exp = exp - 15 + 127;
+            uint32_t v = sign | (exp << 23) | (mant << 13); memcpy(&val, &v, 4);
+        }
+        sum_a += val;
+    }
+    for (uint32_t i = half; i < n; i++) {
+        uint16_t h; memcpy(&h, f16_data + i * 2, 2);
+        uint32_t sign = (uint32_t)(h >> 15) << 31;
+        uint32_t exp  = (uint32_t)((h >> 10) & 0x1Fu);
+        uint32_t mant = (uint32_t)(h & 0x3FFu);
+        float val;
+        if (exp == 0) {
+            uint32_t v = sign; memcpy(&val, &v, 4);
+        } else if (exp == 31) {
+            uint32_t v = sign | 0x7F800000u | (mant << 13); memcpy(&val, &v, 4);
+        } else {
+            exp = exp - 15 + 127;
+            uint32_t v = sign | (exp << 23) | (mant << 13); memcpy(&val, &v, 4);
+        }
+        sum_b += val;
+    }
+    *vx = (int64_t)((sum_a / half) * TW_SCALE);
+    *vy = (int64_t)((sum_b / (n - half)) * TW_SCALE);
+    return 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   I8 signature (dtype=3)
+   ═══════════════════════════════════════════════════════════════ */
+static inline int sid_signature_i8(const uint8_t *i8_data, size_t nbytes,
+                                    int64_t *vx, int64_t *vy)
+{
+    if (!i8_data || nbytes < 2) return -1;
+    uint32_t n = (uint32_t)nbytes;
+    if (n > 64) n = 64;
+    uint32_t half = n / 2;
+    double sum_a = 0, sum_b = 0;
+    for (uint32_t i = 0; i < half; i++)
+        sum_a += (float)(int8_t)i8_data[i];
+    for (uint32_t i = half; i < n; i++)
+        sum_b += (float)(int8_t)i8_data[i];
+    *vx = (int64_t)((sum_a / half) * TW_SCALE);
+    *vy = (int64_t)((sum_b / (n - half)) * TW_SCALE);
+    return 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
    STORE — .twidx file format (node_id-only index, v2)
    ═══════════════════════════════════════════════════════════════ */
 
@@ -259,10 +327,13 @@ static inline int sid_capture(const void *data, size_t nbytes,
 
     int64_t vx, vy;
     int rc;
-    if (dtype == 0)
-        rc = sid_signature_f32((const uint8_t *)data, nbytes, &vx, &vy);
-    else
-        rc = sid_signature_q80((const uint8_t *)data, nbytes, &vx, &vy);
+    switch (dtype) {
+        case 0: rc = sid_signature_f32((const uint8_t *)data, nbytes, &vx, &vy); break;
+        case 1: rc = sid_signature_q80((const uint8_t *)data, nbytes, &vx, &vy); break;
+        case 2: rc = sid_signature_f16((const uint8_t *)data, nbytes, &vx, &vy); break;
+        case 3: rc = sid_signature_i8((const uint8_t *)data, nbytes, &vx, &vy); break;
+        default: return -1;
+    }
     if (rc != 0) return rc;
 
     TWCaptureInt cap;
@@ -336,10 +407,13 @@ static inline int sid_verify_roundtrip(const void *data, size_t nbytes,
 
     int64_t orig_vx, orig_vy;
     int rc;
-    if (dtype == 0)
-        rc = sid_signature_f32((const uint8_t *)data, nbytes, &orig_vx, &orig_vy);
-    else
-        rc = sid_signature_q80((const uint8_t *)data, nbytes, &orig_vx, &orig_vy);
+    switch (dtype) {
+        case 0: rc = sid_signature_f32((const uint8_t *)data, nbytes, &orig_vx, &orig_vy); break;
+        case 1: rc = sid_signature_q80((const uint8_t *)data, nbytes, &orig_vx, &orig_vy); break;
+        case 2: rc = sid_signature_f16((const uint8_t *)data, nbytes, &orig_vx, &orig_vy); break;
+        case 3: rc = sid_signature_i8((const uint8_t *)data, nbytes, &orig_vx, &orig_vy); break;
+        default: return -1;
+    }
     if (rc != 0) return -1;
 
     int64_t summon_vx, summon_vy;
@@ -400,10 +474,13 @@ static inline int sid_capture_with_config(const void *data, size_t nbytes,
 
     int64_t vx, vy;
     int rc;
-    if (dtype == 0)
-        rc = sid_signature_f32((const uint8_t *)data, nbytes, &vx, &vy);
-    else
-        rc = sid_signature_q80((const uint8_t *)data, nbytes, &vx, &vy);
+    switch (dtype) {
+        case 0: rc = sid_signature_f32((const uint8_t *)data, nbytes, &vx, &vy); break;
+        case 1: rc = sid_signature_q80((const uint8_t *)data, nbytes, &vx, &vy); break;
+        case 2: rc = sid_signature_f16((const uint8_t *)data, nbytes, &vx, &vy); break;
+        case 3: rc = sid_signature_i8((const uint8_t *)data, nbytes, &vx, &vy); break;
+        default: return -1;
+    }
     if (rc != 0) return rc;
 
     /* Single capture → capo ×12 */
@@ -459,10 +536,13 @@ static inline int sid_verify_priority(const void *data, size_t nbytes,
 
     int64_t orig_vx, orig_vy, summon_vx, summon_vy;
     int rc;
-    if (dtype == 0)
-        rc = sid_signature_f32((const uint8_t *)data, nbytes, &orig_vx, &orig_vy);
-    else
-        rc = sid_signature_q80((const uint8_t *)data, nbytes, &orig_vx, &orig_vy);
+    switch (dtype) {
+        case 0: rc = sid_signature_f32((const uint8_t *)data, nbytes, &orig_vx, &orig_vy); break;
+        case 1: rc = sid_signature_q80((const uint8_t *)data, nbytes, &orig_vx, &orig_vy); break;
+        case 2: rc = sid_signature_f16((const uint8_t *)data, nbytes, &orig_vx, &orig_vy); break;
+        case 3: rc = sid_signature_i8((const uint8_t *)data, nbytes, &orig_vx, &orig_vy); break;
+        default: return -1;
+    }
     if (rc != 0) return -1;
 
     sid_summon(&coord, &summon_vx, &summon_vy);
