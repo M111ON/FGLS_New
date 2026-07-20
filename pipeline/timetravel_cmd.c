@@ -17,6 +17,9 @@
  *   geo_temporal_ring.h, geo_temporal_lut.h) — keeping that chain out of
  *   fgls_cli.c keeps the cli TU lean.
  *
+ * NOTE: RewindBuffer is ~3.8MB (972 × TStreamChunk@4104B).
+ *       Heap-allocated via malloc to avoid stack overflow (default 1MB).
+ *
  * Tests:
  *   T1 store 50 chunks into RewindBuffer (972 slots)
  *   T2 Wang parity: count rows edge-valid
@@ -28,6 +31,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -41,39 +45,51 @@ static int g_pass = 0;
 static int g_fail = 0;
 
 #define ASSERT(cond, name) do {                                       \
-    if (cond) { g_pass++; printf("    [PASS] %s\n", (name)); }        \
+    if (cond) { g_pass++; printf("    [PASS] %s\n", (name)); }       \
     else      { g_fail++; printf("    [FAIL] %s  (line %d)\n",       \
                                  (name), __LINE__); }                 \
 } while (0)
 
+/* Helper: allocate + init a RewindBuffer on heap (3.8MB — too large for stack) */
+static RewindBuffer *rb_alloc(void) {
+    RewindBuffer *rb = (RewindBuffer *)calloc(1, sizeof(RewindBuffer));
+    if (rb) rewind_init(rb);
+    return rb;
+}
+
 static void test_T1_store(void)
 {
     printf("  T1 store 50 chunks into RewindBuffer\n");
-    RewindBuffer rb; rewind_init(&rb);
+    RewindBuffer *rb = rb_alloc();
+    ASSERT(rb != NULL, "T0a rb malloc succeeded");
+    if (!rb) return;
     for (uint16_t i = 0; i < 50u; i++) {
         TStreamChunk ch; memset(&ch, 0, sizeof(ch));
         ch.data[0] = (uint8_t)(i & 0xFFu);
         ch.data[1] = (uint8_t)((i >> 8) & 0xFFu);
         ch.size    = 2u;
-        rewind_store(&rb, 0xC0DE0000u | (uint32_t)i, &ch);
+        rewind_store(rb, 0xC0DE0000u | (uint32_t)i, &ch);
     }
-    ASSERT(rb.head == 50u,
+    ASSERT(rb->head == 50u,
            "T1a head advanced to 50 after 50 stores");
+    free(rb);
 }
 
 static void test_T2_wang_parity(void)
 {
     printf("  T2 Wang parity rows\n");
-    RewindBuffer rb; rewind_init(&rb);
+    RewindBuffer *rb = rb_alloc();
+    ASSERT(rb != NULL, "T0b rb malloc succeeded");
+    if (!rb) return;
     for (uint16_t i = 0; i < 50u; i++) {
         TStreamChunk ch; memset(&ch, 0, sizeof(ch));
         ch.size = 2u;
-        rewind_store(&rb, 0xC0DE0000u | (uint32_t)i, &ch);
+        rewind_store(rb, 0xC0DE0000u | (uint32_t)i, &ch);
     }
     RewindWangLayer wl;
-    wang_init(&wl, &rb);
+    wang_init(&wl, rb);
     for (uint16_t i = 0; i < 50u; i++) wang_notify_store(&wl, i);
-    wang_flush_dirty(&wl, &rb);
+    wang_flush_dirty(&wl, rb);
 
     uint16_t valid_rows = 0u;
     for (uint16_t r = 0; r < WANG_ROW_COUNT; r++)
@@ -81,6 +97,7 @@ static void test_T2_wang_parity(void)
     printf("    (valid rows: %u/%u)\n", valid_rows, WANG_ROW_COUNT);
     ASSERT(valid_rows > 0u,
            "T2a at least one Wang row edge-valid after 50 stores");
+    free(rb);
 }
 
 static void test_T3_temporal_ring(void)
@@ -100,20 +117,22 @@ static void test_T3_temporal_ring(void)
 static void test_T4_recovery_gate(void)
 {
     printf("  T4 recovery gate on rows 0..7\n");
-    RewindBuffer rb; rewind_init(&rb);
+    RewindBuffer *rb = rb_alloc();
+    ASSERT(rb != NULL, "T0c rb malloc succeeded");
+    if (!rb) return;
     for (uint16_t i = 0; i < 50u; i++) {
         TStreamChunk ch; memset(&ch, 0, sizeof(ch));
         ch.size = 2u;
-        rewind_store(&rb, 0xC0DE0000u | (uint32_t)i, &ch);
+        rewind_store(rb, 0xC0DE0000u | (uint32_t)i, &ch);
     }
     RewindWangLayer wl;
-    wang_init(&wl, &rb);
+    wang_init(&wl, rb);
     for (uint16_t i = 0; i < 50u; i++) wang_notify_store(&wl, i);
-    wang_flush_dirty(&wl, &rb);
+    wang_flush_dirty(&wl, rb);
 
     uint16_t l1_ok = 0, skip_l1 = 0, partial = 0;
     for (uint16_t r = 0; r < 8u; r++) {
-        WangRecoverDecision d = wang_recover_gate(&wl, &rb, r);
+        WangRecoverDecision d = wang_recover_gate(&wl, rb, r);
         if (d == WANG_RECOVER_L1_OK)        l1_ok++;
         else if (d == WANG_RECOVER_SKIP_L1) skip_l1++;
         else                                partial++;
@@ -121,22 +140,25 @@ static void test_T4_recovery_gate(void)
     printf("    (L1_OK=%u SKIP_L1=%u PARTIAL=%u)\n", l1_ok, skip_l1, partial);
     ASSERT((l1_ok + skip_l1 + partial) == 8u,
            "T4a 8 recovery decisions made (sum=8)");
+    free(rb);
 }
 
 static void test_T5_artifact(void)
 {
     printf("  T5 artifact written\n");
     /* full run + write */
-    RewindBuffer rb; rewind_init(&rb);
+    RewindBuffer *rb = rb_alloc();
+    ASSERT(rb != NULL, "T0d rb malloc succeeded");
+    if (!rb) return;
     for (uint16_t i = 0; i < 50u; i++) {
         TStreamChunk ch; memset(&ch, 0, sizeof(ch));
         ch.size = 2u;
-        rewind_store(&rb, 0xC0DE0000u | (uint32_t)i, &ch);
+        rewind_store(rb, 0xC0DE0000u | (uint32_t)i, &ch);
     }
     RewindWangLayer wl;
-    wang_init(&wl, &rb);
+    wang_init(&wl, rb);
     for (uint16_t i = 0; i < 50u; i++) wang_notify_store(&wl, i);
-    wang_flush_dirty(&wl, &rb);
+    wang_flush_dirty(&wl, rb);
 
     TRingCtx tr; tring_init(&tr);
     for (uint16_t t = 0; t < 100u; t++) {
@@ -144,18 +166,19 @@ static void test_T5_artifact(void)
         tring_assign(&tr, pos, (uint32_t)(t + 1u));
     }
 
-    /* write a side artifact to /tmp to confirm pattern works */
-    FILE *fp = fopen("/tmp/timetravel_t5.bin", "wb");
-    ASSERT(fp != NULL, "T5a /tmp/timetravel_t5.bin opened");
+    /* write a side artifact to confirm pattern works */
+    FILE *fp = fopen("pipeline/_timetravel_t5.bin", "wb");
+    ASSERT(fp != NULL, "T5a artifact file opened");
     if (fp) {
         fprintf(fp, "FGLS_TIMETRAVEL\n");
-        fprintf(fp, "head=%u\n", rb.head);
+        fprintf(fp, "head=%u\n", rb->head);
         fprintf(fp, "tring_head=%u\n", tr.head);
         fprintf(fp, "tring_count=%u\n", tr.chunk_count);
         fclose(fp);
     }
     ASSERT(tr.head == 100u && tr.chunk_count == 100u,
            "T5b tring state stable (head=100, count=100)");
+    free(rb);
 }
 
 /* ── CLI entry ─────────────────────────────────────────────────────── */
@@ -178,16 +201,17 @@ int timetravel_demo(const char *out_path)
     /* write user-facing artifact */
     if (out_path && out_path[0]) {
         /* collect summary in one pass */
-        RewindBuffer rb; rewind_init(&rb);
+        RewindBuffer *rb = rb_alloc();
+        if (!rb) { printf("  (rb alloc failed)\n"); return 1; }
         for (uint16_t i = 0; i < 50u; i++) {
             TStreamChunk ch; memset(&ch, 0, sizeof(ch));
             ch.size = 2u;
-            rewind_store(&rb, 0xC0DE0000u | (uint32_t)i, &ch);
+            rewind_store(rb, 0xC0DE0000u | (uint32_t)i, &ch);
         }
         RewindWangLayer wl;
-        wang_init(&wl, &rb);
+        wang_init(&wl, rb);
         for (uint16_t i = 0; i < 50u; i++) wang_notify_store(&wl, i);
-        wang_flush_dirty(&wl, &rb);
+        wang_flush_dirty(&wl, rb);
 
         uint16_t valid_rows = 0u;
         for (uint16_t r = 0; r < WANG_ROW_COUNT; r++)
@@ -201,7 +225,7 @@ int timetravel_demo(const char *out_path)
 
         uint16_t l1_ok = 0, skip_l1 = 0, partial = 0;
         for (uint16_t r = 0; r < 8u; r++) {
-            WangRecoverDecision d = wang_recover_gate(&wl, &rb, r);
+            WangRecoverDecision d = wang_recover_gate(&wl, rb, r);
             if (d == WANG_RECOVER_L1_OK)        l1_ok++;
             else if (d == WANG_RECOVER_SKIP_L1) skip_l1++;
             else                                partial++;
@@ -221,6 +245,7 @@ int timetravel_demo(const char *out_path)
             fclose(fp);
             printf("Wrote: %s\n", out_path);
         }
+        free(rb);
     }
 
     return (g_fail == 0) ? 0 : 1;

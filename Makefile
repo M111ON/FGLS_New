@@ -154,8 +154,8 @@ test: $(BIN)
 	@./fgls.exe torus-demo pipeline/_t.torus 2>&1 | grep -E 'Torus|xray@'
 	@rm -f pipeline/_t.torus
 	@echo "=== 17. timetravel-demo ==="
-	@./fgls.exe timetravel-demo pipeline/_t.tt 2>&1 | grep -E 'Timetravel|RESULTS|Stored|Pass|Wrote' || echo "  (stack overflow — known issue)"
-	@rm -f pipeline/_t.tt
+	@./fgls.exe timetravel-demo pipeline/_t.tt 2>&1 | grep -E 'Timetravel|RESULTS|Stored|Pass|Wrote'
+	@rm -f pipeline/_t.tt pipeline/_timetravel_t5.bin
 	@echo "=== ALL TESTS COMPLETE ==="
 
 clean:
