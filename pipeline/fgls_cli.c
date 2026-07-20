@@ -552,7 +552,8 @@ static int dec_raw(uint8_t *out, uint32_t out_size,
 #define FRMD_MAX_FRAMES   65536u
 
 #define FRMD_MAGIC        0x444D5246u  /* "FRMD" */
-#define FRMD_VERSION      2u   /* v2: adaptive prediction (seed vs adjacent) */
+#define FRMD_VERSION      3u   /* v3: compact frames + geo_frame_seek 384× */
+                                  /* v2: adaptive prediction (seed vs adjacent) */
 #define FRMD_HDR_SZ       16u
 
 #define FRMD_DS_FLAT      0
@@ -562,6 +563,11 @@ static int dec_raw(uint8_t *out, uint32_t out_size,
 #define FRMD_DS_SUB_N     8
 #define FRMD_DS_SUB_SZ    8
 #define FRMD_DS_SPARSE_MAX 16u
+
+/* v3: compact frame flag — when set, ALL residuals are zero, frame = prediction only */
+/* Stored as frame_flags byte after enc. 0 = compact (no residual data follows). */
+#define FRMD_FRAME_COMPACT   0x00u  /* no residuals → frame reconstructed from prediction */
+#define FRMD_FRAME_NORMAL    0x80u  /* has residuals → pred_flags + DS data follows */
 
 /* ── DS size helper: returns encoded size for a 64B block ── */
 static uint32_t ds_encoded_size(const uint8_t block[64]) {
@@ -607,63 +613,98 @@ static void frmd_hdr_read(const uint8_t *b, FrmdHdr *h) {
     memcpy(&h->n_frames,  b + 12, 4);
 }
 
-/* Diamond Shell: encode 64B → variable bytes */
+/* Diamond Shell: encode 64B → variable bytes
+ * Uses Hilbert+Peano maze classification (GeoField Tier 1) for routing:
+ *   HP matches ≥ 32 → SUB (strong geometric structure)
+ *   HP matches < 32 → SPARSE first (weak/no structure) */
 static uint32_t ds_encode(uint8_t *out, const uint8_t block[64]) {
-    int is_zero = 1;
-    for (int i = 0; i < 64; i++) { if (block[i]) { is_zero = 0; break; } }
-    if (is_zero) { out[0] = FRMD_DS_FLAT; return 1; }
+    /* Check for all-zero — quick exit */
+    {
+        int is_zero = 1;
+        for (int i = 0; i < 64; i++) { if (block[i]) { is_zero = 0; break; } }
+        if (is_zero) { out[0] = FRMD_DS_FLAT; return 1; }
+    }
 
-    /* count non-zero */
-    int nz = 0;
-    for (int i = 0; i < 64; i++) if (block[i]) nz++;
-
-    /* SPARSE: ≤16 non-zero bytes */
-    if ((uint32_t)nz <= FRMD_DS_SPARSE_MAX) {
-        out[0] = FRMD_DS_SPARSE;
-        out[1] = 0;  /* rotation 0 */
-        out[2] = (uint8_t)nz;
-        uint32_t pos = 3;
-        for (uint32_t i = 0; i < 64; i++) {
-            if (block[i]) {
-                out[pos] = (uint8_t)i;
-                out[pos + nz] = block[i];
-                pos++;
+    /* ── GeoField Tier 1: HP maze — temporal coherence classification ──
+     * 48B chunk = one fibo clock phase (4×4×3, align 144 tower).
+     * Hilbert vs Peano order of the same clock phase → XOR to measure
+     * temporal coherence. High match = data stable across clock phases
+     * → compress (SUB). Low match = data changes every tick → SPARSE/RAW.
+     * NOT geometry scatter — GpSphere can't change byte values. */
+    uint8_t _hp_hilb[64], _hp_pean[64];
+    int _hp_matches = 0;
+    for (int z = 0; z < 3; z++) {
+        for (int y = 0; y < 4; y++) {
+            for (int x = 0; x < 4; x++) {
+                uint32_t i = (uint32_t)(z * 16 + y * 4 + x);
+                uint32_t hp = _hilbert_idx((uint32_t)x, (uint32_t)y, 4) + (uint32_t)z * 16;
+                uint32_t pp = _peano_idx((uint32_t)x, (uint32_t)y, 4, 4) + (uint32_t)z * 16;
+                _hp_hilb[hp] = block[i];
+                _hp_pean[pp] = block[i];
             }
         }
-        return 3 + (uint32_t)nz * 2;
     }
+    int _hp_sz = 48;  /* 4×4×3 = 48 bytes align with geo_jump tower */
+    for (int i = 0; i < _hp_sz; i++) {
+        if (_hp_hilb[i] == _hp_pean[i]) _hp_matches++;
+    }
+    int _use_sub = (_hp_matches >= 24);  /* ≥ half match → geometric */
 
-    /* count active sub-blocks */
-    int active = 0;
-    uint8_t sub_flags = 0;
-    for (int s = 0; s < FRMD_DS_SUB_N; s++) {
-        int has_nz = 0;
-        for (int j = 0; j < FRMD_DS_SUB_SZ; j++) {
-            if (block[s * FRMD_DS_SUB_SZ + j]) { has_nz = 1; break; }
+    if (!_use_sub) {
+        /* Weak/No geometric structure: try SPARSE first (byte-level) */
+        int nz = 0;
+        for (int i = 0; i < 64; i++) if (block[i]) nz++;
+        if ((uint32_t)nz <= FRMD_DS_SPARSE_MAX) {
+            out[0] = FRMD_DS_SPARSE;
+            out[1] = 0;
+            out[2] = (uint8_t)nz;
+            uint32_t pos = 3;
+            for (uint32_t i = 0; i < 64; i++) {
+                if (block[i]) {
+                    out[pos] = (uint8_t)i;
+                    out[pos + nz] = block[i];
+                    pos++;
+                }
+            }
+            return 3 + (uint32_t)nz * 2;
         }
-        if (has_nz) { sub_flags |= (1u << s); active++; }
+        goto fallback_raw;
     }
 
-    /* RAW fallback: dense data */
-    if (active >= 7) {
-        out[0] = FRMD_DS_RAW;
-        out[1] = 0;
-        memcpy(out + 2, block, 64);
-        return 66;
+    /* Strong geometric structure or SPARSE not viable: try SUB first */
+    {
+        int active = 0;
+        uint8_t sub_flags = 0;
+        for (int s = 0; s < FRMD_DS_SUB_N; s++) {
+            int has_nz = 0;
+            for (int j = 0; j < FRMD_DS_SUB_SZ; j++) {
+                if (block[s * FRMD_DS_SUB_SZ + j]) { has_nz = 1; break; }
+            }
+            if (has_nz) { sub_flags |= (1u << s); active++; }
+        }
+
+        /* SUB encoding — geometric structure allows aggressive sub-block compression */
+        if (active < 7) {
+            out[0] = FRMD_DS_SUB;
+            out[1] = 0;
+            out[2] = sub_flags;
+            uint32_t pos = 3;
+            for (int s = 0; s < FRMD_DS_SUB_N; s++) {
+                if (sub_flags & (1u << s)) {
+                    memcpy(out + pos, block + s * FRMD_DS_SUB_SZ, FRMD_DS_SUB_SZ);
+                    pos += FRMD_DS_SUB_SZ;
+                }
+            }
+            return pos;
+        }
     }
 
-    /* SUB encoding */
-    out[0] = FRMD_DS_SUB;
+fallback_raw:
+    /* RAW fallback: dense / incompressible data */
+    out[0] = FRMD_DS_RAW;
     out[1] = 0;
-    out[2] = sub_flags;
-    uint32_t pos = 3;
-    for (int s = 0; s < FRMD_DS_SUB_N; s++) {
-        if (sub_flags & (1u << s)) {
-            memcpy(out + pos, block + s * FRMD_DS_SUB_SZ, FRMD_DS_SUB_SZ);
-            pos += FRMD_DS_SUB_SZ;
-        }
-    }
-    return pos;
+    memcpy(out + 2, block, 64);
+    return 66;
 }
 
 /* Diamond Shell: decode variable bytes → 64B, returns bytes consumed */
@@ -697,10 +738,15 @@ static uint32_t ds_decode(uint8_t out[64], const uint8_t *in) {
     return pos;
 }
 
-/* ── FRAMED encode v2: adaptive prediction (seed vs adjacent) ──
- * For each frame, try both seed-delta and adjacent-delta per chunk.
- * Store 1B prediction flags (bit i = 1 → adjacent, 0 → seed).
- * Wire format v2: [16B hdr][seed 12×DS][per frame: 2B enc + 1B pred_flags + 12×DS] */
+/* ── FRAMED encode v3: compact frames + geo_frame_seek 384× ──
+ * v3 wire format: [16B hdr][seed 12×DS]
+ *   per frame: [enc 2B][frame_flags 1B]
+ *     if frame_flags == FRMD_FRAME_COMPACT:
+ *       => 3B total — all residuals zero, reconstruct from prediction
+ *     if frame_flags & FRMD_FRAME_NORMAL:
+ *       => [pred_flags 2B][pred_geo 2B][12×DS residuals] follows
+ *         pred_flags 16 bits: bit i = 1 → adjacent, 0 → seed (for chunk i)
+ *         pred_geo  16 bits:  bit i = 1 → use GEO prediction (overrides pred_flags) */
 static uint32_t frmd_encode(const uint8_t *data, uint32_t data_sz,
                              uint8_t *out, uint32_t out_cap) {
     if (geo_frame_seek_verify() != 0) return 0;
@@ -736,7 +782,7 @@ static uint32_t frmd_encode(const uint8_t *data, uint32_t data_sz,
     uint8_t prev_chunk[FRMD_FRAME_CHUNKS][FRMD_CHUNK_SZ];
     memcpy(prev_chunk, seed_chunk, sizeof(seed_chunk));
 
-    /* Per-frame: enc + pred_flags + 12 XOR residuals */
+    /* Per-frame: v3 compact/normal */
     for (uint32_t fi = 1; fi < n_frames; fi++) {
         if (pos + 3 > out_cap) return 0;
         uint16_t enc = frame_enc(fi);
@@ -744,10 +790,22 @@ static uint32_t frmd_encode(const uint8_t *data, uint32_t data_sz,
         out[pos++] = (uint8_t)(enc >> 8);
 
         uint32_t frame_off = fi * FRMD_FRAME_BYTES;
-        uint8_t pred_flags = 0;  /* bit i = 1 → adjacent, 0 → seed */
+        uint16_t pred_flags  = 0;  /* 12 bits: bit i = 1 → adjacent, 0 → seed */
+        uint16_t pred_flags_geo = 0;  /* 12 bits: bit i = 1 → use GEO prediction */
 
-        /* First pass: compute flags (pick better prediction per chunk) */
+        /* Compute geometric prediction from DualFrame */
+        DualFrame df = frame_seek(fi);
+        uint8_t geo_chunk[FRMD_FRAME_CHUNKS][FRMD_CHUNK_SZ];
+        for (uint32_t ci = 0; ci < FRMD_FRAME_CHUNKS; ci++) {
+            /* Use DualFrame.slot (0..119) to index seed chunks.
+             * This maps geometric position to seed data position. */
+            uint32_t seed_ci = (ci + df.slot) % FRMD_FRAME_CHUNKS;
+            memcpy(geo_chunk[ci], seed_chunk[seed_ci], FRMD_CHUNK_SZ);
+        }
+
+        /* First pass: read chunks + compute flags (seed vs adjacent vs geo) */
         uint8_t chunk[FRMD_FRAME_CHUNKS][FRMD_CHUNK_SZ];
+        uint8_t all_flat = 1;  /* track if ALL chunks are zero */
         for (uint32_t ci = 0; ci < FRMD_FRAME_CHUNKS; ci++) {
             uint32_t off = frame_off + ci * FRMD_CHUNK_SZ;
             uint32_t sz = (off + FRMD_CHUNK_SZ <= data_sz) ? FRMD_CHUNK_SZ
@@ -755,24 +813,77 @@ static uint32_t frmd_encode(const uint8_t *data, uint32_t data_sz,
             memset(chunk[ci], 0, FRMD_CHUNK_SZ);
             if (sz > 0) memcpy(chunk[ci], data + off, sz);
 
-            /* Compute residual sizes for both predictions */
-            uint8_t res_seed[FRMD_CHUNK_SZ], res_adj[FRMD_CHUNK_SZ];
+            /* Check if this chunk is all zero */
+            int is_zero = 1;
+            for (uint32_t b = 0; b < FRMD_CHUNK_SZ; b++) {
+                if (chunk[ci][b]) { is_zero = 0; break; }
+            }
+            if (!is_zero) all_flat = 0;
+
+            /* Compute residual sizes for all 3 predictions */
+            uint8_t res_seed[FRMD_CHUNK_SZ], res_adj[FRMD_CHUNK_SZ], res_geo[FRMD_CHUNK_SZ];
             for (uint32_t b = 0; b < FRMD_CHUNK_SZ; b++) {
                 res_seed[b] = chunk[ci][b] ^ seed_chunk[ci][b];
                 res_adj[b]  = chunk[ci][b] ^ prev_chunk[ci][b];
+                res_geo[b]  = chunk[ci][b] ^ geo_chunk[ci][b];
             }
             uint32_t sz_seed = ds_encoded_size(res_seed);
             uint32_t sz_adj  = ds_encoded_size(res_adj);
-            if (sz_adj < sz_seed) pred_flags |= (uint8_t)(1u << ci);
+            uint32_t sz_geo  = ds_encoded_size(res_geo);
+
+            /* Pick best: GEO > adjacent > seed */
+            if (sz_geo <= sz_seed && sz_geo <= sz_adj) {
+                pred_flags_geo |= (uint16_t)(1u << ci);
+            } else if (sz_adj < sz_seed) {
+                pred_flags |= (uint16_t)(1u << ci);
+            }
+            /* else: use seed (default) */
         }
 
-        out[pos++] = pred_flags;
+        /* Check if entire frame matches prediction exactly — 384× compact frame */
+        int frame_compact = 1;
+        for (uint32_t ci = 0; ci < FRMD_FRAME_CHUNKS && frame_compact; ci++) {
+            const uint8_t *ref;
+            if (pred_flags_geo & (1u << ci))
+                ref = geo_chunk[ci];
+            else if (pred_flags & (1u << ci))
+                ref = prev_chunk[ci];
+            else
+                ref = seed_chunk[ci];
+            for (uint32_t b = 0; b < FRMD_CHUNK_SZ; b++) {
+                if (chunk[ci][b] != ref[b]) { frame_compact = 0; break; }
+            }
+        }
+
+        if (frame_compact) {
+            /* COMPACT: 3B total — enc(2B) + flags(1B=0x00) */
+            out[pos++] = FRMD_FRAME_COMPACT;
+            /* Update prev_chunk — frame IS the prediction */
+            for (uint32_t ci = 0; ci < FRMD_FRAME_CHUNKS; ci++) {
+                memcpy(prev_chunk[ci], chunk[ci], FRMD_CHUNK_SZ);
+            }
+            continue;
+        }
+
+        /* NORMAL frame: write frame_flags + pred_flags + pred_geo + residuals */
+        if (pos + 6 > out_cap) return 0;
+        out[pos++] = FRMD_FRAME_NORMAL;
+        out[pos++] = (uint8_t)(pred_flags & 0xFF);
+        out[pos++] = (uint8_t)(pred_flags >> 8);
+        out[pos++] = (uint8_t)(pred_flags_geo & 0xFF);
+        out[pos++] = (uint8_t)(pred_flags_geo >> 8);
 
         /* Second pass: encode residuals with chosen prediction */
         for (uint32_t ci = 0; ci < FRMD_FRAME_CHUNKS; ci++) {
             if (pos + 2 + 66 > out_cap) return 0;
             uint8_t residual[FRMD_CHUNK_SZ];
-            const uint8_t *ref = (pred_flags & (1u << ci)) ? prev_chunk[ci] : seed_chunk[ci];
+            const uint8_t *ref;
+            if (pred_flags_geo & (1u << ci))
+                ref = geo_chunk[ci];
+            else if (pred_flags & (1u << ci))
+                ref = prev_chunk[ci];
+            else
+                ref = seed_chunk[ci];
             for (uint32_t b = 0; b < FRMD_CHUNK_SZ; b++) {
                 residual[b] = chunk[ci][b] ^ ref[b];
             }
@@ -832,34 +943,97 @@ static uint32_t frmd_decode(const uint8_t *in, uint32_t in_sz,
     uint8_t prev_chunk[FRMD_FRAME_CHUNKS][FRMD_CHUNK_SZ];
     memcpy(prev_chunk, seed_chunk, sizeof(seed_chunk));
 
-    /* Read frames 1..n */
-    for (uint32_t fi = 1; fi < hdr.n_frames; fi++) {
-        if (pos + 3 > in_sz) return 0;
-        pos += 2;  /* enc */
-        uint8_t pred_flags = in[pos++];  /* v2: prediction flags */
-
-        uint32_t frame_off = fi * FRMD_FRAME_BYTES;
-        for (uint32_t ci = 0; ci < FRMD_FRAME_CHUNKS; ci++) {
-            if (pos + 2 > in_sz) return 0;
-            pos++;  /* route */
-            pos++;  /* size */
-            uint8_t residual[FRMD_CHUNK_SZ];
-            uint32_t consumed = ds_decode(residual, in + pos);
-            if (consumed == 0 || pos + consumed > in_sz) return 0;
-            pos += consumed;
-
-            uint32_t off = frame_off + ci * FRMD_CHUNK_SZ;
-            uint32_t sz = (off + FRMD_CHUNK_SZ <= hdr.orig_size)
-                        ? FRMD_CHUNK_SZ
-                        : (hdr.orig_size > off ? hdr.orig_size - off : 0);
-            /* v2: use prediction flag to select reference */
-            const uint8_t *ref = (pred_flags & (1u << ci)) ? prev_chunk[ci] : seed_chunk[ci];
-            for (uint32_t b = 0; b < sz; b++) {
-                out[off + b] = residual[b] ^ ref[b];
+    /* ── Read frames 1..n ── */
+    if (hdr.version <= 2) {
+        /* v2: [enc 2B][pred_flags 1B][12×DS residuals]
+         * Note: pred_flags is uint8_t (only covers chunks 0-7, chunks 8-11 always = seed) */
+        for (uint32_t fi = 1; fi < hdr.n_frames; fi++) {
+            if (pos + 3 > in_sz) return 0;
+            pos += 2;  /* enc */
+            uint8_t pred_flags = in[pos++];  /* v2: 8-bit prediction flags */
+            uint32_t frame_off = fi * FRMD_FRAME_BYTES;
+            for (uint32_t ci = 0; ci < FRMD_FRAME_CHUNKS; ci++) {
+                if (pos + 2 > in_sz) return 0;
+                pos++;  /* route */
+                pos++;  /* size */
+                uint8_t residual[FRMD_CHUNK_SZ];
+                uint32_t consumed = ds_decode(residual, in + pos);
+                if (consumed == 0 || pos + consumed > in_sz) return 0;
+                pos += consumed;
+                uint32_t off = frame_off + ci * FRMD_CHUNK_SZ;
+                uint32_t sz = (off + FRMD_CHUNK_SZ <= hdr.orig_size)
+                            ? FRMD_CHUNK_SZ
+                            : (hdr.orig_size > off ? hdr.orig_size - off : 0);
+                const uint8_t *ref = (pred_flags & (1u << ci)) ? prev_chunk[ci] : seed_chunk[ci];
+                for (uint32_t b = 0; b < sz; b++)
+                    out[off + b] = residual[b] ^ ref[b];
+                if (off + FRMD_CHUNK_SZ <= hdr.orig_size)
+                    memcpy(prev_chunk[ci], out + off, FRMD_CHUNK_SZ);
             }
-            /* Update prev_chunk with decoded data */
-            if (off + FRMD_CHUNK_SZ <= hdr.orig_size) {
-                memcpy(prev_chunk[ci], out + off, FRMD_CHUNK_SZ);
+        }
+    } else {
+        /* v3+: compact frames (3B per frame when residuals=0) */
+        for (uint32_t fi = 1; fi < hdr.n_frames; fi++) {
+            if (pos + 3 > in_sz) return 0;
+            pos += 2;  /* enc */
+            uint8_t frame_flags = in[pos++];
+            uint32_t frame_off = fi * FRMD_FRAME_BYTES;
+
+            if (frame_flags == FRMD_FRAME_COMPACT) {
+                /* COMPACT: all residuals zero, reconstruct from prediction */
+                uint32_t frame_bytes = (frame_off + FRMD_FRAME_BYTES <= hdr.orig_size)
+                                     ? FRMD_FRAME_BYTES : hdr.orig_size - frame_off;
+                for (uint32_t ci = 0; ci < FRMD_FRAME_CHUNKS; ci++) {
+                    uint32_t off = ci * FRMD_CHUNK_SZ;
+                    if (off >= frame_bytes) break;
+                    uint32_t sz = (off + FRMD_CHUNK_SZ <= frame_bytes)
+                                ? FRMD_CHUNK_SZ : frame_bytes - off;
+                    /* When compact, both predictions = actual data. Use seed as reference. */
+                    memcpy(out + frame_off + off, seed_chunk[ci], sz);
+                    memcpy(prev_chunk[ci], seed_chunk[ci], FRMD_CHUNK_SZ);
+                }
+                continue;
+            }
+
+            if (!(frame_flags & FRMD_FRAME_NORMAL)) return 0;  /* invalid flags */
+
+            /* NORMAL: read pred_flags (2B) + pred_geo (2B) + 12×DS residuals */
+            if (pos + 4 > in_sz) return 0;
+            uint16_t pred_flags     = (uint16_t)in[pos] | ((uint16_t)in[pos + 1] << 8);
+            uint16_t pred_flags_geo = (uint16_t)in[pos + 2] | ((uint16_t)in[pos + 3] << 8);
+            pos += 4;
+
+            /* Compute geometric prediction from DualFrame for this frame */
+            DualFrame df = frame_seek(fi);
+            uint8_t geo_ref[FRMD_FRAME_CHUNKS][FRMD_CHUNK_SZ];
+            for (uint32_t ci = 0; ci < FRMD_FRAME_CHUNKS; ci++) {
+                uint32_t seed_ci = (ci + df.slot) % FRMD_FRAME_CHUNKS;
+                memcpy(geo_ref[ci], seed_chunk[seed_ci], FRMD_CHUNK_SZ);
+            }
+
+            for (uint32_t ci = 0; ci < FRMD_FRAME_CHUNKS; ci++) {
+                if (pos + 2 > in_sz) return 0;
+                pos++;  /* route */
+                pos++;  /* size */
+                uint8_t residual[FRMD_CHUNK_SZ];
+                uint32_t consumed = ds_decode(residual, in + pos);
+                if (consumed == 0 || pos + consumed > in_sz) return 0;
+                pos += consumed;
+                uint32_t off = frame_off + ci * FRMD_CHUNK_SZ;
+                uint32_t sz = (off + FRMD_CHUNK_SZ <= hdr.orig_size)
+                            ? FRMD_CHUNK_SZ
+                            : (hdr.orig_size > off ? hdr.orig_size - off : 0);
+                const uint8_t *ref;
+                if (pred_flags_geo & (1u << ci))
+                    ref = geo_ref[ci];
+                else if (pred_flags & (1u << ci))
+                    ref = prev_chunk[ci];
+                else
+                    ref = seed_chunk[ci];
+                for (uint32_t b = 0; b < sz; b++)
+                    out[off + b] = residual[b] ^ ref[b];
+                if (off + FRMD_CHUNK_SZ <= hdr.orig_size)
+                    memcpy(prev_chunk[ci], out + off, FRMD_CHUNK_SZ);
             }
         }
     }

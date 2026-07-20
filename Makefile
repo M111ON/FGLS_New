@@ -26,15 +26,23 @@ INCLUDES = -Icore -Icollection -Irunner \
   -Icollection/rdh -Icollection/active_updates -Icollection/dgls/bond/include \
   -Icollection/dgls/diamond/include -Icollection/dgls/diamond/hamburger \
   -Icollection/dgls/diamond/hbv_bundle -Icollection/dgls/diamond/gpx
-# ── Zstd: opt-in via ZSTD=1 (requires matching toolchain) ──
-# MinGW 8.1.0 CRT is incompatible with MSYS2 zstd — use ZSTD=1 only with MSYS2 gcc.
-ZSTD_CFLAGS  =
-ZSTD_LDFLAGS =
+# ── Zstd: auto-detect when header + library available ──
+# MSYS2 gcc 16.1.0 supports __has_include → auto-detects zstd.h.
+# If found, link -lzstd so the undefined references don't break the build.
+_ZSTD_H := $(or $(wildcard /c/msys64/mingw64/include/zstd.h),\
+                $(wildcard C:/msys64/mingw64/include/zstd.h))
+ifneq ($(_ZSTD_H),)
+  ZSTD_CFLAGS  = -DFGLS_USE_ZSTD -IC:/msys64/mingw64/include
+  ZSTD_LDFLAGS = -LC:/msys64/mingw64/lib -lzstd
+else
+  ZSTD_CFLAGS  =
+  ZSTD_LDFLAGS =
+endif
+# Override: make ZSTD=0 to force no zstd even if header exists
 ifdef ZSTD
-  _ZSTD_H := $(or $(wildcard /c/msys64/mingw64/include/zstd.h),$(wildcard C:/msys64/mingw64/include/zstd.h))
-  ifneq ($(_ZSTD_H),)
-    ZSTD_CFLAGS  = -DFGLS_USE_ZSTD -IC:/msys64/mingw64/include
-    ZSTD_LDFLAGS = -LC:/msys64/mingw64/lib -lzstd
+  ifeq ($(ZSTD),0)
+    ZSTD_CFLAGS  =
+    ZSTD_LDFLAGS =
   endif
 endif
 

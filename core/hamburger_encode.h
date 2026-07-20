@@ -28,7 +28,7 @@
 #include <string.h>
 #include <stdio.h>
 #if defined(__has_include)
-#  if __has_include(<zstd.h>)
+#  if defined(__has_include) && __has_include(<zstd.h>)
 #    include <zstd.h>
 #    define HB_HAS_ZSTD 1
 #  else
@@ -574,8 +574,10 @@ static inline int hamburger_encode(
         const HbTileIn *tiles,
         uint32_t n_tiles)
 {
-    int r = hb_encode_run(ctx, tiles, n_tiles);
-    if (r != HB_OK) return r;
+    if (!ctx->frozen) {
+        int r = hb_encode_run(ctx, tiles, n_tiles);
+        if (r != HB_OK) return r;
+    }
 
     FILE *f = fopen(path, "wb");
     if (!f) return HB_ERR_IO;
