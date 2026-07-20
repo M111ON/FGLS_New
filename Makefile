@@ -1,6 +1,6 @@
 # FGLS Universal Codec — Build System
 # Usage:
-#   make              — build all binaries (fgls.exe, fgls_framed.exe)
+#   make              — build all binaries (fgls.exe, verify_frame_seek, etc.)
 #   make test         — build + run all tests
 #   make clean        — remove build artifacts
 #
@@ -15,7 +15,7 @@ ZSTD_CFLAGS  = -DFGLS_USE_ZSTD
 ZSTD_LDFLAGS = -lzstd
 GEO_SRC = collection/dgls/geo/src/geo_jump.c
 
-BIN = fgls.exe fgls_framed.exe verify_frame_seek.exe profile_test.exe tensor_proof.exe lblock_prototype.exe lblock_realdata_bench.exe atomic_reshape_demo.exe
+BIN = fgls.exe verify_frame_seek.exe profile_test.exe tensor_proof.exe lblock_prototype.exe lblock_realdata_bench.exe atomic_reshape_demo.exe
 
 all: $(BIN)
 
@@ -32,11 +32,6 @@ nozstd: pipeline/fgls_cli.c collection/fgls_profile.h
 
 profile_test.exe: collection/fgls_profile_test.c collection/fgls_profile.h
 	$(CC) $(CFLAGS) -Icollection collection/fgls_profile_test.c -o profile_test.exe
-
-# FRAMED codec — geo_frame_seek + temporal delta (768B frames)
-fgls_framed.exe: pipeline/fgls_framed.c collection/fgls_profile.h core/geo_frame_seek.h
-	$(CC) $(CFLAGS) $(INCLUDES) pipeline/fgls_framed.c -o fgls_framed.exe
-
 # Verify geo_frame_seek invariants + stride-37 walk coverage
 verify_frame_seek.exe: pipeline/verify_frame_seek.c core/geo_frame_seek.h
 	$(CC) $(CFLAGS) $(INCLUDES) pipeline/verify_frame_seek.c -o verify_frame_seek.exe
