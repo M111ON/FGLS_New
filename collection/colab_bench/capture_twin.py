@@ -137,12 +137,16 @@ def capture_twin_read(data_bytes: bytes) -> List[Tuple[int, int, int]]:
     """
     Zero-copy read: map bytes to 72 centroids instantly.
     Each centroid gets: (centroid_id, value_hi, value_lo)
+    Partial chunk (less than 144 bytes) → pad with zeros.
     """
     result = []
     n_pairs = len(data_bytes) // 2
     
-    for i in range(min(n_pairs, N_CENTROIDS)):
-        result.append((i, data_bytes[2*i], data_bytes[2*i + 1]))
+    for i in range(N_CENTROIDS):
+        if i < n_pairs:
+            result.append((i, data_bytes[2*i], data_bytes[2*i + 1]))
+        else:
+            result.append((i, 0, 0))  # pad with zeros
     
     return result
 
