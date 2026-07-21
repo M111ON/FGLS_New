@@ -69,42 +69,45 @@ extern "C" {
 static inline int64_t rdh_capture(const uint8_t *data, size_t len,
                                   const RDHConfig *cfg)
 {
-    int32_t acc_x = 0, acc_y = 0;
+    int32_t field_w = (int32_t)cfg->n_wedges;
+    int32_t field_h = (int32_t)cfg->n_rings;
     
-    /* Walk — 0..47 for short data, or full length for long data.
-     * Short data: pad with repeats of itself (data cycles its own DNA). */
+    int64_t acc_x = 0, acc_y = 0;
+    
+    /* Walk — fold every 4096 steps to prevent int64_t overflow on huge files.
+     * Periodic fold keeps accumulator bounded to O(field_size + 4096). */
     size_t steps = (len < 48) ? 48 : len;
     
     for (size_t i = 0; i < steps; i++) {
-        uint32_t b = data[i % len];     /* cycle if len < steps */
-        uint32_t dir = b & 0x0F;        /* low nibble = direction */
+        uint32_t b = data[i % len];
+        uint32_t dir = b & 0x0F;
         
         switch (dir) {
-            /* Phase 0-3: forward single */
-            case 0:  acc_x++;                  break;  /* E  */
-            case 1:  acc_x++; acc_y++;         break;  /* NE */
-            case 2:  acc_y++;                  break;  /* N  */
-            case 3:  acc_x++; acc_y--;         break;  /* SE */
-            /* Phase 4-7: reverse single */
-            case 4:  acc_x--;                  break;  /* W  */
-            case 5:  acc_x--; acc_y--;         break;  /* SW */
-            case 6:  acc_y--;                  break;  /* S  */
-            case 7:  acc_x--; acc_y++;         break;  /* NW */
-            /* Phase 8-11: double-precision */
-            case 8:  acc_x += 2;               break;  /* E×2  */
-            case 9:  acc_x++;   acc_y += 2;    break;  /* NE×2 */
-            case 10: acc_x--;   acc_y += 2;    break;  /* NW×2 */
-            case 11: acc_x -= 2;               break;  /* W×2  */
-            default: break;  /* not reachable (0..11 only) */
+            case 0:  acc_x++;                  break;
+            case 1:  acc_x++; acc_y++;         break;
+            case 2:  acc_y++;                  break;
+            case 3:  acc_x++; acc_y--;         break;
+            case 4:  acc_x--;                  break;
+            case 5:  acc_x--; acc_y--;         break;
+            case 6:  acc_y--;                  break;
+            case 7:  acc_x--; acc_y++;         break;
+            case 8:  acc_x += 2;               break;
+            case 9:  acc_x++;   acc_y += 2;    break;
+            case 10: acc_x--;   acc_y += 2;    break;
+            case 11: acc_x -= 2;               break;
+            default: break;
+        }
+        
+        /* Periodic fold — keep accumulator in bounded range */
+        if ((i & 0xFFF) == 0xFFF) {  /* every 4096 steps */
+            acc_x %= field_w;
+            acc_y %= field_h;
         }
     }
     
-    /* Fold accumulator into RDH address space */
-    int32_t field_w = (int32_t)cfg->n_wedges;   /* wedge dimension = x */
-    int32_t field_h = (int32_t)cfg->n_rings;     /* ring dimension   = y */
-    
-    int64_t wedge = (int64_t)((acc_x % field_w + field_w) % field_w);
-    int64_t ring  = (int64_t)((acc_y % field_h + field_h) % field_h);
+    /* Final fold into RDH address space */
+    int64_t wedge = (acc_x % field_w + field_w) % field_w;
+    int64_t ring  = (acc_y % field_h + field_h) % field_h;
     
     /* Flat key — this IS the address, the signature, and the seed.
      * mirror=0, u=0, v=0 — everything encoded in ring+wedge. */
