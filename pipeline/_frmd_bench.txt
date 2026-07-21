@@ -1,0 +1,1 @@
+The quick brown fox jumps over the lazy dog. FGLS geometric compression pipeline test message for benchmarking purposes. This should give us a sense of how the FRAMED codec performs with real text data that has some structure.

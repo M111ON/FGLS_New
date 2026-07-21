@@ -1,0 +1,15 @@
+BENCHMARK RESULTS: tw_capture vs RDH
+================================================================================
+
+Test Points: 100000
+
+CAPTURE BENCHMARK:
+  TW Capture: 14555.8 ns/ops, 0.07 Mops, 99.93% collisions
+  RDH:        639.5 ns/ops, 1.56 Mops, 79.44% collisions
+
+ROUNDTRIP BENCHMARK:
+  TW Capture: 1465.33 ms, 100.00% accuracy
+  RDH:        118.17 ms, 100.00% accuracy
+
+ADAPTIVE STRATEGY:
+RDH has lower collision rate. Default to RDH for most workloads. Use TW_CAPTURE for 2D geometric data with spatial locality.

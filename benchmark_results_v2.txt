@@ -1,0 +1,15 @@
+BENCHMARK RESULTS: tw_capture_int vs RDH (v2)
+==========================================================================================
+
+Test Points: 100000 (90% structured, 10% random)
+
+CAPTURE BENCHMARK:
+  TW Capture Int: 9378.8 ns/ops, 0.11 Mops, 99.96% collisions, 0.00% drain
+  RDH:            682.3 ns/ops, 1.47 Mops, 79.42% collisions
+
+ROUNDTRIP BENCHMARK:
+  TW Capture Int: 1269.65 ms, 100.00% accuracy
+  RDH:            239.03 ms, 100.00% accuracy
+
+ADAPTIVE STRATEGY:
+Both systems work well. Use TW_CAPTURE for 2D geometric data with spatial locality. Use RDH for multi-dimensional addressing (ring, wedge, mirror, u). Adaptive routing based on data characteristics.

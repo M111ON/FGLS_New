@@ -122,3 +122,4 @@ clangd-mcp-server/
 *.gpxl
 *.dec
 *.gpx5
+.hermes/
