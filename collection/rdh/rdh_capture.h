@@ -119,11 +119,11 @@ static inline int64_t rdh_capture(const uint8_t *data, size_t len,
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /* 144×144 field (base enclosure) → 20,736 unique addresses */
-#define RDH_CAPTURE_144    { 144, 144, 1, 1, 1 }
+#define RDH_CAPTURE_144    ((RDHConfig){ 144, 144, 1, 1, 1 })
 
 /* Scaled field = 144×S by 144×S, capacity = (144×S)² 
  * Scale 49 → 1,016,064 ≈ 1M unique addresses */
-#define RDH_CAPTURE_SCALE(S) { (int64_t)(144*(S)), (int64_t)(144*(S)), 1, 1, 1 }
+#define RDH_CAPTURE_SCALE(S) ((RDHConfig){ (int64_t)(144*(S)), (int64_t)(144*(S)), 1, 1, 1 })
 
 /* ═══════════════════════════════════════════════════════════════════════════
    DIRECT-TO-ENC — capture + map to frame_seek enc in one call
