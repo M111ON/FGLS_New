@@ -157,6 +157,120 @@ static inline uint16_t frame_cpair(uint16_t enc)
 }
 
 /* ══════════════════════════════════════════════════════════════
+   ENTROPY-DRIVEN FRAME TOLERANCE — Fibonacci Scale
+   ══════════════════════════════════════════════════════════════
+ * 1 frame = 12 edges, 1440/12 = 120 frames total
+ *
+ * Fibonacci scale: span 每级 ×φ (≈1.618)
+ *   0, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89
+ *
+ * Frame space 的自然尺度:
+ *   120/φ   ≈ 74  (最大非对称 span)
+ *   120/φ²  ≈ 46
+ *   120/φ³  ≈ 28
+ *   120/φ⁴  ≈ 17
+ *   120/φ⁵  ≈ 11
+ *   120/φ⁶  ≈ 7
+ *   120/φ⁷  ≈ 4
+ *
+ * Constraint: span < 60 (half of 120) 保证 reconstructability
+ *
+ * Mapping (Fibonacci index → entropy class):
+ *   0 (structured)  → span = 0        — strict, 1 frame
+ *   1 (moderate)    → span = 1        — φ^0 = 1
+ *   2 (high)        → span = 2        — φ^1 ≈ 2
+ *   3 (random)      → span = 3        — φ^2 ≈ 3
+ *
+ * Alternative: raw Fibonacci (更大 tolerance):
+ *   0, 1, 2, 3, 5, 8, 13, 21
+ * ══════════════════════════════════════════════════════════════ */
+
+#define FRAME_MAX        120u   /* total frames (1440/12)         */
+#define FRAME_MAX_SPAN    60u   /* half of 120 — reconstruct limit */
+
+/* Fibonacci scale spans (conservative: 0,1,2,3) */
+static const uint8_t FIB_SPANS[4] = { 0, 1, 2, 3 };
+
+/* Frame range for a given entropy class */
+typedef struct {
+    uint8_t  home_frame;    /* primary frame index (0..119)      */
+    uint8_t  span;          /* additional frames allowed each side */
+    uint8_t  frame_lo;      /* lowest valid frame                */
+    uint8_t  frame_hi;      /* highest valid frame               */
+} FrameRange;
+
+/* Compute frame range: Fibonacci-scaled tolerance by entropy class.
+ * Structured: span=0 (1 frame), Random: span=3 (7 frames) */
+static inline FrameRange frame_range(uint16_t enc, uint8_t entropy_class)
+{
+    FrameRange fr;
+    fr.home_frame = (uint8_t)((enc / FRAME_EDGES) % FRAME_MAX);
+
+    fr.span = FIB_SPANS[entropy_class & 3];
+
+    /* Compute lo/hi with wraparound on 120-frame circle */
+    int lo = (int)fr.home_frame - fr.span;
+    int hi = (int)fr.home_frame + fr.span;
+    if (lo < 0) lo += FRAME_MAX;
+    if (hi >= FRAME_MAX) hi -= FRAME_MAX;
+
+    fr.frame_lo = (uint8_t)((lo + FRAME_MAX) % FRAME_MAX);
+    fr.frame_hi = (uint8_t)((hi + FRAME_MAX) % FRAME_MAX);
+
+    return fr;
+}
+
+/* Adaptive frame range: Fibonacci scale from actual entropy score (0..255).
+ * Uses raw Fibonacci: 0,1,1,2,3,5,8,13,21,34,55,89
+ * Maps entropy score → Fibonacci index → span.
+ * Constraint: span < FRAME_MAX_SPAN (60) */
+static inline FrameRange frame_range_adaptive(uint16_t enc, uint8_t entropy_score)
+{
+    FrameRange fr;
+    fr.home_frame = (uint8_t)((enc / FRAME_EDGES) % FRAME_MAX);
+
+    /* Fibonacci sequence for span (first 12 values) */
+    static const uint8_t FIB[] = { 0,1,1,2,3,5,8,13,21,34,55,89 };
+    static const int N_FIB = 12;
+
+    /* Map entropy score (0..255) → Fibonacci index (0..11) */
+    int fib_idx = (int)entropy_score * (N_FIB - 1) / 255;
+    if (fib_idx >= N_FIB) fib_idx = N_FIB - 1;
+
+    fr.span = FIB[fib_idx];
+    if (fr.span >= FRAME_MAX_SPAN) fr.span = FRAME_MAX_SPAN - 1;
+
+    /* Compute lo/hi with wraparound */
+    int lo = (int)fr.home_frame - fr.span;
+    int hi = (int)fr.home_frame + fr.span;
+    if (lo < 0) lo += FRAME_MAX;
+    if (hi >= FRAME_MAX) hi -= FRAME_MAX;
+
+    fr.frame_lo = (uint8_t)((lo + FRAME_MAX) % FRAME_MAX);
+    fr.frame_hi = (uint8_t)((hi + FRAME_MAX) % FRAME_MAX);
+
+    return fr;
+}
+
+/* Check if a given enc falls within the frame range of home enc */
+static inline int frame_in_range(uint16_t enc, uint16_t home_enc,
+                                  uint8_t entropy_class)
+{
+    FrameRange fr = frame_range(home_enc, entropy_class);
+    uint8_t test_frame = (uint8_t)((enc / FRAME_EDGES) % FRAME_MAX);
+
+    if (fr.span == 0) return test_frame == fr.home_frame;  /* strict */
+
+    /* Wraparound check: frame is in [home-span, home+span] mod 120 */
+    int diff = (int)test_frame - (int)fr.home_frame;
+    int half = (int)(FRAME_MAX / 2);
+    if (diff > half) diff -= (int)FRAME_MAX;
+    if (diff < -half) diff += (int)FRAME_MAX;
+
+    return diff >= -(int)fr.span && diff <= (int)fr.span;
+}
+
+/* ══════════════════════════════════════════════════════════════
    VERIFY — call once at init, returns 0 on pass
    ══════════════════════════════════════════════════════════════ */
 
@@ -208,6 +322,51 @@ static inline int geo_frame_seek_verify(void)
     for (uint16_t enc = 0; enc < 144u; enc++) {
         DualFrame f = frame_at(enc);
         if (f.phase >= 12u) return -14;
+    }
+
+    /* [T7] frame_range: structured → span 0 (strict) */
+    {
+        FrameRange fr = frame_range(0, 0);  /* enc=0, structured */
+        if (fr.span != 0) return -15;
+        if (fr.home_frame != 0) return -16;
+    }
+
+    /* [T8] frame_range: high entropy → span 2 (Fibonacci) */
+    {
+        FrameRange fr = frame_range(0, 2);  /* enc=0, high entropy */
+        if (fr.span != 2) return -17;
+    }
+
+    /* [T9] frame_range: random → span 3 (Fibonacci) */
+    {
+        FrameRange fr = frame_range(0, 3);  /* enc=0, random */
+        if (fr.span != 3) return -18;
+    }
+
+    /* [T10] frame_in_range: structured, same frame → in range */
+    {
+        if (!frame_in_range(0, 0, 0)) return -19;    /* same enc */
+        if (!frame_in_range(5, 0, 0)) return -20;    /* enc=5 still frame 0 */
+    }
+
+    /* [T11] frame_in_range: structured, different frame → out of range */
+    {
+        /* enc=12 is frame 1, home_frame=0, span=0 → should be out */
+        if (frame_in_range(12, 0, 0)) return -21;
+    }
+
+    /* [T12] frame_in_range: high entropy, adjacent frame → in range */
+    {
+        /* enc=0 frame=0, high entropy span=12, enc=12 frame=1 → should be in */
+        if (!frame_in_range(12, 0, 2)) return -22;
+    }
+
+    /* [T13] frame_in_range: wraparound at boundary */
+    {
+        /* home frame=1, span=3, test frame=119 (wraps) → should be in */
+        uint16_t home_enc = 12;  /* frame=1 */
+        uint16_t test_enc = 1428; /* frame=119 */
+        if (!frame_in_range(test_enc, home_enc, 2)) return -23;
     }
 
     return 0;
