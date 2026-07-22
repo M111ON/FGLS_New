@@ -49,7 +49,8 @@ endif
 GEO_SRC = collection/dgls/geo/src/geo_jump.c
 
 BIN = fgls.exe verify_frame_seek.exe profile_test.exe tensor_proof.exe \
-      lblock_prototype.exe lblock_realdata_bench.exe atomic_reshape_demo.exe
+      lblock_prototype.exe lblock_realdata_bench.exe atomic_reshape_demo.exe \
+      test_fibo_tick.exe test_enclosure_pipeline.exe test_tensor_track.exe
 
 all: $(BIN)
 	@echo "Built: $(BIN)"
@@ -82,6 +83,15 @@ verify_frame_seek.exe: pipeline/verify_frame_seek.c core/geo_frame_seek.h
 
 tensor_proof.exe: pipeline/tensor_proof.c collection/sid.h runner/addr_space.h
 	$(CC) $(CFLAGS) -DGEO_JUMP_INLINE $(INCLUDES) -Icollection/dgls/geo/include -Icollection/rdh pipeline/tensor_proof.c -o tensor_proof.exe
+
+test_fibo_tick.exe: pipeline/test_fibo_tick.c core/fibo_tick.h core/geo_frame_seek.h collection/rdh/rdh_capture.h collection/include/p5h_ribcage.h collection/dgls/geo/include/fibo_spine.h
+	$(CC) $(CFLAGS) $(INCLUDES) -DP5H_ENABLE pipeline/test_fibo_tick.c -o test_fibo_tick.exe
+
+test_enclosure_pipeline.exe: pipeline/test_enclosure_pipeline.c collection/dgls/geo/include/gls_enclosure.h core/fibo_tick.h
+	$(CC) $(CFLAGS) $(INCLUDES) pipeline/test_enclosure_pipeline.c -o test_enclosure_pipeline.exe
+
+test_tensor_track.exe: pipeline/test_tensor_track.c core/tensor_track.h core/fibo_tick.h collection/dgls/geo/include/gls_enclosure.h
+	$(CC) $(CFLAGS) $(INCLUDES) pipeline/test_tensor_track.c -o test_tensor_track.exe
 
 lblock_prototype.exe: pipeline/lblock_prototype.c
 	$(CC) $(CFLAGS) $(INCLUDES) pipeline/lblock_prototype.c -o lblock_prototype.exe -lm
@@ -164,11 +174,17 @@ test: $(BIN)
 	@echo "=== 17. timetravel-demo ==="
 	@./fgls.exe timetravel-demo pipeline/_t.tt 2>&1 | grep -E 'Timetravel|RESULTS|Stored|Pass|Wrote'
 	@rm -f pipeline/_t.tt pipeline/_timetravel_t5.bin
+	@echo "=== 18. fibo_tick integration ==="
+	@./test_fibo_tick.exe 2>&1 | grep -E 'PASS|FAIL|RESULTS'
+	@echo "=== 19. enclosure pipeline ==="
+	@./test_enclosure_pipeline.exe 2>&1 | grep -E 'PASS|FAIL|RESULTS'
+	@echo "=== 20. tensor track ==="
+	@./test_tensor_track.exe 2>&1 | grep -E 'PASS|FAIL|RESULTS'
 	@echo "=== ALL TESTS COMPLETE ==="
 
 clean:
 	@rm -f fgls.exe verify_frame_seek.exe profile_test.exe tensor_proof.exe \
 	  lblock_prototype.exe lblock_realdata_bench.exe atomic_reshape_demo.exe \
-	  fgls_framed.exe pipeline/_t.*
+	  test_fibo_tick.exe test_enclosure_pipeline.exe test_tensor_track.exe fgls_framed.exe pipeline/_t.*
 
 .PHONY: all test clean nozstd
