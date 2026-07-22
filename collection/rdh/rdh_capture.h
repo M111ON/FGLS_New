@@ -75,7 +75,8 @@ static inline int64_t rdh_capture(const uint8_t *data, size_t len,
     int64_t acc_x = 0, acc_y = 0;
     
     /* Walk — fold every 4096 steps to prevent int64_t overflow on huge files.
-     * Periodic fold keeps accumulator bounded to O(field_size + 4096). */
+     * Periodic fold keeps accumulator bounded to O(field_size + 4096).
+     * Minimum walk = 48 (GEO_BLOCK, atomic unit). Shorter data auto-cycles. */
     size_t steps = (len < 48) ? 48 : len;
     
     for (size_t i = 0; i < steps; i++) {

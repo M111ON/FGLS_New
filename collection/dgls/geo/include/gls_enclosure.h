@@ -35,8 +35,8 @@
 #include <string.h>
 #include <stddef.h>
 
-/* RDH — pure integer address derivation (no hash, no byte scan) */
-#include "rdh_addr.h"
+/* RDH — single entry point: data → flat key → everything downstream */
+#include "rdh_capture.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -116,48 +116,24 @@ static inline EncConfig enc_config(uint32_t scale) {
    The path walked IS the address IS the DNA IS the seed.
    ═══════════════════════════════════════════════════════════════════════ */
 
-/* Walk data bytes through 12-gon topology, return home field position.
- * data   : pointer to data bytes (size should be >= 48)
+/* Walk data bytes through RDH → decompose to home field position.
+ * Uses rdh_capture() as the single canonical entry point.
+ *
+ * data   : pointer to data bytes
  * len    : number of bytes to read for path
- * field_w: field width (144 for unscaled, scaled for larger)
+ * field_w: field width (144 for unscaled)
  * x, y   : output home coordinates on field */
 static inline void enc_find_home(const uint8_t *data, uint32_t len,
                                  uint32_t field_w,
                                  uint32_t *x, uint32_t *y) 
 {
-    int32_t acc_x = 0, acc_y = 0;
-    uint32_t m = field_w - 1;  /* mod mask (power of 2 or safe mod) */
-    
-    for (uint32_t i = 0; i < len; i++) {
-        uint32_t b = data[i % 48];
-        /* 12-gon stride: byte's low 4 bits → direction (0..11) */
-        uint32_t dir = b & 0x0F;
-        /* Each direction maps to a (dx, dy) step on the 12-gon */
-        switch (dir) {
-            case 0:  acc_x++;                break;  /* E */
-            case 1:  acc_x++; acc_y++;        break;  /* NE */
-            case 2:           acc_y++;        break;  /* N */
-            case 3:  acc_x--; acc_y++;        break;  /* NW */
-            case 4:  acc_x--;                break;  /* W */
-            case 5:  acc_x--; acc_y--;        break;  /* SW */
-            case 6:           acc_y--;        break;  /* S */
-            case 7:  acc_x++; acc_y--;        break;  /* SE */
-            case 8:  acc_x += 2;             break;  /* E2 */
-            case 9:  acc_x++; acc_y += 2;     break;  /* N2E */
-            case 10: acc_x--; acc_y += 2;     break;  /* N2W */
-            case 11: acc_x -= 2;             break;  /* W2 */
-            default: break;
-        }
-    }
-    
-    /* Fold into field — handle negative safely */
-    if (field_w > 0 && (field_w & (field_w - 1)) == 0) {
-        *x = (uint32_t)(acc_x) & (field_w - 1);
-        *y = (uint32_t)(acc_y) & (field_w - 1);
-    } else {
-        *x = (uint32_t)((acc_x % (int32_t)field_w + (int32_t)field_w) % (int32_t)field_w);
-        *y = (uint32_t)((acc_y % (int32_t)field_w + (int32_t)field_w) % (int32_t)field_w);
-    }
+    /* RDH config: field_w × field_w square field */
+    RDHConfig cfg = { (int64_t)field_w, (int64_t)field_w, 1, 1, 1 };
+    int64_t key = rdh_capture(data, (size_t)len, &cfg);
+    int64_t ring, wedge, mirror, u;
+    rdh_decompose(&cfg, key, &ring, &wedge, &mirror, &u);
+    *x = (uint32_t)wedge;
+    *y = (uint32_t)ring;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -410,11 +386,10 @@ static inline int enc_pack_chunk(EncCtx *ctx,
     
     /* Pack hexagon data into chunk:
      *   cells[0] = home → offset 0 (48 bytes)
-     *   cells[1..6] = neighbors → offset 48 + d*48 (6 × 48 bytes) 
-     *   Remaining data beyond 7×48 = packing fills chunk */
+     *   cells[1..6] = neighbors → offset 48 + d*48 (6 × 48 bytes) */
     
-    /* Write home cell data (47 bytes max from input, pad with zeros) */
-    uint32_t copy = data_len < 47 ? data_len : 47;
+    /* Write home cell data (max ENC_BLOCK, pad with zeros) */
+    uint32_t copy = data_len < ENC_BLOCK ? data_len : ENC_BLOCK;
     memcpy(chunk_out, data, copy);
     
     /* Write data into neighbor slots (remaining data from input, 48 each) */
