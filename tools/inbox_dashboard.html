@@ -44,7 +44,8 @@
   .card-tags { display:flex; gap:4px; }
   .tag { background:#1f2937; color:var(--muted); padding:2px 8px; border-radius:10px; font-size:10px; }
 
-  .status { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; text-transform:uppercase; }
+  .status { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; text-transform:uppercase; cursor:pointer; transition:opacity 0.15s; }
+  .status:hover { opacity:0.8; }
   .status-todo { background:#1f2937; color:var(--accent); }
   .status-in_progress { background:#2d1f00; color:var(--yellow); }
   .status-done { background:#0d2818; color:var(--green); }
@@ -109,6 +110,8 @@ function renderStats(data) {
   `;
 }
 
+const STATUSES = ['todo','in_progress','done','blocked','cancelled'];
+
 function renderBoard(data) {
   const el = document.getElementById('board');
   if (!data.board || data.board.length === 0) { el.innerHTML = '<div class="empty">No cards yet</div>'; return; }
@@ -118,7 +121,7 @@ function renderBoard(data) {
     <div class="card">
       <div class="card-header">
         <span class="card-id">#${c.id}</span>
-        <span class="status status-${c.status}">${c.status.replace('_',' ')}</span>
+        <span class="status status-${c.status}" onclick="cycleStatus(${c.id},'${c.status}')" title="Click to change status">${c.status.replace('_',' ')}</span>
       </div>
       <div class="card-title">${esc(c.title)}</div>
       ${c.body ? `<div class="card-body">${esc(c.body)}</div>` : ''}
@@ -128,6 +131,19 @@ function renderBoard(data) {
       </div>
     </div>
   `).join('');
+}
+
+async function cycleStatus(id, current) {
+  const idx = STATUSES.indexOf(current);
+  const next = STATUSES[(idx + 1) % STATUSES.length];
+  try {
+    await fetch('/api/board/update', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({id, status: next})
+    });
+    loadAll();
+  } catch(e) { alert('Failed: ' + e.message); }
 }
 
 function tagsHTML(tags) {
