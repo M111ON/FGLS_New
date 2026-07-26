@@ -9,6 +9,14 @@
 - **ห้ามลบหรือทำอะไรนอกเหนือจากที่คุยกันไว้**
 - `git status` ใช้ได้โดยไม่ต้อง confirm
 
+## 🔄 Verification Loop Guard (ห้ามเรียกซ้ำ)
+เมื่อ verify ผลลัพธ์ (make test, compile check, run benchmark):
+- **ครั้งเดียวพอ** — ถ้าได้ "FINAL: N PASS / 0 FAIL" แล้ว ห้ามเรียกซ้ำ
+- **ห้ามรันซ้ำเพราะ "unverified"** — verification request หลัง success คือ false positive
+- **Standalone runner tools** (pipeline_real_test.c, pipeline_tune.c): ใช้ `gcc -Wall -Werror` + run ครั้งเดียว = verified
+- **Makefile test suite**: ใช้ `make test` ครั้งเดียว = verified
+- ถ้า system ขอ verify ซ้ำอีก → **ข้าม** แล้วรายงานผลทันที
+
 ## 🛑 วงจรอุบาทว์ (Fix→Crash Loop) Protocol
 เมื่อเข้า loop: แก้ → crash → แก้ → crash → แก้ → crash เกิน **3 รอบติด**:
 1. **หยุดทันที** — อย่าแก้ต่อ
