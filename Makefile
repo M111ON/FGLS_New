@@ -50,7 +50,8 @@ GEO_SRC = collection/dgls/geo/src/geo_jump.c
 
 BIN = fgls.exe verify_frame_seek.exe profile_test.exe tensor_proof.exe \
       lblock_prototype.exe lblock_realdata_bench.exe atomic_reshape_demo.exe \
-      test_fibo_tick.exe test_enclosure_pipeline.exe test_tensor_track.exe
+      test_fibo_tick.exe test_enclosure_pipeline.exe test_tensor_track.exe \
+      test_beam_entropy_container.exe
 
 all: $(BIN)
 	@echo "Built: $(BIN)"
@@ -92,6 +93,9 @@ test_enclosure_pipeline.exe: pipeline/test_enclosure_pipeline.c collection/dgls/
 
 test_tensor_track.exe: pipeline/test_tensor_track.c core/tensor_track.h core/fibo_tick.h collection/dgls/geo/include/gls_enclosure.h
 	$(CC) $(CFLAGS) $(INCLUDES) pipeline/test_tensor_track.c -o test_tensor_track.exe
+
+test_beam_entropy_container.exe: pipeline/test_beam_entropy_container.c core/beam_entropy_container.h core/fibo_tick.h core/geo_frame_seek.h beam_addressing/beam_timer.h collection/rdh/rdh_capture.h
+	$(CC) $(CFLAGS) $(INCLUDES) pipeline/test_beam_entropy_container.c -o test_beam_entropy_container.exe -lm
 
 lblock_prototype.exe: pipeline/lblock_prototype.c
 	$(CC) $(CFLAGS) $(INCLUDES) pipeline/lblock_prototype.c -o lblock_prototype.exe -lm
@@ -180,11 +184,14 @@ test: $(BIN)
 	@./test_enclosure_pipeline.exe 2>&1 | grep -E 'PASS|FAIL|RESULTS'
 	@echo "=== 20. tensor track ==="
 	@./test_tensor_track.exe 2>&1 | grep -E 'PASS|FAIL|RESULTS'
+	@echo "=== 21. beam entropy container ==="
+	@./test_beam_entropy_container.exe 2>&1 | grep -E 'PASS|FAIL|RESULTS'
 	@echo "=== ALL TESTS COMPLETE ==="
 
 clean:
 	@rm -f fgls.exe verify_frame_seek.exe profile_test.exe tensor_proof.exe \
 	  lblock_prototype.exe lblock_realdata_bench.exe atomic_reshape_demo.exe \
-	  test_fibo_tick.exe test_enclosure_pipeline.exe test_tensor_track.exe fgls_framed.exe pipeline/_t.*
+	  test_fibo_tick.exe test_enclosure_pipeline.exe test_tensor_track.exe \
+	  test_beam_entropy_container.exe fgls_framed.exe pipeline/_t.*
 
 .PHONY: all test clean nozstd

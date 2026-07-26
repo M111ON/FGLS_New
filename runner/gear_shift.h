@@ -156,6 +156,30 @@ static inline GSEntry *gs_find(GearShiftStore *gs, const char *name) {
     return NULL;
 }
 
+/* ── Direct index access (O(1), no strcmp) ─────────────────── */
+/* Use when DRamTile slot index is already known — avoids linear scan */
+static inline GSEntry *gs_get_idx(GearShiftStore *gs, int idx) {
+    if (idx < 0 || idx >= gs->n_entries) return NULL;
+    return &gs->entries[idx];
+}
+
+/* Stream by index — O(1) lookup, no name comparison */
+static inline int gs_stream_idx(GearShiftStore *gs, int idx,
+                                 void *src_ptr, size_t src_size) {
+    GSEntry *e = gs_get_idx(gs, idx);
+    if (!e) return -1;
+    if (e->state == GS_DONE) return 0;
+    if (!e->stream_fn) return -1;
+    e->src_ptr = src_ptr;
+    e->src_size = src_size;
+    e->state = GS_STREAMING;
+    e->access_tick = ++gs->tick;
+    int ret = e->stream_fn(e->src_ptr, e->src_size, e->dst_ctx, e->user_data);
+    if (ret == 0) { e->state = GS_DONE; gs->n_streamed++; }
+    else { e->state = GS_FAILED; gs->n_errors++; }
+    return ret;
+}
+
 /* ── Stream one entry ──────────────────────────────────────── */
 /* Core operation: src → dst via callback. No middleman. */
 static inline int gs_stream(GearShiftStore *gs, const char *name) {

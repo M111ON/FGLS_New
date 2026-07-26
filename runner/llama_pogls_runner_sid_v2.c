@@ -325,7 +325,6 @@ static uint32_t g_gpu_worlds = 0;    /* completed GPU worlds for gear-aware evic
 static int vrt_upload_gpu(void *gpu_dst, const void *cpu_src, size_t sz, void *user);
 static int g_opt_capo = 0;
 static int g_opt_capo_faces = 2;
-static int g_opt_rdh = 0;                /* --rdh: use RDH collision-free addressing */
 static float g_opt_gear_threshold = 0.30f;
 static int g_opt_gear_log = 16;
 
@@ -495,9 +494,9 @@ static struct llama_model* pogls_load_model(
 
 static Gear2Ctx g_gear2;
 
-/* Address helper: dispatch to hash or RDH based on g_opt_rdh flag */
+/* Address helper: RDH geometric walk (collision-free, no hash) */
 static inline uint32_t tensor_addr(const char *name) {
-    return g_opt_rdh ? dt_name_to_rdh(name) : dt_name_to_addr(name);
+    return dt_name_to_addr(name);
 }
 
 /* Face populate callback: reads tensor data from GGUF file into face buffer */
@@ -1307,7 +1306,7 @@ int main(int argc,char**argv){
         else if(!strcmp(argv[i],"--capo-faces")&&i+1<argc){g_opt_capo=1;g_opt_capo_faces=atoi(argv[++i]);if(g_opt_capo_faces<2)g_opt_capo_faces=2;if(g_opt_capo_faces>CAPO_MAX_FACES)g_opt_capo_faces=CAPO_MAX_FACES;}
         else if(!strcmp(argv[i],"--dramtile"))g_opt_dramtile=1;
         else if(!strcmp(argv[i],"--dramtile-file")&&i+1<argc){g_opt_dramtile=1;g_opt_dramtile_file=argv[++i];}
-        else if(!strcmp(argv[i],"--rdh"))g_opt_rdh=1;
+        
         else if(!strcmp(argv[i],"--vram")&&i+1<argc)g_opt_vram=atoi(argv[++i]);
         else if(!strcmp(argv[i],"--simulate"))g_opt_simulate=1;
         else if(!strcmp(argv[i],"--pogls")){g_opt_pogls=1;}
