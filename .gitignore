@@ -88,6 +88,21 @@ hermes@*
 pipeline/test_data/
 pipeline/test_tmp/
 
+# ── Stray files from bad commands ──
+--help
+-f
+runner/nul
+
+# ── Model weight stores (huge) ──
+*.dramtile
+model/
+models/
+test_model.dramtile
+real_weights.dramtile
+
+# ── Archives (zip/ = old snapshots) ──
+zip/
+
 # ── Harness memory cache ──
 # (opencode memory — tracked for cross-session persistence)
 # .harness-memory/
