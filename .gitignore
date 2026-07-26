@@ -95,7 +95,6 @@ runner/nul
 
 # ── Model weight stores (huge) ──
 *.dramtile
-model/
 models/
 test_model.dramtile
 real_weights.dramtile
