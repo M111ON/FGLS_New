@@ -89,7 +89,8 @@ pipeline/test_data/
 pipeline/test_tmp/
 
 # ── Harness memory cache ──
-.harness-memory/
+# (opencode memory — tracked for cross-session persistence)
+# .harness-memory/
 
 # ── Generated images / docs ──
 *.bmp
