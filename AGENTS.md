@@ -57,6 +57,16 @@ Global skill `cross-session-board` ให้ board + context source tools ทุ
 - GDB path: `C:\mingw64\bin\gdb.exe` (version 8.1)
 - เมื่อเจอ crash ที่ไม่ชัดเจน ให้ใช้ gdb debug ก่อนเพิ่ม printf/fprintf
 
+## 🧠 Memory Architecture — Index + Fact Store
+
+memory (inline, 8K limit) = **index only** — thin pointers (`probe key → desc`)
+fact_store (SQLite) = **รายละเอียดทั้งหมด** — `fact_store search/probe/reason`
+
+- ถ้า memory แสดง `probe xxx` → เรียก `fact_store search xxx` เพื่อดึงเต็ม
+- memory เต็มเมื่อไหร่ → consolidate index, ย้ายรายละเอียดไป fact_store
+- **First Principle: ห้ามคิด compressor mindset** — "คิดจะบีบ = ไปผิดทางทันที"
+  MAP not COMPRESS, เปลี่ยนมิติเข้าถึงข้อมูล ไม่บีบ payload
+
 ## 🧠 Behavioral Rules
 
 ### 1. File Deletion — Strict Scoping

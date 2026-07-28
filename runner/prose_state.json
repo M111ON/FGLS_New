@@ -1,0 +1,31 @@
+{
+  "documented": [
+    "pogls_core/pogls_platform.h",
+    "pogls_gguf/pogls_gguf.h",
+    "pogls_geo/pogls_geo.h",
+    "pogls_dram/pogls_dram.h",
+    "pogls_bermuda/pogls_bermuda.h",
+    "pogls_kv/pogls_kv.h",
+    "pogls_geopixel/pogls_geopixel.h",
+    "pogls_hilbert_container/pogls_hilbert_container.h",
+    "geopixel/src/geo_jump.c",
+    "collection/geopixel/geofield/fabric_wire.h",
+    "pogls_tools/pogls_build.c",
+    "pogls_core/pogls_platform.c",
+    "pogls_gguf/pogls_gguf.c",
+    "pogls_geo/pogls_geo.c",
+    "pogls_dram/pogls_dram.c",
+    "pogls_bermuda/pogls_bermuda.c"
+  ],
+  "last_run": "2026-07-28T10:24:29.662081",
+  "last_module": "bermuda",
+  "last_file": "pogls_bermuda/pogls_bermuda.c",
+  "statuses": {
+    "pogls_tools/pogls_build.c": "active",
+    "pogls_core/pogls_platform.c": "active",
+    "pogls_gguf/pogls_gguf.c": "active",
+    "pogls_geo/pogls_geo.c": "active",
+    "pogls_dram/pogls_dram.c": "active",
+    "pogls_bermuda/pogls_bermuda.c": "active"
+  }
+}

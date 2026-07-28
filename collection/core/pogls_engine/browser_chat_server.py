@@ -47,7 +47,7 @@ REPO_ROOT = CORE_DIR.parent
 DEFAULT_RUNNER = CORE_DIR / "pogls_runner.exe"
 DEFAULT_MODEL = os.environ.get(
     "POGLS_CHAT_MODEL",
-    r"I:\Vault\models\qwen2.5-0.5b-instruct-q4_k_m.gguf",
+    r"I:\model\Qwen3-0.6B-Q4_0.gguf",
 )
 DEFAULT_PORT = int(os.environ.get("POGLS_CHAT_PORT", "8766"))
 DEFAULT_HOST = os.environ.get("POGLS_CHAT_HOST", "127.0.0.1")

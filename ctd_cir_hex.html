@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+<title>GeoGebra - Construction Protocol</title>
+<meta http-equiv="content-type" content="text/html; charset=utf-8"></head>
+<body>
+<h1>ctd_cir_hex</h1>
+<table border="1">
+<tr>
+<th>Name</th>
+<th>Definition</th>
+<th>Value</th>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#4D4DFF">Point A</span></td>
+<td>&nbsp;</td>
+<td><span style="color:#4D4DFF">A = (5.4, -3.1)</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#4D4DFF">Point B</span></td>
+<td>&nbsp;</td>
+<td><span style="color:#4D4DFF">B = (5.4, 3.1)</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#EB0000">Polygon poly1</span></td>
+<td><span style="color:#EB0000">Polygon(A, B, 3)</span></td>
+<td><span style="color:#EB0000">poly1 = 17.1</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#EB0000">Segment f</span></td>
+<td><span style="color:#EB0000">Segment(A, B, poly1)</span></td>
+<td><span style="color:#EB0000">f = 6.3</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#EB0000">Segment g</span></td>
+<td><span style="color:#EB0000">Segment(B, C, poly1)</span></td>
+<td><span style="color:#EB0000">g = 6.3</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#6E6D73">Point C</span></td>
+<td><span style="color:#6E6D73">Polygon(A, B, 3)</span></td>
+<td><span style="color:#6E6D73">C = (0, 0)</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#6E6D73">Point H</span></td>
+<td><span style="color:#6E6D73">Polygon(A, B, 3)</span></td>
+<td><span style="color:#6E6D73">H = (?, ?)</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#6E6D73">Point I</span></td>
+<td><span style="color:#6E6D73">Polygon(A, B, 3)</span></td>
+<td><span style="color:#6E6D73">I = (?, ?)</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#6E6D73">Point J</span></td>
+<td><span style="color:#6E6D73">Polygon(A, B, 3)</span></td>
+<td><span style="color:#6E6D73">J = (?, ?)</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#EB0000">Segment h</span></td>
+<td><span style="color:#EB0000">Segment(C, A, poly1)</span></td>
+<td><span style="color:#EB0000">h = 6.3</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#993300">Segment j</span></td>
+<td><span style="color:#993300">Segment(H, I, poly1)</span></td>
+<td><span style="color:#993300">j = ?</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#993300">Segment l</span></td>
+<td><span style="color:#993300">Segment(I, J, poly1)</span></td>
+<td><span style="color:#993300">l = ?</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#993300">Segment m</span></td>
+<td><span style="color:#993300">Segment(J, A, poly1)</span></td>
+<td><span style="color:#993300">m = ?</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td>Circle e</td>
+<td>Circle(C, B)</td>
+<td>e: x² + y² = 39.5</td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#6E6D73">Point L</span></td>
+<td><span style="color:#6E6D73">Intersect(e, yAxis, 2)</span></td>
+<td><span style="color:#6E6D73">L = (0, 6.3)</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#6464E6">Point M</span></td>
+<td><span style="color:#6464E6">Point(e)</span></td>
+<td><span style="color:#6464E6">M = (-5.4, -3.1)</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#9933FF">Circle c</span></td>
+<td><span style="color:#9933FF">Circle(L, M, A)</span></td>
+<td><span style="color:#9933FF">c: x² + y² = 39.5</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#C75000">Point D</span></td>
+<td><span style="color:#C75000">Point(c)</span></td>
+<td><span style="color:#C75000">D = (6.3; 0°; 0°)</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td>Circle d</td>
+<td>Circle(C, D)</td>
+<td>d: x² + y² = 39.5</td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#CC0000">Point E</span></td>
+<td><span style="color:#CC0000">Midpoint(D, C)</span></td>
+<td><span style="color:#CC0000">E = (3.1, 0)</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#6E6D73">Point F</span></td>
+<td><span style="color:#6E6D73">Midpoint(E, D)</span></td>
+<td><span style="color:#6E6D73">F = (4.7, 0)</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#008600">Circle q</span></td>
+<td><span style="color:#008600">Circle(F, D)</span></td>
+<td><span style="color:#008600">q: (x - 4.7)² + y² = 2.5</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#1C1C1F">Input Box InputBox1</span></td>
+<td><span style="color:#1C1C1F">InputBox(D)</span></td>
+<td><span style="color:#1C1C1F">InputBox1</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td>Point n</td>
+<td>D</td>
+<td>n = (6.3, 0)</td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td>Circle k</td>
+<td>Circle(D, B, A)</td>
+<td>k: x² + y² = 39.5</td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td>Circle t</td>
+<td>Circle(C, E)</td>
+<td>t: x² + y² = 9.9</td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td>Number +</td>
+<td>&nbsp;</td>
+<td>+ = 5</td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#6E6D73">Point K</span></td>
+<td>&nbsp;</td>
+<td><span style="color:#6E6D73">K = (0, 0)</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#0000FF">Polygon poly1'</span></td>
+<td><span style="color:#0000FF">Rotate(poly1, 60&#176;, K)</span></td>
+<td><span style="color:#0000FF">poly1' = 17.1</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#0000FF">Polygon poly1''</span></td>
+<td><span style="color:#0000FF">Rotate(poly1', 60&#176;, K)</span></td>
+<td><span style="color:#0000FF">poly1'' = 17.1</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#0000FF">Polygon poly1'''</span></td>
+<td><span style="color:#0000FF">Rotate(poly1'', 60&#176;, K)</span></td>
+<td><span style="color:#0000FF">poly1''' = 17.1</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#0000FF">Polygon t1</span></td>
+<td><span style="color:#0000FF">Rotate(poly1''', 60&#176;, K)</span></td>
+<td><span style="color:#0000FF">t1 = 17.1</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#0000FF">Polygon t1'</span></td>
+<td><span style="color:#0000FF">Rotate(t1, 60&#176;, K)</span></td>
+<td><span style="color:#0000FF">t1' = 17.1</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><html>Circle c<sub><font size="-1">1</font></sub></html></td>
+<td>Circle(L, M, A)</td>
+<td>c<sub><font size="-1">1</font></sub>: x&#178; + y&#178; = 39.5</td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#6464E6">Point N</span></td>
+<td><span style="color:#6464E6">Point(yAxis)</span></td>
+<td><span style="color:#6464E6">N = (0, -6.3)</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td>Segment a</td>
+<td>Segment(K, N)</td>
+<td>a = 6.3</td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td>Circle r</td>
+<td>Circle(B, K, A)</td>
+<td>r: (x - 3.6)² + y² = 13.2</td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#006400">Angle ±</span></td>
+<td><span style="color:#006400">Angle(K, B, A)</span></td>
+<td><span style="color:#006400">± = 60°</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td>Segment i</td>
+<td>Segment(K, D)</td>
+<td>i = 6.3</td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#6E6D73">Point O</span></td>
+<td><span style="color:#6E6D73">Intersect(f, i)</span></td>
+<td><span style="color:#6E6D73">O = (5.4, 0)</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td>Circle p</td>
+<td>Circle(K, O)</td>
+<td>p: x² + y² = 29.6</td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td>Circle s</td>
+<td>Circle(K, F)</td>
+<td>s: x² + y² = 22.2</td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><html>Circle d<sub><font size="-1">1</font></sub></html></td>
+<td>Circle(K, Segment(E, F))</td>
+<td>d<sub><font size="-1">1</font></sub>: x&#178; + y&#178; = 2.5</td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#6E6D73">Point P</span></td>
+<td><span style="color:#6E6D73">Intersect(i, poly1)</span></td>
+<td><span style="color:#6E6D73">P = (0, 0)</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#6E6D73">Point Q</span></td>
+<td><span style="color:#6E6D73">Intersect(i, poly1)</span></td>
+<td><span style="color:#6E6D73">Q = (5.4, 0)</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#6E6D73">Point R</span></td>
+<td><span style="color:#6E6D73">Intersect(d<sub><font size="-1">1</font></sub>, i)</span></td>
+<td><span style="color:#6E6D73">R = (1.6, 0)</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#008600"><html>Circle e<sub><font size="-1">1</font></sub></html></span></td>
+<td><span style="color:#008600">Circle(R, E)</span></td>
+<td><span style="color:#008600">e<sub><font size="-1">1</font></sub>: (x - 1.6)&#178; + y&#178; = 2.5</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#0000FF"><html>Circle f<sub><font size="-1">1</font></sub></html></span></td>
+<td><span style="color:#0000FF">Circle(E, R)</span></td>
+<td><span style="color:#0000FF">f<sub><font size="-1">1</font></sub>: (x - 3.1)&#178; + y&#178; = 2.5</span></td>
+</tr>
+<tr style='vertical-align:baseline;'>
+<td><span style="color:#006400">Angle ²</span></td>
+<td><span style="color:#006400">Angle(A, K, B)</span></td>
+<td><span style="color:#006400">² = 60°</span></td>
+</tr>
+</table>
+Created with <a href="https://www.geogebra.org/" target="_blank" >GeoGebra</a>
+<!-- Base64 string so that this file can be opened in GeoGebra with File -> Open -->
+<applet width='1' height='1' code='' style="display:none">
+<param name="ggbBase64" value="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">
+</applet>
+</body>
+</html>
