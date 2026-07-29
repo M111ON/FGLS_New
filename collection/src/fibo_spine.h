@@ -179,7 +179,7 @@ static inline uint8_t fibo_spine_tick(FiboSpine *fs) {
 
         /* For each active pipe at tick 11, flag as bridged */
         for (uint16_t p = 0; p < FS_PIPES; p++) {
-            if (fs->pipes[p].flags & PIPE_FLAG_NONE) {
+            if (!(fs->pipes[p].flags & PIPE_FLAG_BRIDGED)) {
                 /* This pipe is about to enter residual */
                 fs->pipes[p].flags |= PIPE_FLAG_BRIDGED;
                 fs->pipes[p].current_tick = 0; /* reset on re-entry */

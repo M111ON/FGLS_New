@@ -401,7 +401,7 @@ static void evolve(uint8_t *board, int steps)
 }
 
 /* Weight → tile with evolution */
-static uint16_t weight_to_tile_evolved(int8_t weight)
+static __attribute__((unused)) uint16_t weight_to_tile_evolved(int8_t weight)
 {
     /*
      * 1. Map weight to initial position on Hilbert curve
@@ -751,7 +751,7 @@ static void test_real_model(const char *path)
         uint64_t off; fread(&off, 8, 1, f);
 
         if (dt == 8) {
-            printf("  Tensor: Q8_0, %llu weights\n", (unsigned long long)nw);
+            printf("  Tensor: Q8_0, %I64u weights\n", (unsigned long long)nw);
             long ds = ftell(f);
             int nb = (int)(nw / 32);
             int nt2 = nb > 100 ? 100 : nb;

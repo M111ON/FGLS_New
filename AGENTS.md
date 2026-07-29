@@ -67,6 +67,15 @@ fact_store (SQLite) = **รายละเอียดทั้งหมด** �
 - **First Principle: ห้ามคิด compressor mindset** — "คิดจะบีบ = ไปผิดทางทันที"
   MAP not COMPRESS, เปลี่ยนมิติเข้าถึงข้อมูล ไม่บีบ payload
 
+## ⚠️ Geometry-Data Separation Rule (Jul 30)
+Geometry ops (stride-37, 1440, fibo, coordinate transforms) → **geometry space only**
+Data ops (weight values, quantization, storage dimensions) → **data space only**
+
+**ห้ามเอา geometry constant มาเป็น data dimension โดยไม่มี proof ว่า appropriate**
+
+เหตุผล: error <1% ที่เคยเจอ (blueprint, shape-bench) อาจเกิดจากsilent drift
+ของการเอา geometry constant (เช่น 1440) มาใช้กับ data storage
+
 ## 🧠 Behavioral Rules
 
 ### 1. File Deletion — Strict Scoping

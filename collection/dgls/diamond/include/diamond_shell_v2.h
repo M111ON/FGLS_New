@@ -191,22 +191,39 @@ static inline DiamondBlock _shell_chunk_to_block(const uint8_t rotbuf[64],
     return db;
 }
 
+/*
+ * _chunk_to_pure_block: content-only DiamondBlock from first 8B
+ * NO geometry metadata override — pure fold_fibo_intersect on real data
+ * This fixes Bug 1 from HANDOFF: metadata was polluting 75% of core.raw
+ * (only 16-bit data residue survived → fibo_intersect was meaningless)
+ */
+static inline DiamondBlock _chunk_to_pure_block(const uint8_t chunk[8])
+{
+    DiamondBlock db;
+    memset(&db, 0, sizeof(db));
+    memcpy(&db.core.raw, chunk, 8);
+    db.invert = ~db.core.raw;
+    fold_build_quad_mirror(&db);
+    return db;
+}
+
 /* ══════════════════════════════════════════════════════════
  * shell_classify_chunk_v2()
  *
  * v2: uses fold_fibo_intersect as rotation discriminator
+ *     + pure-content block for accurate content analysis
  *
  * For each of 6 rotations:
  *   1. rotate chunk bytes (3D re-index)
- *   2. build DiamondBlock from rotated bytes
+ *   2. build PURE DiamondBlock from first 8B (no metadata override)
  *   3. compute fold_fibo_intersect → popcount
  *   4. pick rotation with HIGHEST popcount
  *      (= most geometric structure preserved = best codec alignment)
  *
- * Classify by isect popcount:
+ * Classify by isect popcount (PURE content, not metadata-contaminated):
  *   == 0              → FLAT   (2B encode)
- *   1..SPARSE_THRESH  → SPARSE (9B encode)
- *   > SPARSE_THRESH   → DENSE  (17B encode)
+ *   1..SPARSE_THRESH  → SPARSE (10B: seed)
+ *   > SPARSE_THRESH   → DENSE  (66B: full rotated chunk)
  * ══════════════════════════════════════════════════════════ */
 static inline ShellChunkResult shell_classify_chunk_v2(
     const uint8_t *chunk,
@@ -228,15 +245,18 @@ static inline ShellChunkResult shell_classify_chunk_v2(
 
     for (uint8_t rot = 0; rot < SHELL_ROT_STATES; rot++) {
         _shell_rotate64(rotbuf, chunk, rot);
-        DiamondBlock db = _shell_chunk_to_block(rotbuf, rot, chunk_z);
 
-        /* guard: skip invalid blocks */
-        if (!fold_xor_audit(&db)) {
-            /* force valid: recompute invert */
-            db.invert = ~db.core.raw;
-            fold_build_quad_mirror(&db);
-        }
+        /* v3 fix: use PURE content block (no metadata override)
+         * _shell_chunk_to_block() overwrites 75% of core.raw with
+         * geometry context (face_id, engine_id, vpos, fibo_gear, quad_flags),
+         * leaving only 16-bit data residue. fold_fibo_intersect on that
+         * contaminated block tells us about GEOMETRY CONTEXT, not CONTENT.
+         *
+         * _chunk_to_pure_block() uses first 8B as-is → fibo_intersect
+         * reflects REAL content structure → accurate rotation selection. */
+        DiamondBlock db = _chunk_to_pure_block(rotbuf);
 
+        /* pure block always passes XOR audit (invert = ~core.raw) */
         uint64_t isect = fold_fibo_intersect(&db);
         int pc = __builtin_popcountll(isect);
 
@@ -273,10 +293,10 @@ static inline uint32_t shell_encode_size_v2(const ShellChunkResult *r)
 {
     switch (r->flag) {
         case SHELL_FLAG_FLAT:   return 2u;
-        case SHELL_FLAG_SPARSE: return 9u;
-        case SHELL_FLAG_DENSE:  return 17u;
-        case SHELL_FLAG_BATCH:  return 5u;
-        default:                return 17u;
+        case SHELL_FLAG_SPARSE: return 66u;  /* full rotated 64B + 2B header */
+        case SHELL_FLAG_DENSE:  return 66u;  /* same — lossless minimum */
+        case SHELL_FLAG_BATCH:  return 5u;   /* batch ID + z-index */
+        default:                return 66u;
     }
 }
 
@@ -327,11 +347,10 @@ static inline uint8_t shell_batch_flush_v2(ShellBatch *b,
         uint64_t acc_isect = 0;
         for (uint32_t i = 0; i < b->count; i++) {
             _shell_rotate64(rotbuf, b->cube + i * SHELL_CHUNK_SZ, rot);
-            DiamondBlock db = _shell_chunk_to_block(rotbuf, rot, i);
-            if (!fold_xor_audit(&db)) {
-                db.invert = ~db.core.raw;
-                fold_build_quad_mirror(&db);
-            }
+
+            /* v3: use pure content DiamondBlock for accurate fibo_intersect */
+            DiamondBlock db = _chunk_to_pure_block(rotbuf);
+
             acc_isect ^= fold_fibo_intersect(&db);
         }
         int pc = __builtin_popcountll(acc_isect);

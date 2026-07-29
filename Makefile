@@ -51,7 +51,7 @@ GEO_SRC = collection/dgls/geo/src/geo_jump.c
 BIN = fgls.exe verify_frame_seek.exe profile_test.exe tensor_proof.exe \
       lblock_prototype.exe lblock_realdata_bench.exe atomic_reshape_demo.exe \
       test_fibo_tick.exe test_enclosure_pipeline.exe test_tensor_track.exe \
-      test_beam_entropy_container.exe
+      test_beam_entropy_container.exe test_bond_fibospine_mapping.exe
 
 all: $(BIN)
 	@echo "Built: $(BIN)"
@@ -96,6 +96,9 @@ test_tensor_track.exe: pipeline/test_tensor_track.c core/tensor_track.h core/fib
 
 test_beam_entropy_container.exe: pipeline/test_beam_entropy_container.c core/beam_entropy_container.h core/fibo_tick.h core/geo_frame_seek.h beam_addressing/beam_timer.h collection/rdh/rdh_capture.h
 	$(CC) $(CFLAGS) $(INCLUDES) pipeline/test_beam_entropy_container.c -o test_beam_entropy_container.exe -lm
+
+test_bond_fibospine_mapping.exe: pipeline/test_bond_fibospine_mapping.c core/fibo_tick.h core/geo_frame_seek.h collection/rdh/rdh_capture.h collection/include/p5h_ribcage.h collection/dgls/geo/include/fibo_spine.h core/bond_to_geopixel.h core/pogls_bond.h core/pogls_config.h
+	$(CC) $(CFLAGS) $(INCLUDES) -Icollection/include -Icollection/src -Icollection/geopixel -DP5H_ENABLE pipeline/test_bond_fibospine_mapping.c -o test_bond_fibospine_mapping.exe
 
 lblock_prototype.exe: pipeline/lblock_prototype.c
 	$(CC) $(CFLAGS) $(INCLUDES) pipeline/lblock_prototype.c -o lblock_prototype.exe -lm
@@ -186,6 +189,8 @@ test: $(BIN)
 	@./test_tensor_track.exe 2>&1 | grep -E 'PASS|FAIL|RESULTS'
 	@echo "=== 21. beam entropy container ==="
 	@./test_beam_entropy_container.exe 2>&1 | grep -E 'PASS|FAIL|RESULTS'
+	@echo "=== 22. bond → fibospine pipe mapping ==="
+	@./test_bond_fibospine_mapping.exe 2>&1 | grep -E 'PASS|FAIL|RESULTS'
 	@echo "=== ALL TESTS COMPLETE ==="
 
 clean:

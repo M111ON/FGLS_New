@@ -87,12 +87,12 @@ int main(void)
     int ok = 1;
     for (int t = 0; t < 5; t++) { /* test first 5 */
         int32_t vx = tw_scale(T[t].f[0] + T[t].f[3]);
-        int32_t vy = tw_scale(T[t].f[1] + T[t].f[4]);
-        TWCaptureInt cap;
-        tw_capture_int(vx, vy, &cap);
-        int32_t rx, ry;
-        tw_reconstruct_int(&cap, &rx, &ry);
-        if (rx != vx || ry != vy) {
+                int32_t vy = tw_scale(T[t].f[1] + T[t].f[4]);
+                TWCaptureInt cap;
+                tw_capture_int(vx, vy, &cap);
+                int64_t rx, ry;
+                tw_reconstruct_int(&cap, &rx, &ry);
+                if (rx != vx || ry != vy) {
             printf("  MISMATCH T%d: (%d,%d) ≠ (%d,%d)\n", t, vx, vy, rx, ry);
             ok = 0;
         }

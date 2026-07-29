@@ -1,0 +1,22 @@
+{
+  "file": "Kokoro_no_espeak_Q8.gguf",
+  "tensor_bytes": 76800,
+  "frames": 100,
+  "encode_ms": 21.43,
+  "encode_mbps": 3.42,
+  "encode_us_per_frame": 214.315,
+  "decode_ms": 0.07,
+  "decode_mbps": 984.44,
+  "decode_us_per_frame": 0.744,
+  "ratio_pure": 384.0,
+  "ratio_lossless": 1.0,
+  "unique_encs": 97,
+  "unique_pct": 97.0,
+  "roundtrip_pass": true,
+  "enc_only_bytes": 200,
+  "total_encoded_bytes": 79374,
+  "delta_total_bytes": 78408,
+  "delta_flat_chunks": 0,
+  "delta_sparse_chunks": 0,
+  "delta_dense_chunks": 1188
+}

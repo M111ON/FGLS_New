@@ -1,0 +1,22 @@
+{
+  "file": "SmolLM2-360M-Instruct.Q8_0.gguf",
+  "tensor_bytes": 384618240,
+  "frames": 500805,
+  "encode_ms": 112637.25,
+  "encode_mbps": 3.26,
+  "encode_us_per_frame": 224.912,
+  "decode_ms": 353.17,
+  "decode_mbps": 1038.6,
+  "decode_us_per_frame": 0.705,
+  "ratio_pure": 384.0,
+  "ratio_lossless": 1.0,
+  "unique_encs": 1440,
+  "unique_pct": 0.3,
+  "roundtrip_pass": true,
+  "enc_only_bytes": 1001610,
+  "total_encoded_bytes": 397615336,
+  "delta_total_bytes": 396612960,
+  "delta_flat_chunks": 0,
+  "delta_sparse_chunks": 748,
+  "delta_dense_chunks": 6008900
+}

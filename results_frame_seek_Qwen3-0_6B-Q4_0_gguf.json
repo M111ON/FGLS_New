@@ -1,0 +1,22 @@
+{
+  "file": "Qwen3-0.6B-Q4_0.gguf",
+  "tensor_bytes": 7680000,
+  "frames": 10000,
+  "encode_ms": 2105.28,
+  "encode_mbps": 3.48,
+  "encode_us_per_frame": 210.528,
+  "decode_ms": 7.17,
+  "decode_mbps": 1021.35,
+  "decode_us_per_frame": 0.717,
+  "ratio_pure": 384.0,
+  "ratio_lossless": 1.0,
+  "unique_encs": 1305,
+  "unique_pct": 13.1,
+  "roundtrip_pass": true,
+  "enc_only_bytes": 20000,
+  "total_encoded_bytes": 7938387,
+  "delta_total_bytes": 7917621,
+  "delta_flat_chunks": 0,
+  "delta_sparse_chunks": 49,
+  "delta_dense_chunks": 119939
+}

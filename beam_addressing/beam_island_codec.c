@@ -98,7 +98,7 @@ static uint32_t encode_bitmap(const int8_t *w, uint32_t n, uint8_t *out) {
 
 static uint32_t decode_bitmap(const uint8_t *in, uint32_t in_sz, int8_t *w, uint32_t max) {
     if (in_sz < 5) return 0;
-    uint32_t nz_count = in[0];
+    (void)in[0]; /* nz_count, unused in decode */
     uint32_t bitmap = (uint32_t)in[1] | ((uint32_t)in[2] << 8) | 
                       ((uint32_t)in[3] << 16) | ((uint32_t)in[4] << 24);
     
