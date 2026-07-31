@@ -57,15 +57,38 @@ Global skill `cross-session-board` ให้ board + context source tools ทุ
 - GDB path: `C:\mingw64\bin\gdb.exe` (version 8.1)
 - เมื่อเจอ crash ที่ไม่ชัดเจน ให้ใช้ gdb debug ก่อนเพิ่ม printf/fprintf
 
-## 🧠 Memory Architecture — Index + Fact Store
+## 🧠 Memory Architecture — Tier System
 
-memory (inline, 8K limit) = **index only** — thin pointers (`probe key → desc`)
-fact_store (SQLite) = **รายละเอียดทั้งหมด** — `fact_store search/probe/reason`
+**Memory (inline, 8K)** = index + pointers เท่านั้น
+**Fact_store (SQLite)** = detail ทั้งหมด (unlimited)
+**Skills** = procedures (separate storage)
 
-- ถ้า memory แสดง `probe xxx` → เรียก `fact_store search xxx` เพื่อดึงเต็ม
-- memory เต็มเมื่อไหร่ → consolidate index, ย้ายรายละเอียดไป fact_store
-- **First Principle: ห้ามคิด compressor mindset** — "คิดจะบีบ = ไปผิดทางทันที"
-  MAP not COMPRESS, เปลี่ยนมิติเข้าถึงข้อมูล ไม่บีบ payload
+### Auto-load Protocol
+- Memory entries `.injected` ทุก turn (อัตโนมัติ)
+- Fact_store `.search/.probe` — เรียกเองเมื่อเห็น pointer
+- Skills `.skill_view(name)` — load เมื่อเข้า topic
+
+### Memory Full Protocol
+เมื่อ memory > 90%:
+1. ลบ duplicate entries
+2. สั้น entries ที่ยาว (ย้าย detail ไป fact_store)
+3. เหลือ pointer ใน memory (`probe xxx` หรือ `fact98: desc`)
+4. ใช้ `memory operations` batch
+
+### Delta Protocol (Append-Only)
+ห้าม consolidate ข้อมูลที่มี relationship — ใช้ delta:
+- `[DELTA:rename] old→new` — เปลี่ยนชื่อ
+- `[DELTA:deprecate] old | reason: use new` — ยกเลิก
+- `[DELTA:supersedes] chain: A→B→C. Current=C` — evolution chain
+- Skill: `memory-delta-protocol`
+
+### First Principle
+**ห้ามคิด compressor mindset** — "คิดจะบีบ = ไปผิดทางทันที"
+MAP not COMPRESS, เปลี่ยนมิติเข้าถึงข้อมูล ไม่บีบ payload
+
+### Future: Zone System (keep in mind)
+Multi-bag with zones: `bag#1[z1,z2,z6,z8] + bag#3[z3,z4,z5,z7]`
+ยังไม่ implement — ใช้ tier system ไปก่อน (fact 107)
 
 ## ⚠️ Geometry-Data Separation Rule (Jul 30)
 Geometry ops (stride-37, 1440, fibo, coordinate transforms) → **geometry space only**
