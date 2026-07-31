@@ -64,6 +64,11 @@ static void build_neighbor_table(void)
     int *count  = (int *)calloc(map_size, sizeof(int));
     int *face_a = (int *)calloc(map_size, sizeof(int));
     int *face_b = (int *)calloc(map_size, sizeof(int));
+    if (!count || !face_a || !face_b) {
+        fprintf(stderr, "build_neighbor_table: allocation failed\n");
+        free(count); free(face_a); free(face_b);
+        return;
+    }
 
     memset(count, 0, map_size * sizeof(int));
 
@@ -171,6 +176,10 @@ int main(void)
     {
         int map_size = N_VERT * N_VERT;
         int *count = (int *)calloc(map_size, sizeof(int));
+        if (!count) {
+            fprintf(stderr, "Test 3: allocation failed\n");
+            check(0, "Test 3: each edge shared exactly twice (30 edges)");
+        } else {
         memset(count, 0, map_size * sizeof(int));
         for (int f = 0; f < N_FACE; f++) {
             for (int e = 0; e < 3; e++) {
@@ -190,6 +199,7 @@ int main(void)
               "Test 3: each edge shared exactly twice (30 edges)");
         printf("        (detected %d distinct edges)\n", edge_count);
         free(count);
+        }
     }
 
     /* ---- TEST 4: walk path — start at face 0, follow edge 0 repeatedly ---- */

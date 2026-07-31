@@ -290,6 +290,7 @@ int main(int argc, char **argv) {
 
     // Extract
     int8_t *buf = (int8_t*)calloc(TOTAL + 256, 1);
+    if (!buf) { fclose(f); printf("buf alloc failed\n"); return 1; }
     fseek(f, tensor_off, SEEK_SET);
     int nr = 0;
     uint64_t nb = sz / 34;

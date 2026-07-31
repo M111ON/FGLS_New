@@ -108,6 +108,11 @@ static int gguf_open(const char *path, GGUFFile *gf) {
     for (uint64_t i = 0; i < gf->n_tensors; i++) {
         uint64_t nl; fread(&nl, 8, 1, f);
         gf->names[i] = (char*)calloc(nl+1, 1);
+        if (!gf->names[i]) {
+            printf("names alloc failed\n");
+            fclose(f);
+            return 1;
+        }
         fread(gf->names[i], nl, 1, f);
         uint32_t nd; fread(&nd, 4, 1, f);
         gf->n_dims[i] = nd;

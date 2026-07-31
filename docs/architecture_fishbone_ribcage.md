@@ -33,7 +33,26 @@ MAP ไม่ใช่ COMPRESS — คิดจะบีบ = ผิดทา�
 │  Section: .hermes/desktop-attachments/Icosa-Dodeca_Recursive_∗  │
 │  Code:   none — pure geometry                             │
 ├──────────────────────────────────────────────────────────────┤
-│                  LAYER 1: RIBAGE (CUBE DATA STORE)             │
+│                  LAYER 1: SKELETON (ADDR → GEOMETRY)           │
+│ Skeleton — ไม่ใช่ data, ไม่ใช่ structure — คือ BRIDGE             │
+│                                                                │
+│ skeleton_lookup(addr) → O(1), 7 ops, 0 branch               │
+│   zone = 12 pentagon sectors (dodecahedron routing)          │
+│   pair = 6 bipolar channels (cube face mapping)              │
+│   pole = CHIRAL/CROSS (Metatron)                             │
+│   enc  = 0..719 walk (stride-37, bijective)                  │
+│                                                                │
+│ skel_decide(chunk) → P0→P5 short-circuit:                    │
+│   IDENTITY (1B) → RAW (64B) → FLAT (1B) → DIFF (10+nB)     │
+│   → BREF (2B) → GEOM (~20B) → RAW fallback (64B)           │
+│                                                                │
+│ Files: core/skeleton_index.h (canonical, 227 lines)          │
+│   Also: collection/reshape_nbond/, dgls/, geopixel/, colab/  │
+│   Python: tools/geopixel_pipeline.py                         │
+│   CUDA: skel_decide_kernel in pipeline                       │
+│   Tests: test_skel.py, test_full.py, src/pipeline.c          │
+├──────────────────────────────────────────────────────────────┤
+│                  LAYER 2: RIBCAGE (CUBE DATA STORE)            │
 │ 数据 — สิ่งที่เกาะตามซี่โครง                               │
 │                                              จาก          │
 │  Cube 10×10×10 × 6 faces (A,B,C,D,E,F) → contour mask         │
@@ -47,7 +66,7 @@ MAP ไม่ใช่ COMPRESS — คิดจะบีบ = ผิดทา�
 │         runner/explore/silk_screen_encoder.c                 │
 │         runner/explore/test_opposite_cancel.py              │
 ├──────────────────────────────────────────────────────────────┤
-│                  LAYER 2: POINTERS (ACCESS PATTERNS)           │
+│                  LAYER 3: POINTERS (ACCESS PATTERNS)           │
 │ ตัวชี้ — f(time, rib_id) → cube weight                        │
 │                                                                │
 │  Access strategies:                                        │
@@ -59,7 +78,7 @@ MAP ไม่ใช่ COMPRESS — คิดจะบีบ = ผิดทา�
 │                                                                │
 │  Files: experiments/rib_cube_access.py                        │
 ├──────────────────────────────────────────────────────────────┤
-│                  LAYER 3: RESIDUAL (SHADOW SPACE)              │
+│                  LAYER 4: RESIDUAL (SHADOW SPACE)              │
 │ เงา — ช่องว่างที่ไม่ว่างเปล่า                                         │
 │                                                                │
 │  GAP = Icosa(R=1.0) - Dodeca(R=0.382) = 0.618 = 1/φ         │

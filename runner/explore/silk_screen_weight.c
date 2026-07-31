@@ -416,6 +416,13 @@ static int gguf_open(const char *path, GGUFFile *gf) {
     gf->tensor_dtypes = (uint32_t *)calloc(n_tensors, sizeof(uint32_t));
     gf->tensor_offsets = (uint64_t *)calloc(n_tensors, sizeof(uint64_t));
     gf->tensor_sizes = (uint64_t *)calloc(n_tensors, sizeof(uint64_t));
+    if (!gf->tensor_names || !gf->tensor_dtypes || !gf->tensor_offsets || !gf->tensor_sizes) {
+        printf("alloc failed\n");
+        free(gf->tensor_names); free(gf->tensor_dtypes);
+        free(gf->tensor_offsets); free(gf->tensor_sizes);
+        fclose(f);
+        return 1;
+    }
     
     uint64_t data_offset = ftell(f);
     
@@ -424,12 +431,26 @@ static int gguf_open(const char *path, GGUFFile *gf) {
         uint64_t nlen;
         fread(&nlen, 8, 1, f);
         gf->tensor_names[i] = (char *)calloc(nlen + 1, 1);
+        if (!gf->tensor_names[i]) {
+            printf("tensor_names alloc failed\n");
+            free(gf->tensor_names); free(gf->tensor_dtypes);
+            free(gf->tensor_offsets); free(gf->tensor_sizes);
+            fclose(f);
+            return 1;
+        }
         fread(gf->tensor_names[i], nlen, 1, f);
         
         // Dimensions
         uint32_t n_dims;
         fread(&n_dims, 4, 1, f);
         uint64_t *dims = (uint64_t *)calloc(n_dims, sizeof(uint64_t));
+        if (!dims) {
+            printf("dims alloc failed\n");
+            free(gf->tensor_names); free(gf->tensor_dtypes);
+            free(gf->tensor_offsets); free(gf->tensor_sizes);
+            fclose(f);
+            return 1;
+        }
         uint64_t n_elems = 1;
         for (uint32_t j = 0; j < n_dims; j++) {
             fread(&dims[j], 8, 1, f);
@@ -683,6 +704,11 @@ static void test_gguf_silk(const char *gguf_path) {
     if (max_read > 100000) max_read = 100000;  // cap
     
     int8_t *raw = (int8_t *)calloc(max_read, 1);
+    if (!raw) {
+        printf("raw alloc failed\n");
+        gguf_close(&gf);
+        return 1;
+    }
     int n_read = gguf_read_tensor(gguf_path, best_t, raw, max_read);
     
     if (n_read <= 0) {

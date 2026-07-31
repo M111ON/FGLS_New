@@ -277,6 +277,7 @@ static int test_contour_gguf(const char *path) {
     printf("  Tensor[%d]: %s (%llu bytes Q8_0)\n", best, tensor_name, (unsigned long long)tensor_sz);
 
     int8_t *buf = (int8_t*)calloc(GRID_TOTAL + 256, 1);
+    if (!buf) { fclose(f); printf("buf alloc failed\n"); return 1; }
     fseek(f, tensor_off, SEEK_SET);
     int nr = 0;
     uint64_t nb = tensor_sz / 34;

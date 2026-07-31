@@ -144,6 +144,7 @@ int main(int argc, char **argv) {
 
     // Read all tensor info
     TensorInfo *tinfos = (TensorInfo*)calloc(n_tensors, sizeof(TensorInfo));
+    if (!tinfos) { fclose(f); printf("tinfos alloc failed\n"); return 1; }
     for (uint64_t i = 0; i < n_tensors; i++) {
         uint64_t nlen; fread(&nlen, 8, 1, f);
         fread(tinfos[i].name, nlen, 1, f); tinfos[i].name[nlen] = 0;
@@ -180,6 +181,12 @@ int main(int argc, char **argv) {
     all_corr12 = (double*)calloc(max_tensors, sizeof(double));
     all_ent = (double*)calloc(max_tensors * N_MASKS, sizeof(double));
     all_names = (char**)calloc(max_tensors, sizeof(char*));
+    if (!all_corr01 || !all_corr02 || !all_corr12 || !all_ent || !all_names) {
+        printf("alloc failed\n");
+        free(all_corr01); free(all_corr02); free(all_corr12);
+        free(all_ent); free(all_names); free(tinfos); fclose(f);
+        return 1;
+    }
 
     printf("%-45s %10s %8s %8s %8s %8s %8s\n",
            "Tensor", "Size", "Ent M0", "Ent M1", "Ent M2", "Cor01", "Cor02");

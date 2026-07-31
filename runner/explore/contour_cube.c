@@ -52,7 +52,6 @@ static const char *FACE_NAMES[] = {"A", "C", "E"};
 // Projection sizes (collapsing one axis)
 static const int PROJ_ROWS[] = {GY, GX, GX};  // rows in projection
 static const int PROJ_COLS[] = {GZ, GZ, GY};  // cols in projection
-static const int PROJ_SIZE[] = {GY*GZ, GX*GZ, GX*GY};  // total values
 
 // ============================================================
 // Cube Contour Mask
@@ -291,7 +290,7 @@ static int test_gguf(const char *path) {
     char name[256] = "";
     for (uint64_t i = 0; i < n_tensors; i++) {
         uint64_t nlen; fread(&nlen, 8, 1, f);
-        char nbuf[256]; fread(nbuf, nlen, 1, f); nbuf[nlen]=0;
+        char nbuf[256]; if(nlen>255)nlen=255; fread(nbuf, nlen, 1, f); nbuf[nlen]=0;
         uint32_t nd; fread(&nd, 4, 1, f);
         for (uint32_t j=0;j<nd;j++){uint64_t d;fread(&d,8,1,f);}
         uint32_t dt; fread(&dt, 4, 1, f);
@@ -299,8 +298,7 @@ static int test_gguf(const char *path) {
         if (i == (uint64_t)best) { tensor_off = off; strncpy(name, nbuf, 255); }
     }
     fseek(f, 0, SEEK_END);
-    uint64_t sz = ftell(f) - tensor_off;
-    printf("  Model: %s\n  Tensor: %s (%llu bytes)\n", path, name, (unsigned long long)sz);
+    printf("  Model: %s\n  Tensor: %s\n", path, name);
 
     int8_t *buf = (int8_t*)calloc(GT + 256, 1);
     fseek(f, tensor_off, SEEK_SET);

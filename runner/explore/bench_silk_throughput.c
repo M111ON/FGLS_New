@@ -74,6 +74,11 @@ static int gguf_open(const char *path, GGUFFile *gf) {
     for (uint64_t i = 0; i < gf->n_tensors; i++) {
         uint64_t nlen; fread(&nlen, 8, 1, f);
         gf->names[i] = (char*)calloc(nlen + 1, 1);
+        if (!gf->names[i]) {
+            printf("names alloc failed\n");
+            fclose(f);
+            return 1;
+        }
         fread(gf->names[i], nlen, 1, f);
         uint32_t nd; fread(&nd, 4, 1, f);
         for (uint32_t j = 0; j < nd; j++) { uint64_t d; fread(&d, 8, 1, f); }
@@ -177,6 +182,11 @@ int main(int argc, char **argv) {
 
     // ── 2. Extract int8 values ───────────────────────────────
     int8_t *buf = (int8_t*)calloc(LAYER_SLOTS + 256, 1);
+    if (!buf) {
+        printf("buf alloc failed\n");
+        fclose(f);
+        return 1;
+    }
     FILE *f = gguf_fopen(model);
     if (!f) { printf("FAIL: reopen\n"); free(buf); gguf_close(&gf); return 1; }
     fseek(f, gf.offsets[best], SEEK_SET);

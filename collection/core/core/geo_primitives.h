@@ -17,15 +17,15 @@ static inline uint64_t _mix64(uint64_t x) {
     return x;
 }
 
-static inline uint64_t _rotl64(uint64_t x, int r) {
-    return (x << r) | (x >> (64 - r));
-}
+#ifndef FGLS_ROTL64
+#define FGLS_ROTL64(x, r) (((x) << (r)) | ((x) >> (64 - (r))))
+#endif
 
 /* ── derive_next_core: stateless transition ── */
 static inline uint64_t derive_next_core(uint64_t core, uint8_t face, uint32_t step) {
     uint64_t salt = ((uint64_t)face << 56) ^ (uint64_t)step;
     uint64_t a = _mix64(core ^ salt);
-    uint64_t b = _rotl64(core, (face + step) & 63);
+    uint64_t b = FGLS_ROTL64(core, (face + step) & 63);
     return _mix64(a ^ b);
 }
 

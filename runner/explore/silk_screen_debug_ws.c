@@ -1,3 +1,4 @@
+// NOTE: Linux-only (POSIX sockets)
 /**
  * silk_screen_debug_ws.c — WebSocket server for debug visualization
  * 
@@ -240,6 +241,12 @@ static void* server_thread(void *arg) {
         atomic_fetch_add(&g_client_count, 1);
         
         int *fd = malloc(sizeof(int));
+        if (!fd) {
+            fprintf(stderr, "[WS] fd allocation failed\n");
+            close(client_fd);
+            atomic_fetch_sub(&g_client_count, 1);
+            continue;
+        }
         *fd = client_fd;
         
         pthread_t tid;

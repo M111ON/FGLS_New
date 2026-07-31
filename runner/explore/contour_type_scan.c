@@ -256,8 +256,9 @@ int main(int argc, char **argv) {
     if (magic != GGUF_MAGIC) { fclose(f); printf("Bad magic\n"); return 1; }
 
     skip_kv(f, n_kv);
-
+    // Read all tensor info
     TensorInfo *tinfos = (TensorInfo*)calloc(n_tensors, sizeof(TensorInfo));
+    if (!tinfos) { fclose(f); printf("tinfos alloc failed\n"); return 1; }
     for (uint64_t i = 0; i < n_tensors; i++) {
         uint64_t nlen; fread(&nlen, 8, 1, f);
         fread(tinfos[i].name, nlen, 1, f); tinfos[i].name[nlen] = 0;
