@@ -175,11 +175,17 @@ int codec_encode(codec_ctx *ctx, const contour_cell *cells, int n) {
         if (addr >= CC_GEO_FULL) continue;
         if (seen[addr]) {
             collisions++;
-            ctx->collision_mask = 1;  // signal collision
+            if (collisions <= 5) {
+                fprintf(stderr, "[CODEC] collision %d at addr=%u (face=%d x=%d y=%d z=%d) val=%d overwriting %d\n",
+                        collisions, addr,
+                        cells[i].face, cells[i].x, cells[i].y, cells[i].z,
+                        (int)cells[i].value, (int)ctx->geo[addr]);
+            }
         }
         seen[addr] = 1;
         ctx->geo[addr] = cells[i].value;
     }
+    ctx->collision_mask = (uint32_t)collisions;
     return collisions;
 }
 

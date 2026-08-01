@@ -10,12 +10,15 @@
  *     sid_cache_init(&cache, 64 * 1024 * 1024);  // 64 MB pool
  *
  *     uint8_t *data; size_t size;
- *     if (sid_cache_get(&cache, name, tring, &data, &size) == 0)
+ *     if (sid_cache_get(&cache, name, &data, &size) == 0)
  *         use(data, size);  // cache hit
  *     else {
  *         data = load_from_gguf(name);
  *         sid_cache_put(&cache, name, tring, data, size);
  *     }
+ *
+ *   Eviction: LRU (Least Recently Used) via global access counter.
+ *   Max 256 entries — O(n) scan for eviction is fine.
  */
 
 #include <stdint.h>
@@ -31,6 +34,7 @@ typedef struct {
     uint8_t *data;
     size_t   size;
     uint32_t hits;
+    uint64_t last_access;          /* LRU: last access timestamp */
 } SIDCacheEntry;
 
 typedef struct {
@@ -41,7 +45,7 @@ typedef struct {
     uint64_t      hits;
     uint64_t      misses;
     uint64_t      evictions;
-    uint32_t      next_evict;      /* simple round-robin evict */
+    uint64_t      access_counter;  /* monotonic access clock */
 } SIDCache;
 
 static void sid_cache_init(SIDCache *c, uint64_t pool_bytes) {
@@ -73,6 +77,7 @@ static int sid_cache_get(SIDCache *c, const char *name, uint8_t **data, size_t *
             *size = c->entries[i].size;
             c->entries[i].hits++;
             c->hits++;
+            c->entries[i].last_access = ++c->access_counter;  /* LRU update */
             return 0;
         }
     }
@@ -88,6 +93,7 @@ static int sid_cache_get_by_tring(SIDCache *c, uint16_t tring, uint8_t **data, s
             *size = c->entries[i].size;
             c->entries[i].hits++;
             c->hits++;
+            c->entries[i].last_access = ++c->access_counter;  /* LRU update */
             return 0;
         }
     }
@@ -95,7 +101,28 @@ static int sid_cache_get_by_tring(SIDCache *c, uint16_t tring, uint8_t **data, s
     return -1;
 }
 
-/* Insert or update. Evicts if pool full (round-robin). */
+/* Evict the least recently used entry. Returns 0 on success, -1 if no evictable entry. */
+static int sid_cache_evict_lru(SIDCache *c) {
+    uint32_t oldest = SID_CACHE_MAX_ENTRIES;
+    uint64_t oldest_access = (uint64_t)-1;
+    for (uint32_t i = 0; i < SID_CACHE_MAX_ENTRIES; i++) {
+        if (c->entries[i].tring_pos != 0xFFFF && c->entries[i].last_access < oldest_access) {
+            oldest_access = c->entries[i].last_access;
+            oldest = i;
+        }
+    }
+    if (oldest >= SID_CACHE_MAX_ENTRIES) return -1;
+    c->pool_used -= c->entries[oldest].size;
+    free(c->entries[oldest].data);
+    c->entries[oldest].data = NULL;
+    c->entries[oldest].tring_pos = 0xFFFF;
+    c->entries[oldest].size = 0;
+    c->entries[oldest].last_access = 0;
+    c->evictions++;
+    return 0;
+}
+
+/* Insert or update. Evicts LRU if pool full. */
 static int sid_cache_put(SIDCache *c, const char *name, uint16_t tring,
                           const uint8_t *data, size_t size) {
     if (size > c->pool_size) return -1;  /* too large for pool */
@@ -115,25 +142,14 @@ static int sid_cache_put(SIDCache *c, const char *name, uint16_t tring,
             memcpy(c->entries[i].data, data, size);
             c->entries[i].size = size;
             c->entries[i].tring_pos = tring;
+            c->entries[i].last_access = ++c->access_counter;  /* LRU: freshly used */
             return 1;  /* updated */
         }
     }
 
-    /* Evict if pool full */
-    if (c->pool_used + size > c->pool_size) {
-        uint32_t evict = c->next_evict % SID_CACHE_MAX_ENTRIES;
-        for (uint32_t tries = 0; tries < SID_CACHE_MAX_ENTRIES; tries++) {
-            uint32_t ei = (evict + tries) % SID_CACHE_MAX_ENTRIES;
-            if (c->entries[ei].tring_pos != 0xFFFF) {
-                c->pool_used -= c->entries[ei].size;
-                free(c->entries[ei].data);
-                c->entries[ei].data = NULL;
-                c->entries[ei].tring_pos = 0xFFFF;
-                c->entries[ei].size = 0;
-                c->evictions++;
-                break;
-            }
-        }
+    /* Evict LRU entries until enough space */
+    while (c->pool_used + size > c->pool_size) {
+        if (sid_cache_evict_lru(c) != 0) return -1;
     }
 
     /* Find free slot */
@@ -147,12 +163,13 @@ static int sid_cache_put(SIDCache *c, const char *name, uint16_t tring,
     if (!c->entries[slot].data) return -1;
     memcpy(c->entries[slot].data, data, size);
     strncpy(c->entries[slot].name, name, SID_CACHE_NAME_MAX - 1);
+    c->entries[slot].name[SID_CACHE_NAME_MAX - 1] = '\0';
     c->entries[slot].tring_pos = tring;
     c->entries[slot].size = size;
     c->entries[slot].hits = 0;
+    c->entries[slot].last_access = ++c->access_counter;  /* LRU: fresh insert */
     c->pool_used += size;
     c->n_entries++;
-    c->next_evict = (slot + 1) % SID_CACHE_MAX_ENTRIES;
     return 0;  /* inserted */
 }
 

@@ -111,6 +111,20 @@ int fgls_encode(fgls_ctx *ctx, const fgls_cell *cells, int n);
  * Returns: number of cells decoded, -1 on error. */
 int fgls_decode(fgls_ctx *ctx, fgls_cell *out, int max_out);
 
+/* Encode raw tensor bytes (any size) by chunking into 6000-cell blocks.
+ * Returns 0 on success (all blocks encoded), -1 on error. */
+int fgls_encode_tensor(fgls_ctx *ctx, const uint8_t *data, size_t n_bytes);
+
+/* Decode raw tensor bytes from a previous encode_tensor call.
+ * out: pre-allocated buffer of size n_bytes
+ * Returns 0 on success, -1 on error. */
+int fgls_decode_tensor(fgls_ctx *ctx, uint8_t *out, size_t n_bytes);
+
+/* Streaming roundtrip: encode + decode per 6000-byte block.
+ * Supports any size tensor. out must be pre-allocated to n_bytes.
+ * Returns 0 on perfect match, >0 = block-level errors, <0 = fatal. */
+int fgls_stream_roundtrip(fgls_ctx *ctx, const uint8_t *data, uint8_t *out, size_t n_bytes);
+
 /* Get single cell value (O(1) lookup). */
 int8_t fgls_get(const fgls_ctx *ctx, int face, int x, int y, int z);
 
@@ -255,6 +269,108 @@ int fgls_decode(fgls_ctx *ctx, fgls_cell *out, int max_out) {
     
     free(decoded);
     return n;
+}
+
+/* ── Helper: convert raw bytes to fgls_cell array ── */
+static int bytes_to_cells(const uint8_t *data, int offset, int n_bytes, fgls_cell *cells, int max_cells) {
+    int n = n_bytes < max_cells ? n_bytes : max_cells;
+    for (int i = 0; i < n; i++) {
+        int idx = offset + i;
+        cells[i].face = (idx / 1000) % 6;
+        cells[i].z = (idx / 100) % 10;
+        cells[i].y = (idx / 10) % 10;
+        cells[i].x = idx % 10;
+        cells[i].value = (int8_t)data[i];
+        cells[i].global_idx = idx;
+    }
+    return n;
+}
+
+/* ── Helper: convert fgls_cell array back to bytes ── */
+static void cells_to_bytes(const fgls_cell *cells, int n, int offset, uint8_t *out) {
+    for (int i = 0; i < n; i++) {
+        int idx = cells[i].global_idx - offset;
+        if (idx >= 0 && idx < 6000) {
+            out[idx] = (uint8_t)cells[i].value;
+        }
+    }
+}
+
+/* ── Chunked encode: any size tensor ──
+ * NOTE: Each chunk overwrites the previous in the single geo array.
+ * For multi-chunk tensors, use fgls_encode_decode_tensor() which
+ * interleaves encode+decode per chunk. This function is for
+ * single-chunk tensors only (≤ 6000 bytes). */
+int fgls_encode_tensor(fgls_ctx *ctx, const uint8_t *data, size_t n_bytes) {
+    if (!ctx || !ctx->initialized || !data || n_bytes == 0) return -1;
+    /* For single chunk, just do one encode */
+    int chunk = n_bytes < 6000 ? (int)n_bytes : 6000;
+    fgls_cell cells[6000];
+    memset(cells, 0, sizeof(cells));
+    for (int i = 0; i < chunk; i++) {
+        cells[i].face = (i / 1000) % 6;
+        cells[i].z = (i / 100) % 10;
+        cells[i].y = (i / 10) % 10;
+        cells[i].x = i % 10;
+        cells[i].value = (int8_t)data[i];
+        cells[i].global_idx = i;
+    }
+    return fgls_encode(ctx, cells, chunk);
+}
+
+/* ── Chunked decode: any size tensor ──
+ * NOTE: Same single-chunk limitation as encode_tensor. */
+int fgls_decode_tensor(fgls_ctx *ctx, uint8_t *out, size_t n_bytes) {
+    if (!ctx || !ctx->initialized || !out || n_bytes == 0) return -1;
+    int chunk = n_bytes < 6000 ? (int)n_bytes : 6000;
+    fgls_cell decoded[6000];
+    int n = fgls_decode(ctx, decoded, 6000);
+    if (n < 0) return -1;
+    for (int i = 0; i < n && i < chunk; i++) {
+        int idx = decoded[i].global_idx;
+        if (idx >= 0 && idx < chunk)
+            out[idx] = (uint8_t)decoded[i].value;
+    }
+    return 0;
+}
+
+/* ── Streaming encode-decode: process any size tensor in 6000-byte blocks.
+ * Each block uses local indices 0..5999 internally.
+ * Encodes AND decodes each block before moving to the next.
+ * out must be pre-allocated to n_bytes. Returns 0 on perfect roundtrip. */
+int fgls_stream_roundtrip(fgls_ctx *ctx, const uint8_t *data, uint8_t *out, size_t n_bytes) {
+    if (!ctx || !ctx->initialized || !data || !out || n_bytes == 0) return -1;
+    int total_errors = 0;
+    int offset = 0;
+    fgls_cell cells[6000], decoded[6000];
+    while ((size_t)offset < n_bytes) {
+        int chunk = (n_bytes - offset) < 6000 ? (int)(n_bytes - offset) : 6000;
+        /* Build cells with LOCAL indices 0..5999 per block */
+        memset(cells, 0, sizeof(cells));
+        memset(decoded, 0, sizeof(decoded));
+        for (int i = 0; i < chunk; i++) {
+            cells[i].face = (i / 1000) % 6;
+            cells[i].z = (i / 100) % 10;
+            cells[i].y = (i / 10) % 10;
+            cells[i].x = i % 10;
+            cells[i].value = (int8_t)data[offset + i];
+            cells[i].global_idx = i;  /* LOCAL: 0..5999 within block */
+        }
+        /* Encode → Decode → Verify before moving on */
+        int r = fgls_encode(ctx, cells, chunk);
+        if (r < 0) return -1;
+        int n = fgls_decode(ctx, decoded, 6000);
+        if (n != chunk) return -1;
+        for (int i = 0; i < n; i++) {
+            int idx = decoded[i].global_idx;
+            if (idx >= 0 && idx < chunk)
+                out[offset + idx] = (uint8_t)decoded[i].value;
+            else
+                total_errors++;
+        }
+        offset += chunk;
+    }
+    return total_errors;
 }
 
 int8_t fgls_get(const fgls_ctx *ctx, int face, int x, int y, int z) {

@@ -9,8 +9,8 @@ CFLAGS   = -O2 -std=c11 -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare
 LDFLAGS  = -lm
 
 # Paths
-LLAMA_INC = I:/llama/llama_cuda124_x64/include
-LLAMA_DLL = C:/TPOGLS
+LLAMA_INC = I:/llama/include
+LLAMA_DLL = I:/llama/llama-b9733-bin-win-vulkan-x64
 COLLECTION = ../collection
 
 # DLLs to link against
@@ -19,6 +19,7 @@ LLAMA_LIBS = \
     $(LLAMA_DLL)/ggml.dll \
     $(LLAMA_DLL)/ggml-base.dll \
     $(LLAMA_DLL)/ggml-cpu-x64.dll \
+    $(LLAMA_DLL)/ggml-vulkan.dll \
     -lzstd
 
 INCLUDES = -I. -I$(LLAMA_INC) -I$(COLLECTION)

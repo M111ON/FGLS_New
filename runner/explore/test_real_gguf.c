@@ -1,11 +1,16 @@
 /* test_real_gguf.c — Test FGLS pipeline with real GGUF tensor data
- * Build: gcc -O2 -std=c11 -I.. -I../../ext -I../../collection -I../../collection/src \
- *        -I../../collection/core/pogls_engine/twin_core -I../../collection/core/pogls_engine \
- *        -I../../collection/core/pogls_engine/core -I../../collection/core/core \
- *        -I../../collection/rdh -I../../beam_addressing \
- *        test_real_gguf.c fgls_pipeline_cli.c -lm -o test_real_gguf.exe
+ * Build: gcc -O2 -std=c11 -DFGLS_PIPELINE_IMPLEMENTATION
+ *        -I. -I../../ext -I../../collection -I../../collection/src
+ *        -I../../collection/core/pogls_engine/twin_core
+ *        -I../../collection/core/pogls_engine
+ *        -I../../collection/core/pogls_engine/core -I../../collection/core/core
+ *        -I../../collection/rdh -I../../beam_addressing
+ *        test_real_gguf.c -lm -o test_real_gguf.exe
+ * Usage: test_real_gguf.exe [model.gguf] [tensor_name] [strategy]
+ * strategy: stride37, sequential, face_region, grid
  */
 
+#define FGLS_PIPELINE_IMPLEMENTATION
 #include "fgls_pipeline.h"
 #include "gguf_reader.h"
 
@@ -13,29 +18,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-
-/* Convert GGUF tensor raw bytes to fgls_cell array */
-static int tensor_to_cells(const uint8_t *data, size_t n_bytes, fgls_cell *cells, int max_cells) {
-    int n = (n_bytes < (size_t)max_cells) ? (int)n_bytes : max_cells;
-    for (int i = 0; i < n; i++) {
-        cells[i].face = (i / 1000) % 6;
-        cells[i].z = (i / 100) % 10;
-        cells[i].y = (i / 10) % 10;
-        cells[i].x = i % 10;
-        cells[i].value = (int8_t)data[i];
-        cells[i].global_idx = i;
-    }
-    return n;
-}
-
-/* Convert fgls_cell array back to bytes */
-static void cells_to_tensor(const fgls_cell *cells, int n, uint8_t *out) {
-    for (int i = 0; i < n; i++) {
-        if (cells[i].global_idx >= 0 && cells[i].global_idx < 6000) {
-            out[cells[i].global_idx] = (uint8_t)cells[i].value;
-        }
-    }
-}
 
 int main(int argc, char **argv) {
     const char *model_path = argc > 1 ? argv[1] : "I:/model/Qwen3-0.6B-Q4_0.gguf";
@@ -86,75 +68,54 @@ int main(int argc, char **argv) {
     printf("Read %zu bytes\n", read_bytes);
     gguf_close(gf);
     
-    /* Use first 6000 bytes for contour cube */
-    int use_bytes = read_bytes < 6000 ? (int)read_bytes : 6000;
-    printf("Using first %d bytes (padded to 6000 cells)\n", use_bytes);
-    
-    /* Convert to cells */
-    fgls_cell cells[6000] = {0};
-    fgls_cell decoded[6000] = {0};
-    int n_cells = tensor_to_cells(tensor_data, use_bytes, cells, 6000);
-    printf("Created %d cells\n", n_cells);
-    
     /* Initialize pipeline */
     fgls_config cfg = fgls_default_config();
     cfg.strategy = strategy;
     cfg.use_geojump = 1;
-    
+
     fgls_ctx *ctx = fgls_init(&cfg);
     if (!ctx) {
         fprintf(stderr, "Pipeline init failed\n");
         free(tensor_data);
         return 1;
     }
-    
-    /* Encode */
-    printf("\n--- Encoding ---\n");
-    int enc = fgls_encode(ctx, cells, n_cells);
-    if (enc != 0) {
-        fprintf(stderr, "Encode failed\n");
+
+    /* Streaming roundtrip: encode + decode per chunk, supports any size */
+    printf("\n--- Streaming Roundtrip (%zu bytes) ---\n", read_bytes);
+    uint8_t *reconstructed = (uint8_t*)malloc(read_bytes);
+    if (!reconstructed) { fgls_free(ctx); free(tensor_data); return 1; }
+    int errors = fgls_stream_roundtrip(ctx, tensor_data, reconstructed, read_bytes);
+    if (errors < 0) {
+        fprintf(stderr, "Streaming roundtrip failed (%d)\n", errors);
         fgls_free(ctx);
         free(tensor_data);
+        free(reconstructed);
         return 1;
     }
-    printf("Encoded %d cells\n", n_cells);
-    
-    /* Decode */
-    printf("\n--- Decoding ---\n");
-    int dec = fgls_decode(ctx, decoded, 6000);
-    if (dec < 0) {
-        fprintf(stderr, "Decode failed\n");
-        fgls_free(ctx);
-        free(tensor_data);
-        return 1;
-    }
-    printf("Decoded %d cells\n", dec);
-    
-    /* Verify roundtrip */
-    uint8_t *reconstructed = (uint8_t*)calloc(6000, 1);
-    cells_to_tensor(decoded, dec, reconstructed);
-    
+    printf("Streaming roundtrip done: %d block-level errors\n", errors);
+
+    /* Verify full match */
+    printf("\n--- Verifying roundtrip ---\n");
     int mismatches = 0;
-    for (int i = 0; i < use_bytes; i++) {
+    for (size_t i = 0; i < read_bytes; i++) {
         if (tensor_data[i] != reconstructed[i]) {
+            if (mismatches < 10)
+                printf("  Mismatch at %zu: orig=%d recon=%d\n", i, tensor_data[i], reconstructed[i]);
             mismatches++;
-            if (mismatches <= 10) {
-                printf("  Mismatch at %d: orig=%d recon=%d\n", i, tensor_data[i], reconstructed[i]);
-            }
         }
     }
-    
+
     printf("\n=== Roundtrip Verification ===\n");
-    printf("  Total bytes: %d\n", use_bytes);
+    printf("  Total bytes: %zu\n", read_bytes);
     printf("  Mismatches: %d\n", mismatches);
-    printf("  Match rate: %.4f%%\n", 100.0 * (use_bytes - mismatches) / use_bytes);
-    
+    printf("  Match rate: %.4f%%\n", 100.0 * (read_bytes - mismatches) / read_bytes);
+
     if (mismatches == 0) {
-        printf("  ✓ PERFECT ROUNDTRIP\n");
+        printf("  ✓ PERFECT ROUNDTRIP — full tensor verified\n");
     }
     
     /* Benchmark */
-    printf("\n--- Benchmark ---\n");
+    printf("\n--- Benchmark (100 iterations) ---\n");
     double ns_op = fgls_benchmark(ctx, 100);
     if (ns_op > 0) {
         printf("  %.2f ns/op (%.2f M cells/s)\n", ns_op, 1e9 / ns_op / 1e6);
