@@ -1,11 +1,18 @@
 /*
- * fgls_archive.h — FGLS Archive Format v2
+ * fgls_archive.h — FGLS Archive Format v3
  *
  * .fgls = compressed GGUF that stores only MAIN+MIRROR weights
- * v2: stores original GGUF header for lossless reconstruction
+ * v3: body (GGUF header + tensor data) zstd-compressed as ONE stream
+ * v2: raw body — extract still reads v2 (codec falls back to RAW)
  *
  * Format:
- *   [FGLS_Header 64B] [TensorTable] [Body = GGUF_header + tensor_data]
+ *   [FGLS_Header 72B] [TensorTable] [Body = GGUF_header + tensor_data]
+ *   v3 body is zstd-compressed; v2 body is raw.
+ *
+ * Header reserved[16] (v3):
+ *   reserved[0..7]  = body_raw_size  (uncompressed body bytes, uint64 LE)
+ *   reserved[8]     = body_codec     (0=RAW, 1=ZSTD)
+ *   reserved[9..15] = 0
  */
 
 #ifndef FGLS_ARCHIVE_H
@@ -17,8 +24,12 @@
 #include <stdlib.h>
 
 #define FGLS_MAGIC      0x534C4746u  /* "FGLS" */
-#define FGLS_VERSION    2
+#define FGLS_VERSION    3
 #define FGLS_HEADER_SZ  72  /* sizeof(FGLS_Header) — must match struct exactly */
+
+#define FGLS_CODEC_RAW       0
+#define FGLS_CODEC_ZSTD      1
+#define FGLS_CODEC_UNIVERSAL 2  /* Global S-Curve + Per-cell Delta + zstd */
 
 /* Phase classification — proven from bake3 */
 static inline int fgls_keep_w(int8_t w) {
@@ -57,9 +68,22 @@ typedef struct {
 } FGLS_TensorEntry;
 #pragma pack(pop)
 
+/* Header reserved-area accessors (v3) */
+static inline uint64_t fgls_body_raw_size(const FGLS_Header *h) {
+    uint64_t v; memcpy(&v, h->reserved, 8); return v;
+}
+static inline uint8_t fgls_body_codec(const FGLS_Header *h) {
+    return h->reserved[8];
+}
+static inline void fgls_set_body_info(FGLS_Header *h, uint64_t raw_size, uint8_t codec) {
+    memset(h->reserved, 0, 16);
+    memcpy(h->reserved, &raw_size, 8);
+    h->reserved[8] = codec;
+}
+
 /*
- * Archive body layout (v2):
- *   [GGUF header: orig_data_start bytes]  ← NEW in v2
+ * Archive body layout (v3):
+ *   [GGUF header: orig_data_start bytes]  ← stored uncompressed inside body stream
  *   [tensor data: per-tensor offsets are relative to this point]
  *
  * Per baked Q8_0 tensor:
