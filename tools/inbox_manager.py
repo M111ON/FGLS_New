@@ -13,8 +13,12 @@ Usage:
   python tools/inbox_manager.py incoming          # list pending
   python tools/inbox_manager.py apply             # apply all safe
   python tools/inbox_manager.py board list        # list cards
-  python tools/inbox_manager.py board post <title> # add card
-  python tools/inbox_manager.py board update <id> <status> # update card
+  python tools/inbox_manager.py board post <title> [--tags x,y]  # add card
+  python tools/inbox_manager.py board update <id> <status>       # change status
+  python tools/inbox_manager.py board tag <id> <tags>            # add tags
+  python tools/inbox_manager.py board edit <id> <body>           # set body
+  python tools/inbox_manager.py board claim <id> <owner>         # lock (owner working)
+  python tools/inbox_manager.py board release <id> [--force]     # unlock
   python tools/inbox_manager.py dashboard         # start web dashboard
 """
 
@@ -349,6 +353,12 @@ def cmd_apply():
 # ── board commands ───────────────────────────────────────────────────
 BOARD_STATUSES = ["todo", "in_progress", "done", "blocked", "cancelled"]
 
+def _card_fmt(c):
+    """Human-readable one-line summary for a card."""
+    tags = f" [{','.join(c.get('tags', []))}]" if c.get("tags") else ""
+    owner = f" @{c['owner']}" if c.get("owner") else ""
+    return f"  #{c['id']} [{c.get('status','todo')}] {c.get('title','')}{owner}{tags}"
+
 def cmd_board(args):
     state = _load_state()
     if not args or args[0] == "list":
@@ -357,19 +367,32 @@ def cmd_board(args):
             print("board is empty")
             return
         for c in reversed(board):
-            tags = f" [{','.join(c['tags'])}]" if c.get("tags") else ""
-            print(f"  #{c['id']} [{c['status']:>12}] {c['title']}{tags}")
+            print(_card_fmt(c))
             if c.get("body"):
-                print(f"         {c['body'][:100]}")
+                print(f"       {c['body'][:120]}")
     elif args[0] == "post":
-        title = " ".join(args[1:]) if len(args) > 1 else "untitled"
+        title_parts = list(args[1:])
+        tag_words = []
+        # extract --tags x,y  (position insensitive)
+        rest = []
+        i = 0
+        while i < len(title_parts):
+            if title_parts[i] in ("--tags", "--tag") and i + 1 < len(title_parts):
+                tag_words = [t.strip() for t in title_parts[i+1].split(",") if t.strip()]
+                i += 2
+            else:
+                rest.append(title_parts[i])
+                i += 1
+        title = " ".join(rest) if rest else "untitled"
         board = state.setdefault("board", [])
         card_id = (board[-1]["id"] + 1) if board else 1
         ts = datetime.now().isoformat()
         board.append({"id": card_id, "title": title, "body": "", "status": "todo",
-                       "tags": [], "created_at": ts, "updated_at": ts})
+                       "tags": tag_words, "owner": "", "lock_ts": "",
+                       "created_at": ts, "updated_at": ts})
         _save_state(state)
-        print(f"ok  card #{card_id}: {title} [todo]")
+        tags_str = f" [tags:{','.join(tag_words)}]" if tag_words else ""
+        print(f"ok  card #{card_id}: {title} [todo]{tags_str}")
     elif args[0] == "update" and len(args) >= 3:
         card_id = int(args[1])
         new_status = args[2]
@@ -384,6 +407,68 @@ def cmd_board(args):
                 print(f"ok  card #{card_id} → [{new_status}]")
                 return
         print(f"err  card #{card_id} not found")
+    elif args[0] == "tag" and len(args) >= 3:
+        card_id = int(args[1])
+        tag_words = [t.strip() for t in " ".join(args[2:]).split(",") if t.strip()]
+        for c in state.get("board", []):
+            if c["id"] == card_id:
+                existing = set(c.get("tags", []))
+                existing.update(tag_words)
+                c["tags"] = sorted(existing)
+                c["updated_at"] = datetime.now().isoformat()
+                _save_state(state)
+                print(f"ok  card #{card_id} tagged: {','.join(c['tags'])}")
+                return
+        print(f"err  card #{card_id} not found")
+    elif args[0] == "edit" and len(args) >= 3:
+        card_id = int(args[1])
+        body = " ".join(args[2:])
+        for c in state.get("board", []):
+            if c["id"] == card_id:
+                c["body"] = body
+                c["updated_at"] = datetime.now().isoformat()
+                _save_state(state)
+                print(f"ok  card #{card_id} body updated ({len(body)} ch)")
+                return
+        print(f"err  card #{card_id} not found")
+    elif args[0] == "claim" and len(args) >= 3:
+        card_id = int(args[1])
+        owner = " ".join(args[2:])
+        force = False
+        if owner.rstrip().endswith("--force"):
+            force = True
+            owner = owner.rstrip()[:-7].strip()
+        if not owner:
+            owner = "ai"
+        for c in state.get("board", []):
+            if c["id"] == card_id:
+                if c.get("status") == "in_progress" and c.get("owner") and c["owner"] != owner and not force:
+                    print(f"err  card #{card_id} LOCKED by {c['owner']} — use --force to override")
+                    return
+                c["status"] = "in_progress"
+                c["owner"] = owner
+                c["lock_ts"] = datetime.now().isoformat()
+                c["updated_at"] = datetime.now().isoformat()
+                _save_state(state)
+                print(f"ok  card #{card_id} CLAIMED by {owner} → [in_progress] (locked)")
+                return
+        print(f"err  card #{card_id} not found")
+    elif args[0] == "release" and len(args) >= 2:
+        card_id = int(args[1])
+        force = any(a == "--force" for a in args[2:])
+        for c in state.get("board", []):
+            if c["id"] == card_id:
+                if c.get("status") == "in_progress" and c.get("owner") and not force:
+                    print(f"err  card #{card_id} still held by {c['owner']} — release needs --force or owner==")
+                    return
+                c["status"] = "todo"
+                c["owner"] = ""
+                c["lock_ts"] = ""
+                c["updated_at"] = datetime.now().isoformat()
+                _save_state(state)
+                print(f"ok  card #{card_id} RELEASED → [todo] (unlocked)")
+                return
+        print(f"err  card #{card_id} not found")
     elif args[0] == "handoff":
         board = state.get("board", [])
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -393,18 +478,18 @@ def cmd_board(args):
         todo = [c for c in board if c["status"] == "todo"]
         wip = [c for c in board if c["status"] == "in_progress"]
         done = [c for c in board if c["status"] == "done"]
+        blocked = [c for c in board if c["status"] == "blocked"]
         print(f"# Session Handoff — {now_str}\n")
-        print(f"Board: {len(board)} cards (todo:{len(todo)} wip:{len(wip)} done:{len(done)})")
-        if wip:
-            print("\n### In Progress")
-            for c in wip:
-                print(f"  #{c['id']} {c['title']}")
-        if todo:
-            print("\n### Todo")
-            for c in todo:
-                print(f"  #{c['id']} {c['title']}")
+        print(f"Board: {len(board)} cards (todo:{len(todo)} wip:{len(wip)} done:{len(done)} blocked:{len(blocked)})")
+        for group, label in ((blocked, "Blocked"), (wip, "In Progress"), (todo, "Todo")):
+            if group:
+                print(f"\n### {label}")
+                for c in group:
+                    print(_card_fmt(c))
+                    if c.get("body"):
+                        print(f"       {c['body'][:100]}")
     else:
-        print("usage: board [list|post <title>|update <id> <status>|handoff]")
+        print("usage: board [list|post <title> [--tags x,y]|update <id> <status>|tag <id> <tags>|edit <id> <body>|claim <id> <owner>|release <id> [--force]|handoff]")
 
 # ── HTTP Dashboard ───────────────────────────────────────────────────
 class DashboardHandler(BaseHTTPRequestHandler):
@@ -458,7 +543,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 if items:
                     lines.append(f"### {s.replace('_', ' ').title()}")
                     for c in items:
-                        lines.append(f"  #{c.get('id','?')} {c.get('title','')}")
+                        tags = ""
+                        if c.get("tags"):
+                            tags = f" [{','.join(c['tags'])}]"
+                        owner = f" @{c['owner']}" if c.get("owner") else ""
+                        lines.append(f"  #{c.get('id','?')} {c.get('title','')}{owner}{tags}")
                     lines.append("")
             body = "\n".join(lines).encode()
             self.send_response(200)
@@ -513,12 +602,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 body_text = data.get("body", "")
                 status = data.get("status", "todo")
                 tags = data.get("tags", [])
+                owner = data.get("owner", "")
                 state = _load_state()
                 board = state.setdefault("board", [])
                 card_id = (board[-1]["id"] + 1) if board else 1
                 ts = datetime.now().isoformat()
                 board.append({"id": card_id, "title": title, "body": body_text,
-                               "status": status, "tags": tags,
+                               "status": status, "tags": tags, "owner": owner, "lock_ts": "",
                                "created_at": ts, "updated_at": ts})
                 _save_state(state)
                 self.send_response(200)
