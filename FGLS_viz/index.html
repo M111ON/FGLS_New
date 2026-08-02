@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FGLS_viz — Real-time Test Dashboard</title>
+<style>
+:root {
+  --bg: #0a0a0f; --surface: #12121a; --card: #1a1a24;
+  --border: #2a2a3a; --text: #e8e8f0; --muted: #8888a0;
+  --accent: #4a9eff; --success: #3ddc84; --error: #ff5252;
+  --t0: #4a9eff; --t1: #7c4dff; --t2: #e040fb; --t3: #ff5252;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); }
+.app { max-width: 1400px; margin: 0 auto; padding: 20px; }
+
+/* Header */
+.header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 16px; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+.header h1 { font-size: 20px; color: var(--accent); }
+.header .status { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.dot.connected { background: var(--success); box-shadow: 0 0 6px var(--success); }
+
+/* Grid */
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+/* Card */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+.card-title { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 12px; }
+
+/* Test Runner */
+.run-btn { width: 100%; padding: 14px; background: var(--accent); border: none; border-radius: 8px; color: white; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+.run-btn:hover { background: #5aa8ff; transform: translateY(-1px); }
+.run-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+.run-btn.running { background: var(--t1); animation: pulse 1s infinite; }
+@keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.7; } }
+
+/* Test List */
+.test-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.test-item { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--card); border-radius: 6px; border-left: 3px solid var(--border); font-size: 12px; transition: all 0.3s; }
+.test-item.running { border-left-color: var(--accent); background: rgba(74,158,255,0.1); }
+.test-item.pass { border-left-color: var(--success); }
+.test-item.fail { border-left-color: var(--error); }
+.test-icon { width: 20px; text-align: center; }
+.test-name { flex: 1; }
+.test-count { font-family: monospace; color: var(--muted); }
+
+/* Tier Bars */
+.tier-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.tier-label { width: 24px; font-size: 11px; font-weight: 600; text-align: center; }
+.tier-bar-bg { flex: 1; height: 20px; background: var(--card); border-radius: 4px; overflow: hidden; }
+.tier-bar-fill { height: 100%; border-radius: 4px; transition: width 0.5s ease; display: flex; align-items: center; padding-left: 6px; font-size: 10px; font-weight: 600; }
+.tier-count { width: 40px; text-align: right; font-family: monospace; font-size: 12px; }
+
+/* Heatmap */
+.heatmap { display: grid; grid-template-columns: repeat(144, 1fr); gap: 0; }
+.heat-cell { aspect-ratio: 1; transition: background 0.2s; }
+
+/* Log */
+.log-box { background: var(--card); border-radius: 6px; padding: 10px; font-family: monospace; font-size: 11px; line-height: 1.6; max-height: 300px; overflow-y: auto; }
+.log-line { padding: 1px 0; }
+.log-line.success { color: var(--success); }
+.log-line.error { color: var(--error); }
+.log-line.info { color: var(--accent); }
+.log-line.dim { color: var(--muted); }
+
+/* Stats */
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+.stat { text-align: center; padding: 10px; background: var(--card); border-radius: 6px; }
+.stat-val { font-size: 20px; font-weight: 700; font-family: monospace; }
+.stat-label { font-size: 9px; color: var(--muted); text-transform: uppercase; margin-top: 2px; }
+
+/* Full width */
+.full { grid-column: 1 / -1; }
+
+/* Progress */
+.progress { height: 4px; background: var(--card); border-radius: 2px; overflow: hidden; margin-top: 12px; }
+.progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--t1)); width: 0%; transition: width 0.3s; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="header">
+    <h1>FGLS_viz — Real-time Test Dashboard</h1>
+    <div class="status">
+      <div class="dot" id="statusDot"></div>
+      <span id="statusText">Connecting...</span>
+    </div>
+  </header>
+
+  <div class="grid">
+    <!-- Test Runner -->
+    <div class="card">
+      <div class="card-title">Test Runner</div>
+      <button class="run-btn" id="runBtn" onclick="runTests()">▶ Run All Tests</button>
+      <div class="progress"><div class="progress-fill" id="progressBar"></div></div>
+      <div class="test-list" id="testList">
+        <div class="test-item" data-test="kis_adaptive_deploy">
+          <div class="test-icon">○</div>
+          <div class="test-name">kis_adaptive_deploy</div>
+          <div class="test-count">—</div>
+        </div>
+        <div class="test-item" data-test="kis_gguf_bridge">
+          <div class="test-icon">○</div>
+          <div class="test-name">kis_gguf_bridge</div>
+          <div class="test-count">—</div>
+        </div>
+        <div class="test-item" data-test="kis_real_gguf_test">
+          <div class="test-icon">○</div>
+          <div class="test-name">kis_real_gguf_test</div>
+          <div class="test-count">—</div>
+        </div>
+        <div class="test-item" data-test="kis_adaptive_export">
+          <div class="test-icon">○</div>
+          <div class="test-name">kis_adaptive_export</div>
+          <div class="test-count">—</div>
+        </div>
+      </div>
+      
+      <!-- GGUF File Input -->
+      <div style="margin-top:12px">
+        <div class="card-title" style="margin-bottom:8px">Load Real GGUF</div>
+        <div style="display:flex;gap:8px">
+          <input type="text" id="ggufPath" placeholder="I:/model/SmolLM2-360M-Instruct.Q8_0.gguf" 
+                 style="flex:1;padding:8px;background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:monospace;font-size:11px">
+          <button class="run-btn" style="width:auto;padding:8px 16px" onclick="loadGGUF()">📊 Analyze</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tier Distribution -->
+    <div class="card">
+      <div class="card-title">Adaptive Storage — 4-Tier Architecture</div>
+      <div id="tierBars">
+        <div class="tier-row">
+          <div class="tier-label" style="color:var(--t0)">T0</div>
+          <div class="tier-bar-bg"><div class="tier-bar-fill" id="tier0Bar" style="width:0%;background:var(--t0)"></div></div>
+          <div class="tier-count" id="tier0Count">—</div>
+        </div>
+        <div class="tier-row">
+          <div class="tier-label" style="color:var(--t1)">T1</div>
+          <div class="tier-bar-bg"><div class="tier-bar-fill" id="tier1Bar" style="width:0%;background:var(--t1)"></div></div>
+          <div class="tier-count" id="tier1Count">—</div>
+        </div>
+        <div class="tier-row">
+          <div class="tier-label" style="color:var(--t2)">T2</div>
+          <div class="tier-bar-bg"><div class="tier-bar-fill" id="tier2Bar" style="width:0%;background:var(--t2)"></div></div>
+          <div class="tier-count" id="tier2Count">—</div>
+        </div>
+        <div class="tier-row">
+          <div class="tier-label" style="color:var(--t3)">T3</div>
+          <div class="tier-bar-bg"><div class="tier-bar-fill" id="tier3Bar" style="width:0%;background:var(--t3)"></div></div>
+          <div class="tier-count" id="tier3Count">—</div>
+        </div>
+      </div>
+      <div class="stats">
+        <div class="stat"><div class="stat-val" id="statBlocks">—</div><div class="stat-label">Blocks</div></div>
+        <div class="stat"><div class="stat-val" id="statCells">—</div><div class="stat-label">Cells</div></div>
+        <div class="stat"><div class="stat-val" id="statRatio">—</div><div class="stat-label">Ratio</div></div>
+        <div class="stat"><div class="stat-val" id="statCRC">—</div><div class="stat-label">CRC-64</div></div>
+      </div>
+    </div>
+
+    <!-- Heatmap -->
+    <div class="card full">
+      <div class="card-title">Block Allocation — 20736 Cells (144×144)</div>
+      <canvas id="heatmapCanvas" width="576" height="576" style="width:100%;max-width:576px;image-rendering:pixelated;border-radius:4px"></canvas>
+    </div>
+
+    <!-- Log -->
+    <div class="card full">
+      <div class="card-title">Live Log</div>
+      <div class="log-box" id="logBox">
+        <div class="log-line dim">Waiting for test run...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+let eventSource = null;
+let running = false;
+
+// Connect — polling mode (no SSE)
+function connectSSE() {
+  const dot = $('#statusDot');
+  const txt = $('#statusText');
+  if (dot) dot.classList.add('connected');
+  if (txt) txt.textContent = 'Connected';
+  log('Connected', 'info');
+  // Load data on page load
+  pollResults();
+}
+
+// Poll for results
+function pollResults() {
+  fetch('/api/results').then(r => r.json()).then(d => {
+    updateVisualization(d);
+    log('Adaptive data loaded', 'info');
+  }).catch(() => {});
+}
+
+function setTestState(name, state) {
+  const el = $(`.test-item[data-test="${name}"]`);
+  if (!el) return;
+  el.className = `test-item ${state}`;
+  const icons = { running: '◉', pass: '✓', fail: '✗' };
+  el.querySelector('.test-icon').textContent = icons[state] || '○';
+}
+
+function setTestCount(name, count) {
+  const el = $(`.test-item[data-test="${name}"]`);
+  if (el) el.querySelector('.test-count').textContent = count;
+}
+
+function updateVisualization(data) {
+  // Tier bars
+  const total = (data.tier_distribution.tier0 + data.tier_distribution.tier1 + 
+                 data.tier_distribution.tier2 + data.tier_distribution.tier3) || 1;
+  
+  for (let i = 0; i < 4; i++) {
+    const count = data.tier_distribution[`tier${i}`];
+    $(`#tier${i}Bar`).style.width = `${(count / total) * 100}%`;
+    $(`#tier${i}Count`).textContent = count;
+  }
+  
+  // Stats
+  if (data.container_stats) {
+    $('#statBlocks').textContent = data.container_stats.total_blocks;
+    $('#statCells').textContent = '20736';
+    $('#statRatio').textContent = data.container_stats.compression;
+    $('#statCRC').textContent = data.container_stats.crc64 === 'verified' ? '✓' : '✗';
+  }
+  
+  // Heatmap
+  drawHeatmap(data.block_allocation);
+}
+
+function drawHeatmap(blocks) {
+  const canvas = $('#heatmapCanvas');
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+  
+  const cellW = w / 144;
+  const cellH = h / 144;
+  
+  const colors = ['#4a9eff', '#7c4dff', '#e040fb', '#ff5252'];
+  
+  for (let i = 0; i < 20736 && i < blocks.length; i++) {
+    const row = Math.floor(i / 144);
+    const col = i % 144;
+    ctx.fillStyle = colors[blocks[i]] || '#1a1a24';
+    ctx.fillRect(col * cellW, row * cellH, cellW, cellH);
+  }
+}
+
+function log(msg, cls = '') {
+  const box = $('#logBox');
+  const line = document.createElement('div');
+  line.className = `log-line ${cls}`;
+  const time = new Date().toLocaleTimeString();
+  line.textContent = `[${time}] ${msg}`;
+  box.appendChild(line);
+  box.scrollTop = box.scrollHeight;
+}
+
+function runTests() {
+  if (running) return;
+  $('#progressBar').style.width = '0%';
+  
+  // Clear test states
+  $$('.test-item').forEach(el => {
+    el.className = 'test-item';
+    el.querySelector('.test-icon').textContent = '○';
+    el.querySelector('.test-count').textContent = '—';
+  });
+  
+  fetch('/api/run-tests').then(r => r.json()).then(d => {
+    if (d.status === 'started') {
+      log('Tests started — waiting for results...', 'info');
+      // Poll for results after delay
+      setTimeout(() => pollResults(), 3000);
+    }
+  }).catch(err => {
+    log(`Error: ${err.message}`, 'error');
+  });
+}
+
+// Load GGUF file
+function loadGGUF() {
+  const path = $('#ggufPath')?.value;
+  if (!path) {
+    log('Enter GGUF file path', 'error');
+    return;
+  }
+  log(`Loading ${path}...`, 'info');
+  fetch(`/api/run-gguf?path=${encodeURIComponent(path)}`).then(r => r.json()).then(d => {
+    if (d.status === 'started') {
+      log('Analysis started — waiting...', 'info');
+      setTimeout(() => pollResults(), 3000);
+    }
+  }).catch(err => {
+    log(`Error: ${err.message}`, 'error');
+  });
+}
+
+// Init
+document.addEventListener('DOMContentLoaded', () => {
+  connectSSE();
+  // Animate heatmap on load
+  const defaultBlocks = new Array(20736).fill(4);
+  drawHeatmap(defaultBlocks);
+});
+</script>
+</body>
+</html>
