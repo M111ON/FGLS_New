@@ -10,11 +10,9 @@
 
 # ── Compiler: detect broken MSYS2 gcc, fallback to MinGW ──
 # mingw32-make default CC=cc doesn't exist on MSYS. Force override.
-# Default: gcc. Override with: make CC=/path/to/gcc
-CC ?= gcc
-# Note: mingw32-make defaults CC=cc (broken on MSYS). Always pass CC explicitly:
-#   make CC=gcc           (if gcc is in PATH)
-#   make CC=/c/mingw64/bin/gcc.exe   (MinGW fallback)
+# NOTE: `?=` does NOT override make's built-in CC=cc default — use `=`.
+CC = gcc
+# Override with: make CC=/path/to/gcc
 
 CFLAGS  = -O2 -std=c11 -fno-strict-aliasing -Wall -Wextra -Wno-unused-parameter
 LDFLAGS = -lm
