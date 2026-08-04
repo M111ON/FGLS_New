@@ -73,11 +73,12 @@
 #include <zstd.h>
 #endif
 
-/* ═══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════════
  * COMPONENT HEADERS (header-only)
- * ═══════════════════════════════════════════════════════════════ */
+ * ════════════════════════════════════════════════════════════════ */
 #include "fgls_profile.h"
 #include "pogls_bond_edge.h"
+#include "kis_codec_cli.h"
 #include "geo_field_core.h"
 #include "tring.h"
 #include "geo_dodeca_torus.h"
@@ -1075,6 +1076,7 @@ static int encode_chunk(uint8_t *out, uint32_t out_cap,
     case FGLS_ROUTE_DELTA:    payload_sz = enc_delta(payload, sizeof(payload), data, size); break;
     case FGLS_ROUTE_GRADIENT: payload_sz = enc_gradient(payload, sizeof(payload), data, size); break;
     case FGLS_ROUTE_HILBERT:  payload_sz = enc_hilbert(payload, sizeof(payload), data, size); break;
+    case FGLS_ROUTE_KIS:      payload_sz = enc_kis(payload, sizeof(payload), data, size); break;
     case FGLS_ROUTE_ZSTD:     payload_sz = enc_zstd(payload, sizeof(payload), data, size); break;
     case FGLS_ROUTE_RAW:
     default:                  payload_sz = enc_raw(payload, sizeof(payload), data, size); break;
@@ -1123,6 +1125,7 @@ static int decode_chunk(uint8_t *out, uint32_t out_size,
     case FGLS_ROUTE_DELTA:    consumed = dec_delta(out, sz, payload, payload_cap); break;
     case FGLS_ROUTE_GRADIENT: consumed = dec_gradient(out, sz, payload, payload_cap); break;
     case FGLS_ROUTE_HILBERT:  consumed = dec_hilbert(out, sz, payload, payload_cap); break;
+    case FGLS_ROUTE_KIS:      consumed = dec_kis(out, sz, payload, payload_cap); break;
     case FGLS_ROUTE_ZSTD:     consumed = dec_zstd(out, sz, payload, payload_cap); break;
     case FGLS_ROUTE_RAW:
     default:                  consumed = dec_raw(out, sz, payload, payload_cap); break;

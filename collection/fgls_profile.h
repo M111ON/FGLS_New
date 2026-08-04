@@ -95,7 +95,8 @@ typedef enum {
     FGLS_ROUTE_ZSTD     = 6,   /* general data → CODEC_ZSTD19      */
     FGLS_ROUTE_RAW      = 7,   /* incompressible → CODEC_RAW       */
     FGLS_ROUTE_FRAMED   = 8,   /* geo_frame_seek + temporal delta (12 chunks/frame) */
-    FGLS_ROUTE_COUNT    = 9
+    FGLS_ROUTE_KIS      = 9,   /* geometric Q8_0 weights → codebook + permutation */
+    FGLS_ROUTE_COUNT    = 10
 } FglsRoute;
 
 /* ══════════════════════════════════════════════════════════
@@ -270,14 +271,15 @@ static inline int fgls_profile(const uint8_t *data, uint32_t size,
  * fgls_route — routing decision from profile
  *
  * Priority order (most specific → most general):
- *   1. FLAT:       < 2% nonzero or max_run > 50%
- *   2. SPARSE:     < 25% nonzero or < 16 nonzero bytes
- *   3. DELTA:      very low locality (sequential data)
- *   4. GRADIENT:   low entropy + moderate locality
- *   5. HILBERT:    geometric structure (moderate entropy, moderate locality)
- *   6. HEX:        limited palette (≤ 16 unique values)
- *   7. ZSTD:       general compressible data
- *   8. RAW:        high entropy, incompressible
+ *   1. SPARSE — few non-zero bytes, but HAS non-zero values
+ *   2. FLAT — nearly all same value (all zeros or single value)
+ *   3. DELTA — sequential/temporal (very low locality)
+ *   4. GRADIENT — structured, smooth
+ *   5. HEX — limited palette (≤ 16 unique values)
+ *   6. HILBERT — moderate structure, geometric patterns
+ *   7. KIS — geometric Q8_0 weights (specialized for GGUF tensors)
+ *   8. ZSTD — general compressible
+ *   9. RAW — incompressible
  */
 static inline FglsRoute fgls_route(const FglsProfile *p)
 {
@@ -309,11 +311,20 @@ static inline FglsRoute fgls_route(const FglsProfile *p)
         && p->locality_x1000 < FGLS_THRESH_GRAD_LOCALITY * 5)
         return FGLS_ROUTE_HILBERT;
 
-    /* 7. ZSTD — general compressible */
+    /* 7. KIS — geometric Q8_0 weights (specialized for GGUF tensors) */
+        /* Heuristic: size multiple of 32, high nonzero%, full int8 range */
+        /* Check BEFORE ZSTD/RAW because Q8_0 has high entropy but is structured */
+        if (p->size % 32 == 0
+            && p->nonzero_count * 100u / p->size >= 50
+            && p->max_value >= 128
+            && p->unique_values >= 10 && p->unique_values <= 256)
+            return FGLS_ROUTE_KIS;
+
+    /* 8. ZSTD — general compressible */
     if (p->entropy_x1000 < FGLS_THRESH_ENTROPY_HIGH)
         return FGLS_ROUTE_ZSTD;
 
-    /* 8. RAW — incompressible */
+    /* 9. RAW — incompressible */
     return FGLS_ROUTE_RAW;
 }
 
@@ -325,7 +336,7 @@ static inline const char *fgls_route_name(FglsRoute r)
 {
     static const char *names[] = {
         "FLAT(SEED)", "SPARSE(RICE3)", "GRADIENT(FREQ)",
-        "DELTA", "HILBERT", "HEX", "ZSTD", "RAW", "FRAMED"
+        "DELTA", "HILBERT", "HEX", "ZSTD", "RAW", "FRAMED", "KIS"
     };
     if (r < FGLS_ROUTE_COUNT) return names[r];
     return "UNKNOWN";
@@ -357,7 +368,8 @@ static inline uint8_t fgls_route_to_gpx5_codec(FglsRoute r)
         FGLS_GPX5_CODEC_HEX,      /* HEX      */
         FGLS_GPX5_CODEC_ZSTD19,   /* ZSTD     */
         FGLS_GPX5_CODEC_RAW,      /* RAW      */
-        0x08                       /* FRAMED (custom FGLS codec ID) */
+        0x00,                     /* FRAMED   (no GPX5 mapping) */
+        0x00,                     /* KIS      (no GPX5 mapping) */
     };
     if (r < FGLS_ROUTE_COUNT) return map[r];
     return FGLS_GPX5_CODEC_RAW;
@@ -371,7 +383,7 @@ static inline void fgls_profile_print(const FglsProfile *p)
     if (!p) return;
     fprintf(stderr,
         "FglsProfile: %u bytes | nz=%u/%u (%u%%) | uniq=%u | max_val=%u (%u-bit)\n"
-        "  entropy=%.3f bits/B | mean=%.3f | var=%.3f | locality=%.3f\n"
+        "  entropy=%.3f bits/B | mean=%.3f | var=%.3f | locality=%.3f\n",
         "  max_run=%u | top4: [%u:%u] [%u:%u] [%u:%u] [%u:%u]\n"
         "  flags: flat=%u sparse=%u structured=%u sequential=%u\n",
         p->size, p->nonzero_count, p->size,

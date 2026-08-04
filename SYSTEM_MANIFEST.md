@@ -88,6 +88,21 @@ status: ⚠️ build fails on MinGW link under `cc`. Not pre-existing file bug.
         individual runners (this manifest) independent & working
 ```
 
+### T9: `kis_codec_v4.h` — Full Codec: Codebook + Permutation (proven Aug 4)
+```
+path: core/kis_codec_v4.h
+        runner/explore/kis_codec_v4_test.c
+result: LAYER 1 Codebook (active bitmap 32B + RLE counts, ~550B for ANY model)
+        LAYER 2 Permutation (sorted index, delta encode + zigzag varint)
+        DECODE: output[perm[i]] = sorted_vals[i]
+        100% LOSSLESS: 4 synthetic + 4 real Q8_0 models, 0 mismatches
+        tested weights: 320M+ (Qwen2.5-0.5B, qwen25_q8, SmolLM2-360M, Kokoro)
+        ratio on real Q8_0: 0.58-0.59x (permutation delta compresses NN structure)
+        speed: enc ~5-7 MB/s, dec ~87-95 MB/s
+status: ✅ COMPILED + VERIFIED + ROUNDTRIP (4/4 synthetic, 4/4 real models)
+        integrated: FGLS_ROUTE_KIS = 9 in fgls_profile.h, enc_kis/dec_kis in CLI
+```
+
 ---
 
 ## 💠 COMPASS — Field Orientation (ตอนสุดท้าย ±x,±y,±z)
@@ -149,6 +164,7 @@ MAP not COMPRESS
 - ±x,±y,±z → ไม่มี compass → สับสน (fixed: Section COMPASS)
 - "lossy ใช้จริงไม่ได้" → วนหลาย session (fixed: T7 พิสูจน์ 361M weights)
 - "bake เปล่าประโยชน์" → วนหลายครั้ง (fixed: T4 czynny)
+- geometric position layer → v1-v3 วนหลายรอบ (fixed: T9 permutation delta เป็นวิธีที่พิสูจน์แล้ว ง่ายกว่า beam_formula)
 
 ---
 
