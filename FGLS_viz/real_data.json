@@ -1,0 +1,2 @@
+GGUF v3, 290 tensors, 0 kv pairs
+Error reading GGUF: unpack requires a buffer of 4 bytes

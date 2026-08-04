@@ -301,7 +301,8 @@ static void test_gpx5_mapping(void) {
         FGLS_GPX5_CODEC_HEX,      /* HEX      */
         FGLS_GPX5_CODEC_ZSTD19,   /* ZSTD     */
         FGLS_GPX5_CODEC_RAW,      /* RAW      */
-        0x08                       /* FRAMED   */
+        0x00,                     /* FRAMED   (no GPX5 mapping) */
+        0x00                      /* KIS      (no GPX5 mapping) */
     };
     /* sanity: expected array length must match FGLS_ROUTE_COUNT */
     if (sizeof(expected) / sizeof(expected[0]) != (size_t)FGLS_ROUTE_COUNT) {

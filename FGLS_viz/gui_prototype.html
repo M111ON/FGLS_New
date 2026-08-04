@@ -1,0 +1,1433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FGLS Universal Codec — Dashboard</title>
+<style>
+  /* ═══════════════════════════════════════════
+     DESIGN SYSTEM — FGLS Dashboard
+     Surface: Monitor + Operate
+     ═══════════════════════════════════════════ */
+
+  :root {
+    /* ── Palette ── */
+    --bg-root:      #0a0a0f;
+    --bg-surface:   #12121a;
+    --bg-card:      #1a1a24;
+    --bg-card-hover:#1e1e2a;
+    --bg-input:     #0e0e16;
+    --border:       #2a2a3a;
+    --border-focus: #4a6fa5;
+    --text-primary: #e8e8f0;
+    --text-secondary:#8888a0;
+    --text-muted:   #555568;
+    --accent:       #4a9eff;
+    --accent-dim:   #2a5a9a;
+    --success:      #3ddc84;
+    --success-dim:  #1a6b3a;
+    --warning:      #ffb74d;
+    --error:        #ff5252;
+    --pipeline-1:   #4a9eff;
+    --pipeline-2:   #7c4dff;
+    --pipeline-3:   #e040fb;
+    --pipeline-4:   #ff5252;
+    --pipeline-5:   #ff9100;
+    --pipeline-6:   #3ddc84;
+
+    /* ── Type ── */
+    --font-body:    'SF Pro Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --font-mono:    'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
+
+    /* ── Spacing ── */
+    --space-xs: 4px;
+    --space-sm: 8px;
+    --space-md: 16px;
+    --space-lg: 24px;
+    --space-xl: 32px;
+
+    /* ── Radii ── */
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+
+    /* ── Shadows ── */
+    --shadow-card: 0 1px 3px rgba(0,0,0,0.4), 0 4px 12px rgba(0,0,0,0.2);
+    --shadow-glow: 0 0 20px rgba(74,158,255,0.15);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: var(--font-body);
+    background: var(--bg-root);
+    color: var(--text-primary);
+    line-height: 1.5;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ═══════════════════════════════════════════
+     LAYOUT
+     ═══════════════════════════════════════════ */
+
+  .app {
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr auto;
+    min-height: 100vh;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: var(--space-lg);
+    gap: var(--space-lg);
+  }
+
+  /* ── Header ── */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: var(--space-md);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .header-brand {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+  }
+
+  .header-logo {
+    width: 40px;
+    height: 40px;
+    background: linear-gradient(135deg, var(--accent), var(--pipeline-2));
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 18px;
+    color: white;
+  }
+
+  .header-title {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
+  }
+
+  .header-version {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+  }
+
+  .header-status {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 6px var(--success);
+  }
+
+  /* ═══════════════════════════════════════════
+     MAIN CONTENT
+     ═══════════════════════════════════════════ */
+
+  .main {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: var(--space-lg);
+  }
+
+  /* ── Left Column ── */
+  .left-col {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-lg);
+  }
+
+  /* ═══════════════════════════════════════════
+     PIPELINE VISUALIZATION
+     ═══════════════════════════════════════════ */
+
+  .pipeline-section {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-lg);
+  }
+
+  .section-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--text-muted);
+    margin-bottom: var(--space-md);
+  }
+
+  .pipeline {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    overflow-x: auto;
+    padding: var(--space-sm) 0;
+  }
+
+  .pipeline-stage {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-xs);
+    min-width: 110px;
+    padding: var(--space-md) var(--space-sm);
+    border-radius: var(--radius-md);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    transition: all 0.2s ease;
+    cursor: default;
+    position: relative;
+  }
+
+  .pipeline-stage:hover {
+    background: var(--bg-card-hover);
+    border-color: var(--border-focus);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-glow);
+  }
+
+  .pipeline-stage.active {
+    border-color: var(--accent);
+    box-shadow: 0 0 12px rgba(74,158,255,0.2);
+  }
+
+  .pipeline-stage.active::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--accent);
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+  }
+
+  .stage-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    font-weight: 700;
+    color: white;
+  }
+
+  .stage-name {
+    font-size: 11px;
+    font-weight: 600;
+    text-align: center;
+    line-height: 1.3;
+  }
+
+  .stage-desc {
+    font-size: 9px;
+    color: var(--text-muted);
+    text-align: center;
+    line-height: 1.3;
+  }
+
+  .pipeline-arrow {
+    display: flex;
+    align-items: center;
+    color: var(--text-muted);
+    font-size: 18px;
+    padding: 0 2px;
+    flex-shrink: 0;
+  }
+
+  /* ═══════════════════════════════════════════
+     FILE DROP ZONE
+     ═══════════════════════════════════════════ */
+
+  .dropzone-section {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-lg);
+  }
+
+  .dropzone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--space-xl) var(--space-lg);
+    text-align: center;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    background: var(--bg-input);
+  }
+
+  .dropzone:hover,
+  .dropzone.dragover {
+    border-color: var(--accent);
+    background: rgba(74,158,255,0.05);
+  }
+
+  .dropzone-icon {
+    font-size: 48px;
+    margin-bottom: var(--space-md);
+    opacity: 0.6;
+  }
+
+  .dropzone-text {
+    font-size: 15px;
+    color: var(--text-secondary);
+    margin-bottom: var(--space-sm);
+  }
+
+  .dropzone-hint {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .dropzone-file {
+    display: none;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-md);
+    background: var(--bg-card);
+    border-radius: var(--radius-sm);
+    margin-top: var(--space-md);
+  }
+
+  .dropzone-file.visible {
+    display: flex;
+  }
+
+  .file-icon {
+    width: 40px;
+    height: 40px;
+    background: var(--accent-dim);
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+
+  .file-info {
+    flex: 1;
+    text-align: left;
+  }
+
+  .file-name {
+    font-size: 14px;
+    font-weight: 500;
+    word-break: break-all;
+  }
+
+  .file-meta {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+  }
+
+  .file-remove {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 18px;
+    padding: var(--space-xs);
+    border-radius: var(--radius-sm);
+    transition: color 0.15s;
+  }
+
+  .file-remove:hover {
+    color: var(--error);
+  }
+
+  /* ═══════════════════════════════════════════
+     ACTION BUTTONS
+     ═══════════════════════════════════════════ */
+
+  .actions {
+    display: flex;
+    gap: var(--space-sm);
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: 10px 20px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-card);
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .btn:hover {
+    background: var(--bg-card-hover);
+    border-color: var(--border-focus);
+  }
+
+  .btn:active {
+    transform: scale(0.98);
+  }
+
+  .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+    font-weight: 600;
+  }
+
+  .btn-primary:hover {
+    background: #5aa8ff;
+    border-color: #5aa8ff;
+  }
+
+  .btn-success {
+    background: var(--success-dim);
+    border-color: var(--success);
+    color: var(--success);
+  }
+
+  .btn-success:hover {
+    background: var(--success);
+    color: white;
+  }
+
+  .btn-icon {
+    font-size: 16px;
+  }
+
+  /* ═══════════════════════════════════════════
+     RIGHT COLUMN — LOG / RESULTS
+     ═══════════════════════════════════════════ */
+
+  .right-col {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-lg);
+  }
+
+  .log-section {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-lg);
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .log-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--space-md);
+  }
+
+  .log-clear {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--radius-sm);
+  }
+
+  .log-clear:hover {
+    color: var(--text-secondary);
+    background: var(--bg-card);
+  }
+
+  .log-content {
+    flex: 1;
+    background: var(--bg-input);
+    border-radius: var(--radius-sm);
+    padding: var(--space-md);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.6;
+    overflow-y: auto;
+    min-height: 200px;
+    max-height: 400px;
+    color: var(--text-secondary);
+  }
+
+  .log-line {
+    padding: 1px 0;
+  }
+
+  .log-line.success { color: var(--success); }
+  .log-line.error { color: var(--error); }
+  .log-line.info { color: var(--accent); }
+  .log-line.warn { color: var(--warning); }
+
+  /* ── Stats Card ── */
+  .stats-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-lg);
+  }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-md);
+  }
+
+  .stat-item {
+    text-align: center;
+    padding: var(--space-md);
+    background: var(--bg-card);
+    border-radius: var(--radius-sm);
+  }
+
+  .stat-value {
+    font-size: 24px;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    color: var(--accent);
+  }
+
+  .stat-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: var(--space-xs);
+  }
+
+  /* ═══════════════════════════════════════════
+     PROGRESS BAR
+     ═══════════════════════════════════════════ */
+
+  .progress-wrap {
+    height: 4px;
+    background: var(--bg-card);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: var(--space-md);
+  }
+
+  .progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--pipeline-2));
+    border-radius: 2px;
+    width: 0%;
+    transition: width 0.3s ease;
+  }
+
+  .progress-bar.indeterminate {
+    width: 100%;
+    animation: progress-indeterminate 1.5s ease-in-out infinite;
+  }
+
+  @keyframes progress-indeterminate {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+
+  /* ═══════════════════════════════════════════
+     FOOTER
+     ═══════════════════════════════════════════ */
+
+  .footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: var(--space-md);
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .footer-links {
+    display: flex;
+    gap: var(--space-md);
+  }
+
+  .footer-links a {
+    color: var(--text-secondary);
+    text-decoration: none;
+    transition: color 0.15s;
+  }
+
+  .footer-links a:hover {
+    color: var(--accent);
+  }
+
+  /* ═══════════════════════════════════════════
+     TOGGLE / SETTINGS
+     ═══════════════════════════════════════════ */
+
+  .mode-toggle {
+    display: flex;
+    background: var(--bg-card);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+
+  .mode-btn {
+    padding: 8px 16px;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .mode-btn.active {
+    background: var(--accent);
+    color: white;
+  }
+
+  .mode-btn:hover:not(.active) {
+    color: var(--text-primary);
+  }
+
+  /* ═══════════════════════════════════════════
+     ADAPTIVE STORAGE VISUALIZATION
+     ═══════════════════════════════════════════ */
+
+  .adaptive-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-md);
+  }
+
+  .tier-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--space-md);
+    transition: all 0.2s ease;
+  }
+
+  .tier-card:hover {
+    border-color: var(--border-focus);
+    transform: translateY(-1px);
+  }
+
+  .tier-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-sm);
+  }
+
+  .tier-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    color: white;
+    flex-shrink: 0;
+  }
+
+  .tier-info {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .tier-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .tier-desc {
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+
+  .tier-count {
+    font-size: 18px;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    color: var(--accent);
+  }
+
+  .tier-bar {
+    height: 6px;
+    background: var(--bg-input);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .tier-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.5s ease;
+  }
+
+  .entropy-section, .heatmap-section, .container-stats {
+    margin-top: var(--space-md);
+  }
+
+  .heatmap-legend {
+    display: flex;
+    gap: var(--space-md);
+    margin-top: var(--space-sm);
+    flex-wrap: wrap;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+
+  .legend-color {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+  }
+
+  @media (max-width: 900px) {
+    .adaptive-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  /* ═══════════════════════════════════════════
+     RESPONSIVE
+     ═══════════════════════════════════════════ */
+
+  @media (max-width: 900px) {
+    .main {
+      grid-template-columns: 1fr;
+    }
+    .pipeline {
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+  }
+
+  /* ═══════════════════════════════════════════
+     ANIMATIONS
+     ═══════════════════════════════════════════ */
+
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .pipeline-stage {
+    animation: fade-in 0.3s ease both;
+  }
+
+  .pipeline-stage:nth-child(1)  { animation-delay: 0.0s; }
+  .pipeline-stage:nth-child(3)  { animation-delay: 0.05s; }
+  .pipeline-stage:nth-child(5)  { animation-delay: 0.10s; }
+  .pipeline-stage:nth-child(7)  { animation-delay: 0.15s; }
+  .pipeline-stage:nth-child(9)  { animation-delay: 0.20s; }
+  .pipeline-stage:nth-child(11) { animation-delay: 0.25s; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pipeline-stage { animation: none; }
+    .progress-bar.indeterminate { animation: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- ═══ HEADER ═══ -->
+  <header class="header">
+    <div class="header-brand">
+      <div class="header-logo">F</div>
+      <div>
+        <div class="header-title">FGLS Universal Codec</div>
+        <div class="header-version">v2.0.0 — sid-runner</div>
+      </div>
+    </div>
+    <div class="header-status">
+      <span class="status-dot"></span>
+      <span>Ready</span>
+    </div>
+  </header>
+
+  <!-- ═══ MAIN ═══ -->
+  <div class="main">
+    <!-- LEFT COLUMN -->
+    <div class="left-col">
+
+      <!-- Pipeline -->
+      <div class="pipeline-section">
+        <div class="section-label">Pipeline</div>
+        <div class="pipeline">
+          <div class="pipeline-stage" data-stage="capture">
+            <div class="stage-icon" style="background:var(--pipeline-1)">①</div>
+            <div class="stage-name">tw_capture</div>
+            <div class="stage-desc">Integer capture</div>
+          </div>
+          <div class="pipeline-arrow">→</div>
+          <div class="pipeline-stage" data-stage="bridge">
+            <div class="stage-icon" style="background:var(--pipeline-2)">②</div>
+            <div class="stage-name">tw_bridge</div>
+            <div class="stage-desc">POGLS routing</div>
+          </div>
+          <div class="pipeline-arrow">→</div>
+          <div class="pipeline-stage" data-stage="dramtile">
+            <div class="stage-icon" style="background:var(--pipeline-3)">③</div>
+            <div class="stage-name">geo_dram_tile</div>
+            <div class="stage-desc">Hilbert 8×8</div>
+          </div>
+          <div class="pipeline-arrow">→</div>
+          <div class="pipeline-stage" data-stage="store">
+            <div class="stage-icon" style="background:var(--pipeline-4)">④</div>
+            <div class="stage-name">dramtile_store</div>
+            <div class="stage-desc">mmap zero-copy</div>
+          </div>
+          <div class="pipeline-arrow">→</div>
+          <div class="pipeline-stage" data-stage="shift">
+            <div class="stage-icon" style="background:var(--pipeline-5)">⑤</div>
+            <div class="stage-name">gear_shift</div>
+            <div class="stage-desc">Routing</div>
+          </div>
+          <div class="pipeline-arrow">→</div>
+          <div class="pipeline-stage" data-stage="lock">
+            <div class="stage-icon" style="background:var(--pipeline-6)">⑥</div>
+            <div class="stage-name">gear_lock</div>
+            <div class="stage-desc">Phase control</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Adaptive Storage Visualization -->
+      <div class="pipeline-section">
+        <div class="section-label">Adaptive Storage — 4-Tier Architecture</div>
+        <div class="adaptive-grid">
+          <!-- Tier Distribution -->
+          <div class="tier-card">
+            <div class="tier-header">
+              <div class="tier-icon" style="background:var(--pipeline-1)">T0</div>
+              <div class="tier-info">
+                <div class="tier-name">Tier 0 — Uniform</div>
+                <div class="tier-desc">Entropy 0-63 · 1 frame · 60 slots</div>
+              </div>
+              <div class="tier-count" id="tier0Count">0</div>
+            </div>
+            <div class="tier-bar"><div class="tier-fill" id="tier0Fill" style="width:0%;background:var(--pipeline-1)"></div></div>
+          </div>
+          <div class="tier-card">
+            <div class="tier-header">
+              <div class="tier-icon" style="background:var(--pipeline-2)">T1</div>
+              <div class="tier-info">
+                <div class="tier-name">Tier 1 — Low Entropy</div>
+                <div class="tier-desc">Entropy 64-127 · 3 frames · 180 slots</div>
+              </div>
+              <div class="tier-count" id="tier1Count">0</div>
+            </div>
+            <div class="tier-bar"><div class="tier-fill" id="tier1Fill" style="width:0%;background:var(--pipeline-2)"></div></div>
+          </div>
+          <div class="tier-card">
+            <div class="tier-header">
+              <div class="tier-icon" style="background:var(--pipeline-3)">T2</div>
+              <div class="tier-info">
+                <div class="tier-name">Tier 2 — Medium</div>
+                <div class="tier-desc">Entropy 128-191 · 7 frames · 420 slots</div>
+              </div>
+              <div class="tier-count" id="tier2Count">0</div>
+            </div>
+            <div class="tier-bar"><div class="tier-fill" id="tier2Fill" style="width:0%;background:var(--pipeline-3)"></div></div>
+          </div>
+          <div class="tier-card">
+            <div class="tier-header">
+              <div class="tier-icon" style="background:var(--pipeline-4)">T3</div>
+              <div class="tier-info">
+                <div class="tier-name">Tier 3 — High Entropy</div>
+                <div class="tier-desc">Entropy 192-255 · 27 frames · 1620 slots</div>
+              </div>
+              <div class="tier-count" id="tier3Count">0</div>
+            </div>
+            <div class="tier-bar"><div class="tier-fill" id="tier3Fill" style="width:0%;background:var(--pipeline-4)"></div></div>
+          </div>
+        </div>
+
+        <!-- Entropy Histogram -->
+        <div class="entropy-section">
+          <div class="section-label" style="margin-top:var(--space-lg)">Entropy Distribution (0-255)</div>
+          <canvas id="entropyChart" width="600" height="120" style="width:100%;height:120px;background:var(--bg-card);border-radius:var(--radius-sm)"></canvas>
+        </div>
+
+        <!-- Block Allocation Heatmap -->
+        <div class="heatmap-section">
+          <div class="section-label" style="margin-top:var(--space-lg)">Block Allocation — 20736 Cells (144×144)</div>
+          <canvas id="heatmapCanvas" width="288" height="288" style="width:100%;max-width:288px;height:auto;image-rendering:pixelated;border-radius:var(--radius-sm)"></canvas>
+          <div class="heatmap-legend">
+            <span class="legend-item"><span class="legend-color" style="background:var(--pipeline-1)"></span>Tier 0</span>
+            <span class="legend-item"><span class="legend-color" style="background:var(--pipeline-2)"></span>Tier 1</span>
+            <span class="legend-item"><span class="legend-color" style="background:var(--pipeline-3)"></span>Tier 2</span>
+            <span class="legend-item"><span class="legend-color" style="background:var(--pipeline-4)"></span>Tier 3</span>
+            <span class="legend-item"><span class="legend-color" style="background:#333"></span>Empty</span>
+          </div>
+        </div>
+
+        <!-- Container Stats -->
+        <div class="container-stats">
+          <div class="section-label" style="margin-top:var(--space-lg)">Container Format</div>
+          <div class="stats-grid" style="grid-template-columns:1fr 1fr 1fr 1fr">
+            <div class="stat-item">
+              <div class="stat-value" id="statBlockSize">—</div>
+              <div class="stat-label">Block Size</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-value" id="statTotalBlocks">—</div>
+              <div class="stat-label">Total Blocks</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-value" id="statCompression">—</div>
+              <div class="stat-label">Compression</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-value" id="statCRC64">—</div>
+              <div class="stat-label">CRC-64</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Drop Zone -->
+      <div class="dropzone-section">
+        <div class="section-label">File</div>
+        <div class="dropzone" id="dropzone">
+          <div class="dropzone-icon">📂</div>
+          <div class="dropzone-text">Drop a file here or click to browse</div>
+          <div class="dropzone-hint">Supports: .bin, .gguf, .ggml, .fgls, .gpx5, .twidx, or any file</div>
+          <input type="file" id="fileInput" style="display:none">
+        </div>
+        <div class="dropzone-file" id="fileInfo">
+          <div class="file-icon">📄</div>
+          <div class="file-info">
+            <div class="file-name" id="fileName">—</div>
+            <div class="file-meta" id="fileMeta">—</div>
+          </div>
+          <button class="file-remove" id="fileRemove" title="Remove">✕</button>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="actions">
+        <div class="mode-toggle">
+          <button class="mode-btn active" data-mode="auto">Auto</button>
+          <button class="mode-btn" data-mode="encode">Encode</button>
+          <button class="mode-btn" data-mode="decode">Decode</button>
+        </div>
+        <button class="btn btn-primary" id="btnProcess">
+          <span class="btn-icon">▶</span> Process
+        </button>
+        <button class="btn" id="btnInfo">
+          <span class="btn-icon">ℹ</span> Info
+        </button>
+        <button class="btn" id="btnBench">
+          <span class="btn-icon">⚡</span> Benchmark
+        </button>
+        <button class="btn" id="btnSid">
+          <span class="btn-icon">◎</span> SID Capture
+        </button>
+      </div>
+
+      <!-- Progress -->
+      <div class="progress-wrap" id="progressWrap" style="display:none">
+        <div class="progress-bar" id="progressBar"></div>
+      </div>
+    </div>
+
+    <!-- RIGHT COLUMN -->
+    <div class="right-col">
+      <!-- Stats -->
+      <div class="stats-card">
+        <div class="section-label">Results</div>
+        <div class="stats-grid">
+          <div class="stat-item">
+            <div class="stat-value" id="statRatio">—</div>
+            <div class="stat-label">Ratio</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="statSpeed">—</div>
+            <div class="stat-label">Speed</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="statSize">—</div>
+            <div class="stat-label">Output</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="statTime">—</div>
+            <div class="stat-label">Time</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Log -->
+      <div class="log-section">
+        <div class="log-header">
+          <div class="section-label" style="margin:0">Log</div>
+          <button class="log-clear" id="logClear">Clear</button>
+        </div>
+        <div class="log-content" id="logContent">
+          <div class="log-line info">FGLS Universal Codec v2.0.0</div>
+          <div class="log-line">Ready. Drop a file to begin.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ FOOTER ═══ -->
+  <footer class="footer">
+    <span>FGLS — Geometric Compression Pipeline</span>
+    <div class="footer-links">
+      <a href="#">Docs</a>
+      <a href="#">GitHub</a>
+    </div>
+  </footer>
+</div>
+
+<script>
+// ═══════════════════════════════════════════
+// INTERACTIVITY (prototype demo)
+// ═══════════════════════════════════════════
+
+const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+
+// ── File Handling ──
+const dropzone = $('#dropzone');
+const fileInput = $('#fileInput');
+const fileInfo = $('#fileInfo');
+let selectedFile = null;
+
+dropzone.addEventListener('click', () => fileInput.click());
+
+dropzone.addEventListener('dragover', e => {
+  e.preventDefault();
+  dropzone.classList.add('dragover');
+});
+
+dropzone.addEventListener('dragleave', () => {
+  dropzone.classList.remove('dragover');
+});
+
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('dragover');
+  if (e.dataTransfer.files.length) {
+    selectFile(e.dataTransfer.files[0]);
+  }
+});
+
+fileInput.addEventListener('change', () => {
+  if (fileInput.files.length) {
+    selectFile(fileInput.files[0]);
+  }
+});
+
+$('#fileRemove').addEventListener('click', () => {
+  selectedFile = null;
+  fileInfo.classList.remove('visible');
+  fileInput.value = '';
+});
+
+function selectFile(file) {
+  selectedFile = file;
+  $('#fileName').textContent = file.name;
+  const size = file.size < 1024 ? file.size + ' B'
+    : file.size < 1048576 ? (file.size / 1024).toFixed(1) + ' KB'
+    : (file.size / 1048576).toFixed(2) + ' MB';
+  $('#fileMeta').textContent = `${size}  •  ${file.type || 'unknown type'}`;
+  fileInfo.classList.add('visible');
+
+  // Auto-detect mode
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (['fgls', 'gpx5', 'gpxl', 'geopixel', 'twidx'].includes(ext)) {
+    setMode('decode');
+  } else {
+    setMode('encode');
+  }
+
+  log(`Selected: ${file.name} (${size})`, 'info');
+}
+
+// ── Mode Toggle ──
+let currentMode = 'auto';
+
+function setMode(mode) {
+  currentMode = mode;
+  $$('.mode-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === mode);
+  });
+}
+
+$$('.mode-btn').forEach(btn => {
+  btn.addEventListener('click', () => setMode(btn.dataset.mode));
+});
+
+// ── Log ──
+function log(msg, cls = '') {
+  const line = document.createElement('div');
+  line.className = 'log-line' + (cls ? ' ' + cls : '');
+  line.textContent = msg;
+  $('#logContent').appendChild(line);
+  $('#logContent').scrollTop = $('#logContent').scrollHeight;
+}
+
+$('#logClear').addEventListener('click', () => {
+  $('#logContent').innerHTML = '';
+});
+
+// ── Progress ──
+function showProgress(indeterminate = true) {
+  const wrap = $('#progressWrap');
+  const bar = $('#progressBar');
+  wrap.style.display = '';
+  bar.className = 'progress-bar' + (indeterminate ? ' indeterminate' : '');
+}
+
+function hideProgress() {
+  $('#progressWrap').style.display = 'none';
+}
+
+// ── Pipeline Animation ──
+function animatePipeline(activeIndex) {
+  $$('.pipeline-stage').forEach((stage, i) => {
+    stage.classList.toggle('active', i <= activeIndex);
+  });
+}
+
+// ── Button Actions (demo) ──
+$('#btnProcess').addEventListener('click', () => {
+  if (!selectedFile) {
+    log('No file selected', 'warn');
+    return;
+  }
+  log(`Processing: ${selectedFile.name} (${currentMode} mode)`, 'info');
+  showProgress();
+
+  // Simulate pipeline stages
+  let i = 0;
+  const stages = $$('.pipeline-stage');
+  const interval = setInterval(() => {
+    animatePipeline(i);
+    if (i < stages.length - 1) {
+      i++;
+    } else {
+      clearInterval(interval);
+      setTimeout(() => {
+        hideProgress();
+        animatePipeline(-1);
+        log('✓ Processing complete', 'success');
+        $('#statRatio').textContent = '0.42x';
+        $('#statSpeed').textContent = '12 MB/s';
+        $('#statSize').textContent = '2.1 MB';
+        $('#statTime').textContent = '180ms';
+      }, 500);
+    }
+  }, 300);
+});
+
+$('#btnInfo').addEventListener('click', () => {
+  if (!selectedFile) { log('No file selected', 'warn'); return; }
+  log(`Info: ${selectedFile.name}`, 'info');
+  log(`  Size: ${selectedFile.size.toLocaleString()} bytes`, '');
+  log(`  Type: ${selectedFile.type || 'unknown'}`, '');
+});
+
+$('#btnBench').addEventListener('click', () => {
+  if (!selectedFile) { log('No file selected', 'warn'); return; }
+  log('Running benchmark...', 'info');
+  showProgress();
+  setTimeout(() => {
+    hideProgress();
+    log('✓ Benchmark complete', 'success');
+    log('  Encode:  45.2 ms  (14.2 MB/s)', '');
+    log('  Decode:  38.1 ms  (16.8 MB/s)', '');
+    log('  Ratio:   0.38x', '');
+  }, 1500);
+});
+
+$('#btnSid').addEventListener('click', () => {
+  if (!selectedFile) { log('No file selected', 'warn'); return; }
+  log(`SID capture: ${selectedFile.name}`, 'info');
+  log('  Pro tier feature — requires pro_cli.exe', 'warn');
+});
+
+// ═══════════════════════════════════════════
+// ADAPTIVE STORAGE VISUALIZATION
+// ═══════════════════════════════════════════
+
+// Tier colors
+const tierColors = [
+  'var(--pipeline-1)', // T0
+  'var(--pipeline-2)', // T1
+  'var(--pipeline-3)', // T2
+  'var(--pipeline-4)', // T3
+  '#333'               // Empty
+];
+
+// Entropy histogram data
+let entropyData = new Array(256).fill(0);
+
+// Block allocation (144×144 = 20736 cells)
+let blockAllocation = new Array(20736).fill(4); // 4 = empty
+
+// Initialize entropy chart
+function initEntropyChart() {
+  const canvas = $('#entropyChart');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  drawEntropyHistogram(ctx, canvas.width, canvas.height);
+}
+
+// Draw entropy histogram
+function drawEntropyHistogram(ctx, width, height) {
+  ctx.clearRect(0, 0, width, height);
+  
+  const maxVal = Math.max(...entropyData, 1);
+  const barWidth = width / 256;
+  
+  for (let i = 0; i < 256; i++) {
+    const barHeight = (entropyData[i] / maxVal) * (height - 20);
+    const x = i * barWidth;
+    const y = height - barHeight - 10;
+    
+    // Color based on tier
+    let color;
+    if (i < 64) color = '#4a9eff';        // T0
+    else if (i < 128) color = '#7c4dff';  // T1
+    else if (i < 192) color = '#e040fb';  // T2
+    else color = '#ff5252';               // T3
+    
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, barWidth - 1, barHeight);
+  }
+  
+  // Draw tier boundaries
+  ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  
+  [64, 128, 192].forEach(tier => {
+    const x = tier * barWidth;
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, height);
+    ctx.stroke();
+  });
+  
+  ctx.setLineDash([]);
+}
+
+// Draw block allocation heatmap
+function drawHeatmap() {
+  const canvas = $('#heatmapCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const width = canvas.width;
+  const height = canvas.height;
+  
+  ctx.clearRect(0, 0, width, height);
+  
+  const cellSize = width / 144;
+  
+  for (let i = 0; i < 20736; i++) {
+    const row = Math.floor(i / 144);
+    const col = i % 144;
+    const tier = blockAllocation[i];
+    
+    let color;
+    if (tier === 0) color = '#4a9eff';
+    else if (tier === 1) color = '#7c4dff';
+    else if (tier === 2) color = '#e040fb';
+    else if (tier === 3) color = '#ff5252';
+    else color = '#1a1a24';
+    
+    ctx.fillStyle = color;
+    ctx.fillRect(col * cellSize, row * cellSize, cellSize, cellSize);
+  }
+}
+
+// Update tier counts from data
+function updateTierCounts(tierCounts) {
+  const total = tierCounts.reduce((a, b) => a + b, 0) || 1;
+  
+  for (let i = 0; i < 4; i++) {
+    const countEl = $(`#tier${i}Count`);
+    const fillEl = $(`#tier${i}Fill`);
+    if (countEl) countEl.textContent = tierCounts[i];
+    if (fillEl) fillEl.style.width = `${(tierCounts[i] / total) * 100}%`;
+  }
+}
+
+// Update container stats
+function updateContainerStats(stats) {
+  if (stats.blockSize) $('#statBlockSize').textContent = stats.blockSize;
+  if (stats.totalBlocks) $('#statTotalBlocks').textContent = stats.totalBlocks;
+  if (stats.compression) $('#statCompression').textContent = stats.compression;
+  if (stats.crc64) $('#statCRC64').textContent = stats.crc64;
+}
+
+// Simulate adaptive storage analysis
+function simulateAdaptiveAnalysis() {
+  // Load data from export tool (if available)
+  // For demo, use simulated data
+  fetchAdaptiveData();
+}
+
+// Fetch adaptive data from export tool
+function fetchAdaptiveData() {
+  // Try to load from local server or use simulated data
+  // In production, this would call the export tool via API
+  
+  // For now, use simulated data based on real test results
+  const data = generateSimulatedData();
+  updateVisualization(data);
+}
+
+// Generate simulated data based on real test results
+function generateSimulatedData() {
+  // Tier distribution (from real test: T5=80, T6=160, T7=240)
+  const tierCounts = [45, 32, 18, 5];
+  
+  // Entropy histogram (256 buckets)
+  const entropyHist = new Array(256).fill(0);
+  
+  // Generate realistic entropy distribution
+  for (let i = 0; i < 64; i++) {
+    entropyHist[i] = 80 + Math.floor(Math.random() * 40);
+  }
+  for (let i = 64; i < 128; i++) {
+    entropyHist[i] = 40 + Math.floor(Math.random() * 30);
+  }
+  for (let i = 128; i < 192; i++) {
+    entropyHist[i] = 20 + Math.floor(Math.random() * 20);
+  }
+  for (let i = 192; i < 256; i++) {
+    entropyHist[i] = 5 + Math.floor(Math.random() * 10);
+  }
+  
+  // Block allocation (20736 cells)
+  const blockAlloc = new Array(20736);
+  for (let i = 0; i < 20736; i++) {
+    const r = Math.random() * 100;
+    if (r < 45) blockAlloc[i] = 0;
+    else if (r < 77) blockAlloc[i] = 1;
+    else if (r < 95) blockAlloc[i] = 2;
+    else blockAlloc[i] = 3;
+  }
+  
+  return {
+    tier_distribution: {
+      tier0: tierCounts[0],
+      tier1: tierCounts[1],
+      tier2: tierCounts[2],
+      tier3: tierCounts[3]
+    },
+    entropy_histogram: entropyHist,
+    block_allocation: blockAlloc,
+    container_stats: {
+      block_size: 64,
+      total_blocks: 324,
+      total_cells: 20736,
+      grid_dim: 144,
+      compression: '0.97x',
+      crc64: 'verified'
+    }
+  };
+}
+
+// Update visualization with data
+function updateVisualization(data) {
+  // Update entropy histogram
+  entropyData = data.entropy_histogram;
+  
+  // Update block allocation
+  blockAllocation = data.block_allocation;
+  
+  // Update tier counts
+  const tierCounts = [
+    data.tier_distribution.tier0,
+    data.tier_distribution.tier1,
+    data.tier_distribution.tier2,
+    data.tier_distribution.tier3
+  ];
+  updateTierCounts(tierCounts);
+  
+  // Update container stats
+  updateContainerStats({
+    blockSize: data.container_stats.block_size,
+    totalBlocks: data.container_stats.total_blocks,
+    compression: data.container_stats.compression,
+    crc64: data.container_stats.crc64 === 'verified' ? '✓' : '✗'
+  });
+  
+  // Redraw charts
+  drawEntropyHistogram($('#entropyChart').getContext('2d'), 600, 120);
+  drawHeatmap();
+  
+  // Log update
+  log(`Adaptive storage updated: T0=${tierCounts[0]}, T1=${tierCounts[1]}, T2=${tierCounts[2]}, T3=${tierCounts[3]}`, 'info');
+}
+
+// Hook into process button
+$('#btnProcess').addEventListener('click', () => {
+  // Re-run adaptive analysis after processing
+  setTimeout(simulateAdaptiveAnalysis, 1000);
+});
+
+// Initialize on load
+document.addEventListener('DOMContentLoaded', () => {
+  initEntropyChart();
+  drawHeatmap();
+  
+  // Initial demo data
+  simulateAdaptiveAnalysis();
+});
+
+// ── Keyboard ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && selectedFile) {
+    $('#btnProcess').click();
+  }
+});
+</script>
+
+</body>
+</html>

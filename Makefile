@@ -5,14 +5,16 @@
 #   make clean        — remove build artifacts
 #   make nozstd       — build fgls.exe without zstd
 #
-# Compiler: auto-detects working gcc. MSYS2 gcc 16.1.0 is broken (exit 1).
+# Compiler: MSYS2 gcc (working, has zstd) preferred; C:/mingw64 gcc 8.1 is a
+#   broken build (missing __mingw_* symbols → link fails). Auto-detected below.
 # Override: make CC=/path/to/gcc
 
-# ── Compiler: detect broken MSYS2 gcc, fallback to MinGW ──
-# mingw32-make default CC=cc doesn't exist on MSYS. Force override.
-# NOTE: `?=` does NOT override make's built-in CC=cc default — use `=`.
-CC = gcc
-# Override with: make CC=/path/to/gcc
+# ── Compiler: MSYS2 gcc (working, has zstd) preferred; fallback to PATH gcc ──
+# NOTE: C:/mingw64/bin/gcc is a broken 8.1 build (missing __mingw_* imaux
+#   symbols → link fails). /c/msys64/mingw64/bin/gcc.exe compiles clean + has
+#   zstd.h. Use wildcard so `?=` picks it up only when present.
+MSYS_GCC := $(wildcard /c/msys64/mingw64/bin/gcc.exe)
+CC = $(if $(MSYS_GCC),$(MSYS_GCC),gcc)
 
 CFLAGS  = -O2 -std=c11 -fno-strict-aliasing -Wall -Wextra -Wno-unused-parameter
 LDFLAGS = -lm

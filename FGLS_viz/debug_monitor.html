@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Silk Screen Debug — Real-time Inference Monitor</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Monaco', monospace;
+            background: #0a0a0f;
+            color: #e0e0e0;
+        }
+        
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 60px 1fr 200px;
+            height: 100vh;
+            gap: 2px;
+        }
+        
+        .header {
+            grid-column: 1 / -1;
+            background: #1a1a2e;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            border-bottom: 2px solid #0f3460;
+        }
+        
+        .header h1 { font-size: 16px; color: #00d4ff; }
+        
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #f0883e;
+        }
+        
+        .status-dot.connected { background: #238636; }
+        
+        .metrics {
+            display: flex;
+            gap: 30px;
+            font-size: 12px;
+        }
+        
+        .metric-value { font-size: 18px; color: #00ff88; }
+        .metric-label { color: #888; font-size: 10px; }
+        
+        .panel {
+            background: #0d1117;
+            padding: 15px;
+            overflow: hidden;
+        }
+        
+        .panel-title {
+            font-size: 11px;
+            color: #58a6ff;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+        }
+        
+        /* Silk Screen Grid */
+        .silk-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 2px;
+        }
+        
+        .box-label {
+            grid-column: 1 / -1;
+            font-size: 10px;
+            color: #8b949e;
+            padding: 3px 0;
+        }
+        
+        .cell {
+            aspect-ratio: 1;
+            background: #161b22;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 9px;
+            transition: all 0.15s;
+        }
+        
+        .cell.active {
+            animation: pulse 0.3s ease-out;
+        }
+        
+        .cell.high { background: #00d4ff; color: #000; }
+        .cell.mid { background: #f0883e; color: #000; }
+        .cell.low { background: #8b949e; color: #000; }
+        
+        @keyframes pulse {
+            0% { transform: scale(1.2); }
+            100% { transform: scale(1); }
+        }
+        
+        /* Heatmap */
+        .heatmap {
+            display: grid;
+            grid-template-columns: repeat(10, 1fr);
+            gap: 1px;
+        }
+        
+        .heat-cell {
+            aspect-ratio: 1;
+            background: #161b22;
+            transition: background 0.15s;
+        }
+        
+        /* Value Distribution */
+        .value-bars {
+            display: flex;
+            align-items: flex-end;
+            height: 150px;
+            gap: 1px;
+        }
+        
+        .value-bar {
+            flex: 1;
+            background: #238636;
+            min-height: 2px;
+            transition: height 0.15s;
+        }
+        
+        /* Access Log */
+        .log {
+            font-size: 10px;
+            overflow-y: auto;
+            height: 100%;
+        }
+        
+        .log-entry {
+            padding: 2px 0;
+            border-bottom: 1px solid #21262d;
+        }
+        
+        .log-time { color: #8b949e; }
+        .log-box { color: #58a6ff; }
+        .log-dir { color: #d2a8ff; }
+        .log-weight { color: #00ff88; }
+        
+        /* Bottom panel */
+        .bottom-panel {
+            grid-column: 1 / -1;
+            background: #0d1117;
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 2px;
+        }
+        
+        canvas { width: 100%; height: 100%; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>SILK SCREEN DEBUG MONITOR</h1>
+            <div class="status">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="statusText">Connecting...</span>
+            </div>
+            <div class="metrics">
+                <div class="metric">
+                    <span class="metric-value" id="sampleRate">0</span>
+                    <span class="metric-label">samples/sec</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-value" id="totalSamples">0</span>
+                    <span class="metric-label">total samples</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-value" id="overhead">0.1%</span>
+                    <span class="metric-label">overhead</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Silk Screen Grid -->
+        <div class="panel">
+            <div class="panel-title">Silk Screen Active Cells</div>
+            <div class="silk-grid" id="silkGrid"></div>
+        </div>
+        
+        <!-- Heatmap -->
+        <div class="panel">
+            <div class="panel-title">Box Access Heatmap (last 1000 samples)</div>
+            <div class="heatmap" id="heatmap"></div>
+        </div>
+        
+        <!-- Value Distribution -->
+        <div class="panel">
+            <div class="panel-title">Weight Value Distribution</div>
+            <div class="value-bars" id="valueBars"></div>
+        </div>
+        
+        <!-- Access Log -->
+        <div class="panel">
+            <div class="panel-title">Recent Access Log</div>
+            <div class="log" id="accessLog"></div>
+        </div>
+        
+        <!-- Bottom timelines -->
+        <div class="bottom-panel">
+            <div class="panel">
+                <div class="panel-title">Throughput (samples/sec)</div>
+                <canvas id="throughputCanvas"></canvas>
+            </div>
+            <div class="panel">
+                <div class="panel-title">Resolution Mix</div>
+                <canvas id="resolutionCanvas"></canvas>
+            </div>
+            <div class="panel">
+                <div class="panel-title">Ring Buffer Usage</div>
+                <canvas id="ringCanvas"></canvas>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // === Config ===
+        const DIR_LABELS = ['+X', '-X', '+Y', '-Y', '+Z', '-Z'];
+        const BOX_COUNT = 10;
+        const DIR_COUNT = 6;
+        
+        // === State ===
+        let ws = null;
+        let totalSamples = 0;
+        let recentSamples = [];
+        let boxCounts = new Array(BOX_COUNT).fill(0);
+        let valueHistogram = new Array(256).fill(0);
+        let throughputHistory = [];
+        let resolutionHistory = [];
+        
+        // === Init ===
+        function init() {
+            renderSilkGrid();
+            renderHeatmap();
+            renderValueBars();
+            connectWebSocket();
+        }
+        
+        // === Render Silk Grid ===
+        function renderSilkGrid() {
+            const grid = document.getElementById('silkGrid');
+            let html = '';
+            
+            for (let box = 0; box < BOX_COUNT; box++) {
+                html += `<div class="box-label">Box ${box}</div>`;
+                for (let dir = 0; dir < DIR_COUNT; dir++) {
+                    html += `<div class="cell" id="cell-${box}-${dir}">-</div>`;
+                }
+            }
+            
+            grid.innerHTML = html;
+        }
+        
+        // === Render Heatmap ===
+        function renderHeatmap() {
+            const heatmap = document.getElementById('heatmap');
+            let html = '';
+            
+            for (let box = 0; box < BOX_COUNT; box++) {
+                for (let dir = 0; dir < DIR_COUNT; dir++) {
+                    html += `<div class="heat-cell" id="heat-${box}-${dir}"></div>`;
+                }
+            }
+            
+            heatmap.innerHTML = html;
+        }
+        
+        // === Render Value Bars ===
+        function renderValueBars() {
+            const bars = document.getElementById('valueBars');
+            let html = '';
+            
+            for (let i = 0; i < 256; i++) {
+                html += `<div class="value-bar" id="vbar-${i}" style="height: 2px;"></div>`;
+            }
+            
+            bars.innerHTML = html;
+        }
+        
+        // === WebSocket Connection ===
+        function connectWebSocket() {
+            const port = 8765;
+            ws = new WebSocket(`ws://localhost:${port}`);
+            
+            ws.onopen = () => {
+                document.getElementById('statusDot').classList.add('connected');
+                document.getElementById('statusText').textContent = 'Connected';
+            };
+            
+            ws.onmessage = (event) => {
+                const samples = JSON.parse(event.data);
+                processSamples(samples);
+            };
+            
+            ws.onclose = () => {
+                document.getElementById('statusDot').classList.remove('connected');
+                document.getElementById('statusText').textContent = 'Disconnected';
+                
+                // Auto-reconnect
+                setTimeout(connectWebSocket, 2000);
+            };
+            
+            ws.onerror = () => {
+                ws.close();
+            };
+        }
+        
+        // === Process Samples ===
+        function processSamples(samples) {
+            const now = Date.now();
+            
+            samples.forEach(s => {
+                totalSamples++;
+                
+                // Update silk grid
+                const cell = document.getElementById(`cell-${s.b}-${s.d}`);
+                if (cell) {
+                    cell.className = 'cell active';
+                    cell.classList.add(s.r === 2 ? 'high' : s.r === 1 ? 'mid' : 'low');
+                    cell.textContent = s.w;
+                    
+                    // Reset after animation
+                    setTimeout(() => {
+                        cell.className = 'cell';
+                    }, 300);
+                }
+                
+                // Update heatmap
+                boxCounts[s.b]++;
+                
+                // Update value histogram
+                valueHistogram[s.w + 128]++;
+                
+                // Add to recent samples
+                recentSamples.push({
+                    time: now,
+                    box: s.b,
+                    dir: s.d,
+                    tick: s.t,
+                    weight: s.w,
+                    resolution: s.r
+                });
+            });
+            
+            // Keep only last 1000 samples
+            if (recentSamples.length > 1000) {
+                recentSamples = recentSamples.slice(-1000);
+            }
+            
+            // Update visuals
+            updateHeatmap();
+            updateValueBars();
+            updateLog(samples);
+            updateMetrics();
+        }
+        
+        // === Update Heatmap ===
+        function updateHeatmap() {
+            const max = Math.max(...boxCounts, 1);
+            
+            for (let box = 0; box < BOX_COUNT; box++) {
+                for (let dir = 0; dir < DIR_COUNT; dir++) {
+                    const cell = document.getElementById(`heat-${box}-${dir}`);
+                    if (cell) {
+                        const intensity = boxCounts[box] / max;
+                        const r = Math.floor(intensity * 0 + (1 - intensity) * 22);
+                        const g = Math.floor(intensity * 212 + (1 - intensity) * 27);
+                        const b = Math.floor(intensity * 54 + (1 - intensity) * 34);
+                        cell.style.background = `rgb(${r}, ${g}, ${b})`;
+                    }
+                }
+            }
+        }
+        
+        // === Update Value Bars ===
+        function updateValueBars() {
+            const max = Math.max(...valueHistogram, 1);
+            
+            for (let i = 0; i < 256; i++) {
+                const bar = document.getElementById(`vbar-${i}`);
+                if (bar) {
+                    const height = (valueHistogram[i] / max) * 150;
+                    bar.style.height = `${Math.max(2, height)}px`;
+                    
+                    // Color based on value
+                    const val = i - 128;
+                    if (val > 64) bar.style.background = '#00d4ff';
+                    else if (val < -64) bar.style.background = '#f0883e';
+                    else bar.style.background = '#238636';
+                }
+            }
+        }
+        
+        // === Update Log ===
+        function updateLog(samples) {
+            const log = document.getElementById('accessLog');
+            
+            samples.slice(-5).forEach(s => {
+                const entry = document.createElement('div');
+                entry.className = 'log-entry';
+                entry.innerHTML = `
+                    <span class="log-time">${new Date().toLocaleTimeString()}</span>
+                    <span class="log-box">B${s.b}</span>
+                    <span class="log-dir">${DIR_LABELS[s.d]}</span>
+                    <span class="log-weight">T${s.t}</span>
+                    <span class="log-weight">W=${s.w}</span>
+                `;
+                
+                log.insertBefore(entry, log.firstChild);
+            });
+            
+            // Keep log manageable
+            while (log.children.length > 50) {
+                log.removeChild(log.lastChild);
+            }
+        }
+        
+        // === Update Metrics ===
+        function updateMetrics() {
+            document.getElementById('totalSamples').textContent = totalSamples.toLocaleString();
+            
+            // Calculate samples/sec
+            const now = Date.now();
+            const recentCount = recentSamples.filter(s => now - s.time < 1000).length;
+            document.getElementById('sampleRate').textContent = recentCount;
+            
+            // Track history
+            throughputHistory.push(recentCount);
+            if (throughputHistory.length > 100) throughputHistory.shift();
+        }
+        
+        // === Start ===
+        window.addEventListener('load', init);
+    </script>
+</body>
+</html>

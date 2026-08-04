@@ -314,10 +314,12 @@ static inline FglsRoute fgls_route(const FglsProfile *p)
     /* 7. KIS — geometric Q8_0 weights (specialized for GGUF tensors) */
         /* Heuristic: size multiple of 32, high nonzero%, full int8 range */
         /* Check BEFORE ZSTD/RAW because Q8_0 has high entropy but is structured */
+        /* unique<=200 aligns with fgls_is_kis_candidate (distinct>200 → reject):
+           random noise has ~256 distinct → falls through to ZSTD/RAW */
         if (p->size % 32 == 0
             && p->nonzero_count * 100u / p->size >= 50
             && p->max_value >= 128
-            && p->unique_values >= 10 && p->unique_values <= 256)
+            && p->unique_values >= 10 && p->unique_values <= 200)
             return FGLS_ROUTE_KIS;
 
     /* 8. ZSTD — general compressible */

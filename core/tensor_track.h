@@ -473,7 +473,7 @@ static inline TTStoreResult tt_store(EncCtx *enc_ctx,
     sr.frame_hi = fr.frame_hi;
 
     /* 2. Field position from enc */
-    uint32_t ring, wedge;
+    uint16_t ring, wedge;
     ft_enc_to_field(rec->enc, &ring, &wedge);
 
     /* 3. Pack into enclosure chunk (hexagon spread) */
