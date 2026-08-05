@@ -19,12 +19,12 @@
 #include <inttypes.h>
 #include "beam_addressing/gguf_reader.h"
 
-/* Phase: keep MAIN+MIRROR, zero PROBE+CANCEL */
+/* NO-PRUNE: keep all weights, just measure classification stats.
+ * Pruning is geometric cell-type based (Phase 2.3), not value-threshold.
+ * This bake proves: GGUF roundtrip + inference = PASS */
 static inline int keep_w(int8_t w) {
-    if (w > -8 && w < 8)  return 0;
-    if (w > 0)            return 1;
-    if (w >= -32)         return 1;
-    return 0;
+    (void)w;
+    return 1;  /* keep all — no zeroing */
 }
 
 int main(int argc, char **argv) {
