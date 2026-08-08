@@ -34,7 +34,8 @@ extern "C" {
 #define GEO_PENT_RING        10u
 #define GEO_FIBO_CLOCK      1440u
 #define GEO_SHELL_TICK       12u
-#define GEO_MOD_PRIME       162u
+#define GEO_MOD_PRIME       162u   /* tower-grid identity: 128×162 = 20736 */
+#define GEO_MOD_STRIDE        5u   /* MOD walk on 20736: order 1728 = MAX (lcm(64,54)) = 1 pentagon; 12 orbits = full space */
 
 #define GEO_WRAP(x)    ((uint32_t)(x) % GEO_FULL)
 
@@ -191,7 +192,7 @@ static inline uint32_t _jump_pentagon(uint32_t node, uint32_t layer) {
 }
 
 static inline uint32_t _jump_mod(uint32_t node, uint32_t mult) {
-    if (mult == 0) mult = GEO_MOD_PRIME;
+    if (mult == 0) mult = GEO_MOD_STRIDE;  /* 5: order 1728 = MAX on 20736 */
     return GEO_WRAP((uint64_t)node * mult);
 }
 

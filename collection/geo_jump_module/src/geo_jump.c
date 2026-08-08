@@ -43,7 +43,7 @@ static uint32_t _jump_pentagon(uint32_t node, uint32_t layer) {
 }
 
 static uint32_t _jump_mod(uint32_t node, uint32_t mult) {
-    if (mult == 0) mult = GEO_MOD_PRIME;
+    if (mult == 0) mult = GEO_MOD_STRIDE;  /* 5: order 1728 = MAX on 20736 */
     return GEO_WRAP((uint64_t)node * mult);
 }
 

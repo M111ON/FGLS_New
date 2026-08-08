@@ -290,7 +290,8 @@ GEO_FULL        = GeoRouter.FULL
 GEO_PENTAGONS   = 12
 GEO_FIBO_CLOCK  = 1440
 GEO_SHELL_TICK  = 12
-GEO_MOD_PRIME   = 162
+GEO_MOD_PRIME   = 162   # tower-grid identity: 128×162 = 20736
+GEO_MOD_STRIDE  = 5     # MOD walk on 20736: order 1728 = MAX = 1 pentagon; 12 orbits = full
 
 GEO_INCIRCLE = 0
 GEO_MIDDLE   = 1
