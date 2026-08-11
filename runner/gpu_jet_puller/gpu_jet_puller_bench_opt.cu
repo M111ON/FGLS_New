@@ -497,7 +497,8 @@ static double bench_run_config(BenchCtx *ctx, uint32_t chunk_sz, int use_xor,
 
     FiboSpine spine;
     fibo_spine_init(&spine);
-    GearLock lock = { .c144_ref = NULL };
+    GearLock lock;
+    memset(&lock, 0, sizeof(lock));
 
     ctx->total_kernel_ms = 0.0;
     ctx->n_bridges = 0;

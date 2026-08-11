@@ -138,3 +138,8 @@ clangd-mcp-server/
 *.dec
 *.gpx5
 .hermes/
+
+# ── Generated / upload junk ──
+uploads/
+query
+model.fgls

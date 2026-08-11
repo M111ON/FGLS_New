@@ -137,7 +137,7 @@ int main(int argc, char **argv) {
     long data_start = ftell(f);
 
     /* Find tensor entries: "name": {"dtype":N, "shape":[...], "data_offsets":[S,E]} */
-    int analyzed = 0, total_tensors = 0, max_analyze = 20;
+    int analyzed = 0, total_tensors = 0, max_analyze = 100000;
     char *p = hdr;
 
     while (*p && analyzed < max_analyze) {
@@ -239,13 +239,22 @@ int main(int argc, char **argv) {
 
         total_tensors++;
 
-        /* Read tensor data */
+        /* Read tensor data (sample window only — cap avoids full huge read) */
         long saved = ftell(f);
         fseek(f, data_start + off_s, SEEK_SET);
 
-        uint8_t *buf = malloc(tensor_bytes);
+        /* Cap analysis to a sample window: big tensors would OOM/burn
+         * time if we decoded all elements. 4096 floats = 128 blocks,
+         * more than enough for a stable blueprint estimate. */
+        int cap = (n_elements > 4096) ? 4096 : n_elements;
+
+        size_t want = tensor_bytes;
+        size_t cap_bytes = (size_t)cap * 8; /* worst case f64 sample */
+        if (cap_bytes < want) want = cap_bytes;
+
+        uint8_t *buf = malloc(want);
         if (buf) {
-            fread(buf, 1, tensor_bytes, f);
+            fread(buf, 1, want, f); /* sample window only */
 
             /* Convert to float32 based on dtype */
             float *fweights = NULL;
@@ -253,13 +262,13 @@ int main(int argc, char **argv) {
 
             if (dtype == 1 && tensor_bytes >= n_elements * 4) {
                 /* FP32 */
-                n_floats = n_elements;
+                n_floats = cap;
                 fweights = malloc(n_floats * sizeof(float));
                 for (int i = 0; i < n_floats; i++)
                     fweights[i] = fp32_read(buf + i * 4);
             } else if (dtype == 30 && tensor_bytes >= n_elements * 2) {
                 /* BF16 */
-                n_floats = n_elements;
+                n_floats = cap;
                 fweights = malloc(n_floats * sizeof(float));
                 for (int i = 0; i < n_floats; i++) {
                     uint16_t h;
@@ -268,7 +277,7 @@ int main(int argc, char **argv) {
                 }
             } else if (dtype == 6 && tensor_bytes >= n_elements * 2) {
                 /* FP16 */
-                n_floats = n_elements;
+                n_floats = cap;
                 fweights = malloc(n_floats * sizeof(float));
                 for (int i = 0; i < n_floats; i++) {
                     uint16_t h;

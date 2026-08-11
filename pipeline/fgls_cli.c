@@ -105,10 +105,10 @@ static uint8_t *read_file(const char *path, uint32_t *out_size) {
     if (!f) { fprintf(stderr, "Error: cannot open %s\n", path); return NULL; }
     fseek(f, 0, SEEK_END);
     long sz = ftell(f);
-    if (sz <= 0 || sz > (1u << 28)) { /* 256 MB max */
-        fprintf(stderr, "Error: file too large or empty (%ld bytes)\n", sz);
-        fclose(f); return NULL;
-    }
+    if (sz <= 0 || sz > (1ull << 30)) { /* 1 GB max */
+            fprintf(stderr, "Error: file too large or empty (%ld bytes)\n", sz);
+            fclose(f); return NULL;
+        }
     fseek(f, 0, SEEK_SET);
     uint8_t *buf = (uint8_t *)malloc((size_t)sz);
     if (!buf) { fprintf(stderr, "Error: malloc failed\n"); fclose(f); return NULL; }
@@ -2311,122 +2311,38 @@ static int cmd_bp_info(const char *path) {
     return 0;
 }
 
-/* ── compress: smart compress — only saves if beneficial ── */
+/* ── compress: lossless GFUF encode → sibling .fgls file.
+ * Never overwrites the source file (old impl destroyed it in place). ── */
 static int cmd_compress(const char *path) {
-    uint32_t sz;
-    uint8_t *data = read_file(path, &sz);
-    if (!data) return 1;
+    static char out[1024];
+    snprintf(out, sizeof(out), "%s.fgls", path);
 
-    /* Check if already compressed */
-    if (sz >= 4 && *(uint32_t *)data == 0x46474C53u) {
-        printf("Already compressed: %s\n", path);
-        free(data);
-        return 0;
-    }
-
-    /* Try capture (blueprint) */
-    uint32_t n_chunks = (sz + 63) / 64;
-    uint32_t bp_size = n_chunks * 21 + 16; /* header + 21 bytes/chunk */
-    double ratio = (double)bp_size / sz;
-
-    if (ratio >= 1.0) {
-        printf("Not compressible: %s (ratio %.2fx)\n", path, ratio);
-        free(data);
-        return 0;
-    }
-
-    /* Save compressed version (overwrite original) */
-    printf("Compressing: %s (%.1f%% saved)\n", path, (1.0 - ratio) * 100.0);
-
-    /* Write to same path */
-    FILE *f = fopen(path, "wb");
-    if (!f) { fprintf(stderr, "Error: cannot write %s\n", path); free(data); return 1; }
-
-    uint32_t magic = 0x46474C53u;
-    uint32_t version = 4;
-    fwrite(&magic, 4, 1, f);
-    fwrite(&version, 4, 1, f);
-    fwrite(&n_chunks, 4, 1, f);
-    fwrite(&sz, 4, 1, f);
-
-    for (uint32_t i = 0; i < n_chunks; i++) {
-        uint32_t off = i * 64;
-        uint32_t len = (sz - off > 64) ? 64 : (sz - off);
-
-        int64_t vx = 0, vy = 0;
-        for (uint32_t j = 0; j < len; j++) {
-            vx += data[off + j] * (j + 1);
-            vy += data[off + j] * (j * 7 + 3);
+    /* refuse if source already looks like a container (magic check) */
+    FILE *f = fopen(path, "rb");
+    if (f) {
+        uint32_t magic = 0;
+        if (fread(&magic, 4, 1, f) == 1 && magic == GFUF_MAGIC) {
+            printf("Already compressed: %s\n", path);
+            fclose(f);
+            return 0;
         }
-
-        uint32_t node_id = (uint32_t)((vx * 31 + vy * 37) & 0x7FFF);
-        if (node_id >= 20736) node_id %= 20736;
-
-        fwrite(&node_id, 4, 1, f);
-        fwrite(&vx, 8, 1, f);
-        fwrite(&vy, 8, 1, f);
-        uint8_t drain = 0;
-        fwrite(&drain, 1, 1, f);
+        fclose(f);
     }
-    fclose(f);
 
-    printf("  %s: %u → %u bytes (%.2fx)\n", path, sz, bp_size, ratio);
-    free(data);
-    return 0;
+    return cmd_encode(path, out);
 }
 
-/* ── decompress: detect and restore ── */
+/* ── decompress: lossless GFUF decode. Strips .fgls back to original name. ── */
 static int cmd_decompress(const char *path) {
-    uint32_t sz;
-    uint8_t *data = read_file(path, &sz);
-    if (!data) return 1;
-
-    /* Check if compressed */
-    if (sz < 16 || *(uint32_t *)data != 0x46474C53u) {
-        printf("Not compressed: %s\n", path);
-        free(data);
-        return 0;
+    size_t n = strlen(path);
+    if (n < 5 || strcmp(path + n - 5, ".fgls") != 0) {
+        fprintf(stderr, "Not a .fgls container: %s\n", path);
+        return 1;
     }
 
-    /* Read header */
-    uint32_t version, n_chunks, orig_size;
-    memcpy(&version, data + 4, 4);
-    memcpy(&n_chunks, data + 8, 4);
-    memcpy(&orig_size, data + 12, 4);
-
-    printf("Decompressing: %s (%u → %u bytes)\n", path, sz, orig_size);
-
-    /* Reconstruct */
-    uint8_t *out_buf = (uint8_t *)calloc(orig_size, 1);
-    if (!out_buf) { free(data); return 1; }
-
-    uint32_t pos = 16;
-    for (uint32_t i = 0; i < n_chunks; i++) {
-        if (pos + 21 > sz) break;
-
-        uint32_t node_id;
-        int64_t rx, ry;
-        uint8_t drain;
-        memcpy(&node_id, data + pos, 4); pos += 4;
-        memcpy(&rx, data + pos, 8); pos += 8;
-        memcpy(&ry, data + pos, 8); pos += 8;
-        drain = data[pos]; pos += 1;
-
-        uint32_t off = i * 64;
-        uint32_t len = (orig_size - off > 64) ? 64 : (orig_size - off);
-
-        for (uint32_t j = 0; j < len; j++) {
-            uint32_t idx = (node_id + j * 31 + (uint32_t)rx) & 0xFF;
-            out_buf[off + j] = (uint8_t)(idx ^ (uint8_t)(ry >> (j * 8)));
-        }
-    }
-    free(data);
-
-    /* Write back */
-    int rc = write_file(path, out_buf, orig_size);
-    printf("  Restored: %s (%u bytes)\n", path, orig_size);
-    free(out_buf);
-    return rc;
+    static char rest[1024];
+    snprintf(rest, sizeof(rest), "%.*s", (int)(n - 5), path);
+    return cmd_decode(path, rest);
 }
 
 /* ── Pipeline: Bond→GeoPixel→Hamburger→GPX5 encode ── */
